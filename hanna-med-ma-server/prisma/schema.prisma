@@ -1,0 +1,216 @@
+// Hanna-Med MA V2 — Prisma Schema
+// Architecture: Multi-Agent System (Gemini-powered)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("SERVER_DATABASE_URL")
+}
+
+// ─── Doctor ─────────────────────────────────────────────────
+
+model Doctor {
+  id         Int      @id @default(autoincrement())
+  name       String
+  username   String   @unique
+  password   String
+  specialty  String?
+  emrSystems String[] @default([])  // EMR systems this doctor uses: ["JACKSON", "STEWARD", "BAPTIST"]
+
+  deleted   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // EMR Credentials (only for systems that need them)
+  credentials DoctorCredential[]
+
+  // AI Chat
+  chatSession ChatSession?
+
+  // FCM Push Notifications
+  fcmTokens DoctorFcmToken[]
+
+  // RPA Nodes assigned to this doctor
+  rpaNodes RpaNode[]
+
+  // Patients from EMR
+  patients Patient[]
+
+  @@map("doctors")
+}
+
+// ─── FCM Push Notification Tokens ───────────────────────────
+
+model DoctorFcmToken {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  token     String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@map("doctor_fcm_tokens")
+}
+
+// ─── EMR Credentials ────────────────────────────────────────
+
+enum SystemKey {
+  JACKSON
+  STEWARD
+  BAPTIST
+}
+
+model DoctorCredential {
+  id        Int       @id @default(autoincrement())
+  doctorId  Int
+  systemKey SystemKey
+  fields    Json // Encrypted: {"username": "...", "password": "..."}
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, systemKey])
+  @@map("doctor_credentials")
+}
+
+// ─── Admin Users ────────────────────────────────────────────
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  rol       String
+  username  String   @unique
+  password  String
+  email     String   @unique
+  deleted   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ─── RPA Nodes (Plug & Play) ────────────────────────────────
+
+enum RpaNodeStatus {
+  PENDING
+  ACTIVE
+  OFFLINE
+  DISABLED
+}
+
+model RpaNode {
+  id        Int           @id @default(autoincrement())
+  uuid      String        @unique
+  hostname  String?
+  status    RpaNodeStatus @default(PENDING)
+  doctorId  Int?
+  lastSeen  DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  doctor Doctor? @relation(fields: [doctorId], references: [id])
+
+  @@map("rpa_nodes")
+}
+
+// ─── Chat ───────────────────────────────────────────────────
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum MessageType {
+  TEXT
+  PATIENT_LIST
+  PATIENT_SUMMARY
+  BATCH_PATIENT_SUMMARY
+  PATIENT_INSURANCE
+  BATCH_PATIENT_INSURANCE
+  ERROR
+}
+
+model ChatSession {
+  id        Int       @id @default(autoincrement())
+  doctorId  Int       @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  doctor    Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("chat_sessions")
+}
+
+model Message {
+  id        Int         @id @default(autoincrement())
+  sessionId Int
+  role      MessageRole
+  content   String      @db.Text
+  type      MessageType @default(TEXT)
+  createdAt DateTime    @default(now())
+
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+// ─── Patients (EMR Data) ────────────────────────────────────
+
+enum EmrSystem {
+  JACKSON
+  STEWARD
+  BAPTIST
+}
+
+model Patient {
+  id             Int       @id @default(autoincrement())
+  doctorId       Int
+  emrSystem      EmrSystem
+  name           String
+  normalizedName String
+  location       String?
+  facility       String?   // Sub-hospital for multi-facility EMRs (e.g., Baptist sub-hospitals)
+  reason         String?
+  admittedDate   String?
+  isActive       Boolean   @default(true)
+  lastSeenAt     DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  doctor  Doctor          @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  rawData PatientRawData[]
+
+  @@unique([doctorId, emrSystem, normalizedName])
+  @@index([doctorId, emrSystem])
+  @@index([doctorId, isActive])
+  @@map("patients")
+}
+
+// ─── Patient Raw Data (Summaries, Insurance) ────────────────
+
+enum RawDataType {
+  SUMMARY
+  INSURANCE
+}
+
+model PatientRawData {
+  id          Int         @id @default(autoincrement())
+  patientId   Int
+  dataType    RawDataType
+  rawContent  String      @db.Text
+  extractedAt DateTime
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, dataType])
+  @@map("patient_raw_data")
+}

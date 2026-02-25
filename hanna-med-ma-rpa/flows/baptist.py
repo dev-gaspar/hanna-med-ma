@@ -1,0 +1,732 @@
+"""
+Baptist Health Flow - Patient list capture for Baptist Health System.
+"""
+
+from datetime import datetime
+
+import pyautogui
+
+from config import config
+from logger import logger
+from core.rpa_engine import rpa_state
+from core.s3_client import get_s3_client
+from core.vdi_input import stoppable_sleep
+
+from .base_flow import BaseFlow
+
+
+class BaptistFlow(BaseFlow):
+    """RPA flow for Baptist Health patient list capture."""
+
+    FLOW_NAME = "Baptist Health"
+    FLOW_TYPE = "baptist_health_patient_list_capture"
+    EMR_TYPE = "BAPTIST"
+
+    def __init__(self):
+        super().__init__()
+        self.s3_client = get_s3_client()
+
+    def _extract_patients_from_screenshots(self, screenshots: list) -> list:
+        """Process each hospital tab separately and tag every patient with
+        the deterministic `facility` field from rpa_config.json.
+        Location values are kept as-is from OCR (no prefix manipulation)."""
+        all_patients = []
+
+        for shot in screenshots:
+            display = shot.get("display_name", "Unknown")
+
+            patients = super()._extract_patients_from_screenshots([shot])
+
+            for p in patients:
+                p["facility"] = display
+
+            all_patients.extend(patients)
+            logger.info(f"[BAPTIST] {display}: extracted {len(patients)} patients")
+
+        return all_patients
+
+    def execute(self):
+        """Execute all Baptist Health flow steps."""
+        self.step_1_open_vdi_desktop()
+        self.step_2_open_edge()
+        self.step_3_wait_pineapple_connect()
+        self.step_4_open_menu()
+        self.step_5_scroll_modal()
+        self.step_6_click_cerner()
+        self.step_7_wait_cerner_login()
+        self.step_8_click_favorites()
+        self.step_9_click_powerchart()
+        self.step_10_wait_powerchart_open()
+
+        # 1. Capture the screenshots (returns S3 URLs)
+        screenshots = self.step_11_capture_patient_lists()
+
+        # 2. Extract structured patients from the screen using OCR + LLM
+        structured_patients = self._extract_patients_from_screenshots(screenshots)
+
+        self.step_13_close_horizon()
+        self.step_14_accept_alert()
+        self.step_15_return_to_start()
+
+        return structured_patients
+
+    def notify_completion(self, structured_patients):
+        """Notify backend of successful completion with structured patients."""
+        payload = {
+            "status": "completed",
+            "type": self.FLOW_TYPE,
+            "total_patients": len(structured_patients),
+            "patients": structured_patients,
+            "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "doctor_name": self.doctor_name,
+        }
+        response = self._send_to_list_webhook_n8n(payload)
+        logger.info(f"[BACKEND] Notification sent - Status: {response.status_code}")
+
+        logger.info(f"[SUCCESS] Total patients extracted: {len(structured_patients)}")
+        # Log a snippet of the first few patients for observability
+        for idx, p in enumerate(structured_patients[:5], 1):
+            logger.info(
+                f"[SUCCESS] {idx}. {p.get('name')} | {p.get('location')} | {p.get('reason')}"
+            )
+
+        return response
+
+    # --- Flow Steps ---
+
+    def step_1_open_vdi_desktop(self):
+        """Open VDI Desktop."""
+        self.set_step("STEP_1_OPEN_VDI")
+        logger.info("[STEP 1] Opening VDI Desktop")
+
+        vdi_icon = self.wait_for_element(
+            config.get_rpa_setting("images.vdi_icon"),
+            timeout=config.get_timeout("common.vdi_open"),
+            description="VDI Desktop icon",
+        )
+        if not vdi_icon:
+            raise Exception("VDI Desktop icon not found")
+
+        if not self.safe_click(vdi_icon, "VDI Desktop"):
+            raise Exception("Failed to click on VDI Desktop")
+
+        stoppable_sleep(5)
+        logger.info("[STEP 1] VDI Desktop started")
+        return True
+
+    def step_2_open_edge(self, is_retry: bool = False):
+        """Open Microsoft Edge with robust fallback including full flow restart."""
+        self.set_step("STEP_2_OPEN_EDGE")
+        logger.info("[STEP 2] Opening Edge")
+
+        edge_icon = self.wait_for_element(
+            config.get_rpa_setting("images.edge_icon"),
+            timeout=config.get_timeout("baptist.edge_open"),
+            description="Edge icon",
+        )
+
+        # Fallback Level 1: Click center of screen and Alt+F4 to close windows
+        if not edge_icon:
+            logger.warning(
+                "[STEP 2] Edge icon not found - Fallback Level 1: clicking center and Alt+F4"
+            )
+            edge_icon = self._fallback_click_center_and_close_windows()
+
+        # Fallback Level 2: Full cleanup and restart from step 1
+        if not edge_icon:
+            if is_retry:
+                # Already retried once, fail now
+                raise Exception("Edge icon not found after full flow restart")
+
+            logger.error(
+                "[STEP 2] Edge still not found - Fallback Level 2: full cleanup and restart"
+            )
+            self._fallback_full_cleanup_and_restart()
+            return  # The restart will continue the flow
+
+        edge_center = pyautogui.center(edge_icon)
+        pyautogui.doubleClick(edge_center)
+        logger.info("[STEP 2] Edge opened")
+        return True
+
+    def _fallback_click_center_and_close_windows(self):
+        """
+        Fallback Level 1: Click center of screen multiple times and use Alt+F4
+        to close any blocking windows until Edge icon is visible.
+        """
+        logger.info("[FALLBACK L1] Clicking center of screen and closing windows...")
+        screen_w, screen_h = pyautogui.size()
+        center_x, center_y = screen_w // 2, screen_h // 2
+
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            self.check_stop()
+
+            # Click center of screen to ensure focus
+            logger.debug(
+                f"[FALLBACK L1] Attempt {attempt + 1}: clicking center of screen"
+            )
+            pyautogui.click(center_x, center_y)
+            stoppable_sleep(0.3)
+            pyautogui.click(center_x, center_y)
+            stoppable_sleep(0.3)
+
+            # Close current window with Alt+F4
+            logger.debug(f"[FALLBACK L1] Pressing Alt+F4...")
+            pyautogui.hotkey("alt", "F4")
+            stoppable_sleep(0.5)
+
+            # Press Enter to confirm any dialogs
+            pyautogui.press("enter")
+            stoppable_sleep(0.3)
+
+            # Check if Edge icon is now visible
+            try:
+                edge_check = pyautogui.locateOnScreen(
+                    config.get_rpa_setting("images.edge_icon"),
+                    confidence=self.confidence,
+                )
+                if edge_check:
+                    logger.info(
+                        f"[FALLBACK L1] Edge icon found after {attempt + 1} attempt(s)"
+                    )
+                    return edge_check
+            except Exception:
+                pass  # Image not found, continue
+
+        logger.warning("[FALLBACK L1] Edge icon still not found after all attempts")
+        return None
+
+    def _fallback_full_cleanup_and_restart(self):
+        """
+        Fallback Level 2: Close Horizon session completely and restart from step 1.
+        This is the last resort before failing the flow.
+        """
+        logger.warning("[FALLBACK L2] Performing full cleanup and flow restart...")
+
+        try:
+            # Close Horizon session
+            self.step_13_close_horizon()
+        except Exception as e:
+            logger.error(f"[FALLBACK L2] Error closing Horizon (continuing): {e}")
+
+        try:
+            # Accept any alerts
+            self.step_14_accept_alert()
+        except Exception as e:
+            logger.error(f"[FALLBACK L2] Error accepting alert (continuing): {e}")
+
+        stoppable_sleep(2)
+
+        # Restart from step 1
+        logger.warning("[FALLBACK L2] Restarting flow from step 1...")
+        self.step_1_open_vdi_desktop()
+        self.step_2_open_edge(is_retry=True)  # Mark as retry to prevent infinite loop
+
+    def _close_all_windows_and_show_desktop(self):
+        """Close all open windows using Alt+F4 until desktop is visible."""
+        logger.info("[FALLBACK] Closing all open windows...")
+
+        max_attempts = 10  # Maximum windows to close
+        windows_closed = 0
+
+        for attempt in range(max_attempts):
+            self.check_stop()
+
+            # Check if Edge icon is now visible (means we're at desktop)
+            try:
+                edge_check = pyautogui.locateOnScreen(
+                    config.get_rpa_setting("images.edge_icon"),
+                    confidence=self.confidence,
+                )
+                if edge_check:
+                    logger.info(
+                        f"[FALLBACK] Desktop reached after closing {windows_closed} window(s)"
+                    )
+                    return
+            except Exception:
+                pass  # Image not found, continue closing
+
+            # Close the current window
+            logger.debug(f"[FALLBACK] Closing window {attempt + 1}...")
+            pyautogui.hotkey("alt", "F4")
+            windows_closed += 1
+            stoppable_sleep(0.5)
+
+            # Handle dialogs with keyboard shortcuts
+            # Enter: Confirms "Leave" in Chrome/Edge dialogs
+            pyautogui.press("enter")
+            stoppable_sleep(0.3)
+
+            # N: For "No/Don't Save" in Windows native apps (Notepad, etc)
+            pyautogui.press("n")
+            stoppable_sleep(0.3)
+
+        logger.info(f"[FALLBACK] Closed {windows_closed} windows")
+
+    def _handler_edge_login(self, location_of_email_field):
+        """Handle Edge login page."""
+        logger.info("[HANDLER] Handling Edge login")
+
+        self.safe_click(location_of_email_field, "email field")
+        stoppable_sleep(1)
+
+        saved_password = self.wait_for_element(
+            config.get_rpa_setting("images.saved_password"),
+            timeout=10,
+            description="saved password",
+        )
+        if not saved_password:
+            raise Exception("Saved password not found")
+
+        self.safe_click(saved_password, "saved password")
+        stoppable_sleep(1)
+        pyautogui.press("enter")
+        stoppable_sleep(2)
+        pyautogui.press("enter")
+        stoppable_sleep(3)
+        pyautogui.press("enter")
+        stoppable_sleep(5)
+        logger.info("[HANDLER] Login completed")
+
+    def step_3_wait_pineapple_connect(self):
+        """Wait for pineappleconnect.net to open, handling obstacles."""
+        self.set_step("STEP_3_PINEAPPLE")
+        logger.info("[STEP 3] Waiting for Pineapple Connect")
+
+        obstacle_handlers = {
+            config.get_rpa_setting("images.email_input"): (
+                "Login page",
+                self._handler_edge_login,
+            ),
+            config.get_rpa_setting("images.baptist_maximize_button"): (
+                "Maximize button",
+                self._handler_maximize_window,
+            ),
+        }
+
+        menu_icon = self.robust_wait_for_element(
+            target_image_path=config.get_rpa_setting("images.pineapple_menu"),
+            target_description="Pineapple Connect menu",
+            handlers=obstacle_handlers,
+            timeout=config.get_timeout("baptist.pineapple_connect"),
+        )
+
+        if not menu_icon:
+            raise Exception("Pineapple Connect did not load")
+
+        # Wait for page to fully stabilize after initial load
+        # This prevents race conditions where menu appears but page is still rendering
+        logger.info(
+            "[STEP 3] Pineapple Connect detected, waiting for page stabilization..."
+        )
+        stoppable_sleep(3)
+
+        logger.info("[STEP 3] Pineapple Connect loaded")
+        return True
+
+    def _handler_maximize_window(self, location):
+        """Click on maximize button to expand window. Non-invasive - continues search after click."""
+        logger.info("[HANDLER] Found maximize button - clicking to expand window")
+        pyautogui.click(pyautogui.center(location))
+        stoppable_sleep(1)
+        logger.info("[HANDLER] Window maximized")
+
+    def step_4_open_menu(self):
+        """Open 3-dots menu with retry logic for stability."""
+        self.set_step("STEP_4_MENU")
+        logger.info("[STEP 4] Opening menu")
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            self.check_stop()
+
+            # Try to find menu with decreasing confidence on retries
+            confidence_levels = [0.8, 0.75, 0.7]
+            current_confidence = confidence_levels[
+                min(attempt, len(confidence_levels) - 1)
+            ]
+
+            menu_icon = self.wait_for_element(
+                config.get_rpa_setting("images.pineapple_menu"),
+                timeout=15,
+                confidence=current_confidence,
+                description="3-dots menu",
+            )
+
+            if not menu_icon:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"[STEP 4] Menu not found (attempt {attempt + 1}/{max_retries}), "
+                        f"waiting and retrying with confidence {confidence_levels[min(attempt + 1, len(confidence_levels) - 1)]}..."
+                    )
+                    stoppable_sleep(2)
+                    continue
+                else:
+                    raise Exception("Menu not found after all retry attempts")
+
+            if not self.safe_click(menu_icon, "3-dots menu"):
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"[STEP 4] Click failed (attempt {attempt + 1}/{max_retries}), retrying..."
+                    )
+                    stoppable_sleep(1)
+                    continue
+                else:
+                    raise Exception("Failed to open the menu after all retry attempts")
+
+            # Wait for modal to appear
+            modal = self.wait_for_element(
+                config.get_rpa_setting("images.pineapple_modal"),
+                timeout=10,
+                description="menu modal",
+            )
+
+            if modal:
+                logger.info("[STEP 4] Menu opened")
+                return True
+            else:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"[STEP 4] Modal did not open (attempt {attempt + 1}/{max_retries}), retrying..."
+                    )
+                    stoppable_sleep(2)
+                    continue
+                else:
+                    raise Exception("Modal did not open after all retry attempts")
+
+        raise Exception("Menu not found")
+
+    def step_5_scroll_modal(self):
+        """Scroll in the modal."""
+        self.set_step("STEP_5_SCROLL")
+        logger.info("[STEP 5] Scrolling in modal")
+
+        modal = self.wait_for_element(
+            config.get_rpa_setting("images.pineapple_modal"),
+            timeout=10,
+            description="modal",
+        )
+        if not modal:
+            raise Exception("Modal not found")
+
+        modal_center = pyautogui.center(modal)
+        pyautogui.moveTo(modal_center)
+        stoppable_sleep(0.5)
+
+        for _ in range(3):
+            self.check_stop()
+            pyautogui.scroll(-300)
+            stoppable_sleep(0.2)
+
+        stoppable_sleep(1)
+        logger.info("[STEP 5] Scroll completed")
+        return True
+
+    def step_6_click_cerner(self):
+        """Click on Cerner BHSF."""
+        self.set_step("STEP_6_CERNER")
+        logger.info("[STEP 6] Searching for Cerner BHSF")
+
+        cerner = self.wait_for_element(
+            config.get_rpa_setting("images.cerner"),
+            timeout=config.get_timeout("baptist.cerner_open"),
+            description="Cerner BHSF",
+        )
+        if not cerner:
+            raise Exception("Cerner BHSF not found")
+
+        if not self.safe_click(cerner, "Cerner BHSF"):
+            raise Exception("Failed to click on Cerner")
+
+        stoppable_sleep(2)
+        logger.info("[STEP 6] Cerner opened")
+        return True
+
+    def _handler_log_on_cerner(self, location):
+        """Click on the 'Log On to Cerner' button with delay to handle auto-redirect."""
+        logger.debug("[HANDLER] Waiting before clicking 'Log On to Cerner'...")
+        # Wait 1 second before clicking to handle cases where page auto-redirects
+        stoppable_sleep(1)
+        self.safe_click(location, "Log On to Cerner")
+        stoppable_sleep(2)
+
+    def step_7_wait_cerner_login(self):
+        """Wait for automatic login to Cerner."""
+        self.set_step("STEP_7_CERNER_LOGIN")
+        logger.info("[STEP 7] Waiting for Cerner login")
+
+        obstacle_handlers = {
+            config.get_rpa_setting("images.log_on_cerner"): (
+                "Log On to Cerner button",
+                self._handler_log_on_cerner,
+            )
+        }
+
+        favorites_tab = self.robust_wait_for_element(
+            target_image_path=config.get_rpa_setting("images.favorites_tab"),
+            target_description="Favorites tab",
+            handlers=obstacle_handlers,
+            timeout=config.get_timeout("baptist.cerner_login"),
+        )
+        if not favorites_tab:
+            raise Exception("Cerner login did not complete")
+
+        logger.info("[STEP 7] Session started in Cerner")
+        return True
+
+    def step_8_click_favorites(self):
+        """Click on Favorites."""
+        self.set_step("STEP_8_FAVORITES")
+        logger.info("[STEP 8] Opening Favorites")
+
+        favorites = self.wait_for_element(
+            config.get_rpa_setting("images.favorites_tab"),
+            timeout=10,
+            description="Favorites tab",
+        )
+        if not favorites:
+            raise Exception("Favorites not found")
+
+        if not self.safe_click(favorites, "Favorites"):
+            raise Exception("Failed to open Favorites")
+
+        stoppable_sleep(2)
+        logger.info("[STEP 8] Favorites opened")
+        return True
+
+    def step_9_click_powerchart(self):
+        """Click on Powerchart P574 BHS_FL."""
+        self.set_step("STEP_9_POWERCHART")
+        logger.info("[STEP 9] Searching for PowerChart")
+
+        powerchart = self.wait_for_element(
+            config.get_rpa_setting("images.powerchart"),
+            timeout=config.get_timeout("baptist.powerchart_open"),
+            description="Powerchart P574 BHS_FL",
+        )
+        if not powerchart:
+            raise Exception("PowerChart not found")
+
+        if not self.safe_click(powerchart, "PowerChart"):
+            raise Exception("Failed to click on PowerChart")
+
+        stoppable_sleep(5)
+        logger.info("[STEP 9] PowerChart downloaded")
+        return True
+
+    def _handle_announcement_modal(self, location):
+        """Handler to dismiss Announcement modal: check 'don't show' and close.
+
+        Works for all Announcement-type modals (Radiopharmaceutical, Dragon Copilot, etc.)
+        since they share the same UI structure.
+        """
+        logger.info("[HANDLER] Announcement modal detected - dismissing...")
+
+        # First click "Don't show again" checkbox
+        dont_show = self.wait_for_element(
+            config.get_rpa_setting("images.baptist_announcement_dont_show"),
+            timeout=5,
+            description="Don't Show Again checkbox",
+        )
+        if dont_show:
+            self.safe_click(dont_show, "Don't Show Again")
+            stoppable_sleep(1)
+
+        # Then close the announcement
+        close_btn = self.wait_for_element(
+            config.get_rpa_setting("images.baptist_announcement_close"),
+            timeout=5,
+            description="Close Announcement",
+        )
+        if close_btn:
+            self.safe_click(close_btn, "Close Announcement")
+            stoppable_sleep(2)
+
+        logger.info("[HANDLER] Announcement modal dismissed")
+
+    def _get_announcement_handlers(self):
+        """Get handlers for Announcement modal obstacles.
+
+        Returns dict usable by robust_wait_for_element.
+        """
+        return {
+            config.get_rpa_setting("images.baptist_announcement_modal"): (
+                "Announcement Modal",
+                self._handle_announcement_modal,
+            ),
+        }
+
+    def step_10_wait_powerchart_open(self):
+        """Wait for PowerChart to open, handling any Announcement modals."""
+        self.set_step("STEP_10_WAIT_POWERCHART")
+        logger.info("[STEP 10] Waiting for PowerChart to open")
+
+        # Use robust_wait_for_element to handle Announcement modals if they appear
+        patient_list_btn = self.robust_wait_for_element(
+            config.get_rpa_setting("images.patient_list"),
+            target_description="Patient List button",
+            handlers=self._get_announcement_handlers(),
+            timeout=config.get_timeout("baptist.powerchart_open"),
+        )
+        if not patient_list_btn:
+            raise Exception("PowerChart did not open correctly")
+
+        logger.info("[STEP 10] PowerChart opened")
+        return True
+
+    def step_11_capture_patient_lists(self):
+        """Capture patient list from configured hospitals with masking and enhancement."""
+        self.set_step("STEP_11_CAPTURE_SCREENSHOTS")
+        logger.info("[STEP 11] Capturing patient lists")
+        screenshots = []
+
+        patient_list_btn = self.wait_for_element(
+            config.get_rpa_setting("images.patient_list"),
+            timeout=10,
+            description="Patient List button",
+            auto_click=True,
+        )
+        if not patient_list_btn:
+            raise Exception("Patient List not found")
+        stoppable_sleep(3)
+
+        # Load ROIs from config using base class method
+        rois = self._get_rois("patient_finder")
+
+        # Get hospitals from configuration
+        hospitals = config.get_hospitals()
+
+        # Enter fullscreen ONCE at the beginning for all captures
+        if not self._click_fullscreen():
+            raise Exception(
+                "Failed to enter fullscreen mode - cannot capture hospital tabs correctly"
+            )
+        stoppable_sleep(2)
+        logger.info("[STEP 11] Entered fullscreen mode for all captures")
+
+        for idx, hospital in enumerate(hospitals, 1):
+            hospital_full_name = hospital.get("name", f"Unknown Hospital {idx}")
+            display_name = hospital.get("display_name", f"Hospital_{idx}")
+            hospital_prefix = hospital.get("prefix", "")
+            hospital_index = hospital.get("index", idx)
+            tab_image = hospital.get("tab_image")
+
+            logger.info(
+                f"[STEP 11.{idx}] Processing {display_name} - {hospital_full_name}"
+            )
+
+            # For hospitals 2+, click on the tab (using fullscreen tab images)
+            if idx > 1:
+                if tab_image:
+                    hospital_tab = self.wait_for_element(
+                        tab_image,
+                        timeout=10,
+                        confidence=0.9,
+                        description=f"{display_name} tab",
+                    )
+                    if hospital_tab:
+                        self.safe_click(hospital_tab, f"{display_name} tab")
+                        stoppable_sleep(2)
+                    else:
+                        logger.warning(
+                            f"[STEP 11.{idx}] {display_name} tab not found, skipping"
+                        )
+                        continue
+                else:
+                    logger.warning(
+                        f"[STEP 11.{idx}] No tab image configured for {display_name}, skipping"
+                    )
+                    continue
+
+            # Capture screenshot (already in fullscreen)
+            screenshot_data = self.s3_client.capture_screenshot_with_processing(
+                hospital_full_name,
+                display_name,
+                hospital_index,
+                self.doctor_id or "unknown",
+                rois=rois,
+                enhance=True,  # Baptist: mask + VDI enhancement
+            )
+            screenshot_data["display_name"] = display_name
+            screenshots.append(screenshot_data)
+
+        # Exit fullscreen ONCE at the end
+        self._click_normalscreen()
+        stoppable_sleep(2)
+        logger.info("[STEP 11] Exited fullscreen mode")
+
+        logger.info(f"[STEP 11] Captures completed ({len(screenshots)} hospitals)")
+        return screenshots
+
+    def step_12_close_powerchart(self):
+        """Close PowerChart and browser."""
+        self.set_step("STEP_12_CLOSE_POWERCHART")
+        logger.info("[STEP 12] Closing PowerChart and Edge")
+
+        pyautogui.hotkey("alt", "f4")
+        logger.info("[STEP 12] PowerChart closed")
+        stoppable_sleep(5)
+
+        pyautogui.hotkey("alt", "f4")
+        logger.info("[STEP 12] Edge closed")
+        stoppable_sleep(5)
+        return True
+
+    def step_13_close_horizon(self):
+        """Close Horizon Client."""
+        self.set_step("STEP_13_CLOSE_HORIZON")
+        logger.info("[STEP 13] Closing Horizon")
+
+        pyautogui.hotkey("ctrl", "alt")
+        stoppable_sleep(0.5)
+
+        horizon_menu = self.wait_for_element(
+            config.get_rpa_setting("images.horizon_menu"),
+            timeout=config.get_timeout("baptist.horizon_close"),
+            confidence=0.9,
+            description="Horizon menu",
+        )
+        if not horizon_menu:
+            raise Exception("Horizon menu not found")
+
+        self.safe_click(horizon_menu, "Horizon menu")
+        stoppable_sleep(1)
+
+        close_session = self.wait_for_element(
+            config.get_rpa_setting("images.horizon_close"),
+            timeout=config.get_timeout("baptist.horizon_close"),
+            description="close session",
+        )
+        if not close_session:
+            raise Exception("Close session option not found")
+
+        self.safe_click(close_session, "close session")
+        stoppable_sleep(1)
+        logger.info("[STEP 13] Session closed")
+        return True
+
+    def step_14_accept_alert(self):
+        """Accept alert."""
+        self.set_step("STEP_14_ACCEPT_ALERT")
+        logger.info("[STEP 14] Accepting alert")
+
+        accept_btn = self.wait_for_element(
+            config.get_rpa_setting("images.accept_alert"),
+            timeout=config.get_timeout("baptist.horizon_close"),
+            description="Accept button",
+        )
+        if not accept_btn:
+            raise Exception("Accept button not found")
+
+        self.safe_click(accept_btn, "Accept button")
+        stoppable_sleep(1)
+        logger.info("[STEP 14] Alert accepted")
+        return True
+
+    def step_15_return_to_start(self):
+        """Confirm return to starting point."""
+        self.set_step("STEP_15_RETURN")
+        stoppable_sleep(10)
+        logger.info("[STEP 15] Back at VDI Desktop")
+        return True

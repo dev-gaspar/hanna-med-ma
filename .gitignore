@@ -1,0 +1,19 @@
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Entornos y editores
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Si se usan variables de entorno en la raíz
+.env
+.env.*
+!.env.example
+
+# Ignorar las carpetas locales de git si se usan submódulos (opcional)

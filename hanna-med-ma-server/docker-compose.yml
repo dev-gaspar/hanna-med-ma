@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  hanna-med-ma-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hanna-med-ma-server
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${SERVER_NODE_ENV}
+      - SERVER_PORT=${SERVER_PORT}
+      - SERVER_DATABASE_URL=${SERVER_DATABASE_URL}
+      - SERVER_JWT_SECRET=${SERVER_JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SERVER_API_KEY=${SERVER_API_KEY}
+      - CREDENTIALS_ENCRYPTION_KEY=${CREDENTIALS_ENCRYPTION_KEY}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
+    expose:
+      - ${SERVER_PORT}
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true

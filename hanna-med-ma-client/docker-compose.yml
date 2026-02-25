@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  hanna-med-ma-client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+        - VITE_FIREBASE_API_KEY=${VITE_FIREBASE_API_KEY}
+        - VITE_FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}
+        - VITE_FIREBASE_PROJECT_ID=${VITE_FIREBASE_PROJECT_ID}
+        - VITE_FIREBASE_STORAGE_BUCKET=${VITE_FIREBASE_STORAGE_BUCKET}
+        - VITE_FIREBASE_MESSAGING_SENDER_ID=${VITE_FIREBASE_MESSAGING_SENDER_ID}
+        - VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}
+    container_name: hanna-med-ma-client
+    restart: unless-stopped
+    environment:
+      - CLIENT_PORT=${CLIENT_PORT}
+    expose:
+      - ${CLIENT_PORT}
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
