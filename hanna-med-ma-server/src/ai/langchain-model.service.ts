@@ -8,10 +8,10 @@ export class LangChainModelService {
   private readonly model: ChatGoogleGenerativeAI;
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>("GEMINI_API_KEY");
+    const apiKey = this.configService.get<string>("SERVER_GEMINI_API_KEY");
     if (!apiKey) {
       this.logger.warn(
-        "GEMINI_API_KEY not set — AI features will be unavailable",
+        "SERVER_GEMINI_API_KEY not set — AI features will be unavailable",
       );
     }
 

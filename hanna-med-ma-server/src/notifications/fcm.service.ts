@@ -12,7 +12,7 @@ export class FcmService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
-  ) {}
+  ) { }
 
   onModuleInit() {
     // Initialize Firebase Admin SDK if not already initialized
@@ -20,13 +20,13 @@ export class FcmService implements OnModuleInit {
       let credential: admin.credential.Credential;
 
       // Check for individual environment variables first (production - more reliable)
-      const projectId = this.configService.get<string>("FIREBASE_PROJECT_ID");
+      const projectId = this.configService.get<string>("SERVER_FIREBASE_PROJECT_ID");
       const clientEmail = this.configService.get<string>(
-        "FIREBASE_CLIENT_EMAIL",
+        "SERVER_FIREBASE_CLIENT_EMAIL",
       );
       const privateKeyBase64 = this.configService.get<string>(
-        "FIREBASE_PRIVATE_KEY",
-      );
+        "SERVER_FIREBASE_PRIVATE_KEY",
+      ) || this.configService.get<string>("FIREBASE_PRIVATE_KEY");
 
       if (projectId && clientEmail && privateKeyBase64) {
         // Decode private key from base64
@@ -67,7 +67,7 @@ export class FcmService implements OnModuleInit {
             "Firebase credentials not found. Push notifications disabled.",
           );
           this.logger.warn(
-            "Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY for production",
+            "Set SERVER_FIREBASE_PROJECT_ID, SERVER_FIREBASE_CLIENT_EMAIL, SERVER_FIREBASE_PRIVATE_KEY for production",
           );
           return;
         }

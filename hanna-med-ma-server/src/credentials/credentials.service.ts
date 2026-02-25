@@ -21,8 +21,8 @@ export class CredentialsService {
   ) {
     // Use environment variable or generate a consistent key
     const key =
-      this.configService.get<string>("CREDENTIALS_ENCRYPTION_KEY") ||
-      "default-key-change-in-production-32";
+      this.configService.get<string>("SERVER_CREDENTIALS_ENCRYPTION_KEY") ||
+      "dev-encryption-key-must-be-32-chars-long";
     this.encryptionKey = crypto.scryptSync(key, "salt", 32);
   }
 
