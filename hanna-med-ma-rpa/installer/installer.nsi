@@ -1,40 +1,115 @@
+; HannaMed RPA Installer Script
+!define APPNAME "HannaMedRPA"
+!define COMPANYNAME "HannaMed"
+!define DESCRIPTION "RPA Agent for Medical Assistant"
+!define VERSIONMAJOR 1
+!define VERSIONMINOR 0
+!define VERSIONBUILD 0
+
+!define INSTALLDIR "$APPDATA\${APPNAME}"
+!define DISPLAYNAME "HannaMed RPA"
+
+Name "${DISPLAYNAME}"
+OutFile "${__DIR__}\HannaMed-RPA-Setup.exe"
+InstallDir "${INSTALLDIR}"
+RequestExecutionLevel user
+
+; Modern UI
 !include "MUI2.nsh"
 
-Name "HannaMed RPA"
-OutFile "${__DIR__}\HannaMed-RPA-Setup.exe"
-InstallDir "$PROGRAMFILES\HannaMed RPA"
-RequestExecutionLevel admin
-
-; Make the installer silent by default or show basic UI
+; Pages
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
-!insertmacro MUI_UNPAGE_WELCOME
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_UNPAGE_FINISH
 
 !insertmacro MUI_LANGUAGE "English"
 
-Section "Main Section" SEC01
+; Installer sections
+Section "Install"
+    ; Set output path
     SetOutPath "$INSTDIR"
-    File "${__DIR__}\..\dist\HannamedRPA.exe"
     
-    ; Create Start Menu shortcuts
-    CreateDirectory "$SMPROGRAMS\HannaMed RPA"
-    CreateShortcut "$SMPROGRAMS\HannaMed RPA\HannaMed RPA.lnk" "$INSTDIR\HannamedRPA.exe"
+    ; Copy main executable (assuming makensis is run from installer\ dir)
+    ; NSIS relative paths are relative to the .nsi script location
+    File "..\dist\HannamedRPA.exe"
     
-    ; Create uninstaller
-    WriteUninstaller "$INSTDIR\uninstall.exe"
+    ; Create bin directory and copy cloudflared
+    SetOutPath "$INSTDIR\bin"
+    File "..\bin\cloudflared.exe"
+    
+    ; Create config directories
+    SetOutPath "$INSTDIR"
+    CreateDirectory "$INSTDIR\.cloudflared"
+    CreateDirectory "$INSTDIR\logs"
+    CreateDirectory "$INSTDIR\config"
+    
+    ; Create desktop shortcut
+    CreateShortcut "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\HannamedRPA.exe" "" "$INSTDIR\HannamedRPA.exe" 0
+    
+    ; Create start menu shortcuts
+    CreateDirectory "$SMPROGRAMS\${DISPLAYNAME}"
+    CreateShortcut "$SMPROGRAMS\${DISPLAYNAME}\${DISPLAYNAME}.lnk" "$INSTDIR\HannamedRPA.exe" "" "$INSTDIR\HannamedRPA.exe" 0
+    CreateShortcut "$SMPROGRAMS\${DISPLAYNAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
+    
+    ; Write uninstaller
+    WriteUninstaller "$INSTDIR\Uninstall.exe"
+    
+    ; Write registry info for Add/Remove Programs
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayName" "${DISPLAYNAME}"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "UninstallString" "$INSTDIR\Uninstall.exe"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "InstallLocation" "$INSTDIR"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "Publisher" "${COMPANYNAME}"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+    WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "VersionMajor" ${VERSIONMAJOR}
+    WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "VersionMinor" ${VERSIONMINOR}
+    WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "NoModify" 1
+    WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "NoRepair" 1
+    
+    ; Success message
+    MessageBox MB_OK "${DISPLAYNAME} has been installed successfully!$\n$\nYou can start the application from the desktop shortcut or the start menu." /SD IDOK
 SectionEnd
 
+; Uninstaller section
 Section "Uninstall"
+    ; Stop any running processes
+    ; (User should close the app before uninstalling, but just in case)
+    
+    ; Delete files
     Delete "$INSTDIR\HannamedRPA.exe"
-    Delete "$INSTDIR\uninstall.exe"
+    Delete "$INSTDIR\bin\cloudflared.exe"
+    Delete "$INSTDIR\Uninstall.exe"
+    
+    ; Delete shortcuts
+    Delete "$DESKTOP\${DISPLAYNAME}.lnk"
+    Delete "$SMPROGRAMS\${DISPLAYNAME}\${DISPLAYNAME}.lnk"
+    Delete "$SMPROGRAMS\${DISPLAYNAME}\Uninstall.lnk"
+    RMDir "$SMPROGRAMS\${DISPLAYNAME}"
+    
+    ; Ask user if they want to keep configuration
+    MessageBox MB_YESNO "Do you also want to delete configuration and logs?$\n$\n(If you plan to reinstall, you may want to keep the configuration)" /SD IDNO IDYES delete_config IDNO keep_config
+    
+    delete_config:
+        RMDir /r "$INSTDIR\.cloudflared"
+        RMDir /r "$INSTDIR\logs"
+        RMDir /r "$INSTDIR\config"
+        Goto done_config
+    
+    keep_config:
+        ; Keep config files
+        MessageBox MB_OK "Configuration has been kept at:$\n$INSTDIR" /SD IDOK
+    
+    done_config:
+    
+    ; Remove directories
+    RMDir /r "$INSTDIR\bin"
     RMDir "$INSTDIR"
     
-    Delete "$SMPROGRAMS\HannaMed RPA\HannaMed RPA.lnk"
-    RMDir "$SMPROGRAMS\HannaMed RPA"
+    ; Remove from registry
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
+    
+    MessageBox MB_OK "${DISPLAYNAME} has been uninstalled successfully." /SD IDOK
 SectionEnd
