@@ -1,11 +1,9 @@
-version: "3.8"
-
 services:
   hanna-med-ma-server:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hanna-med-ma-server
+    container_name: hanna-med-ma-server-v2
     restart: unless-stopped
     environment:
       - SERVER_NODE_ENV=${V2_SERVER_NODE_ENV:-production}

@@ -1,11 +1,9 @@
-version: "3.8"
-
 services:
   hanna-med-ma-server:
     build:
       context: ./hanna-med-ma-server
       dockerfile: Dockerfile
-    container_name: hanna-med-ma-server
+    container_name: hanna-med-ma-server-v2
     restart: unless-stopped
     environment:
       - SERVER_NODE_ENV=${V2_SERVER_NODE_ENV:-production}
@@ -33,7 +31,7 @@ services:
         - VITE_FIREBASE_STORAGE_BUCKET=${VITE_V2_FIREBASE_STORAGE_BUCKET}
         - VITE_FIREBASE_MESSAGING_SENDER_ID=${VITE_V2_FIREBASE_MESSAGING_SENDER_ID}
         - VITE_FIREBASE_APP_ID=${VITE_V2_FIREBASE_APP_ID}
-    container_name: hanna-med-ma-client
+    container_name: hanna-med-ma-client-v2
     restart: unless-stopped
     environment:
       - CLIENT_PORT=${V2_CLIENT_PORT:-3003}

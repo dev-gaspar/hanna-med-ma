@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   hanna-med-ma-client:
     build:
@@ -13,7 +11,7 @@ services:
         - VITE_FIREBASE_STORAGE_BUCKET=${VITE_V2_FIREBASE_STORAGE_BUCKET}
         - VITE_FIREBASE_MESSAGING_SENDER_ID=${VITE_V2_FIREBASE_MESSAGING_SENDER_ID}
         - VITE_FIREBASE_APP_ID=${VITE_V2_FIREBASE_APP_ID}
-    container_name: hanna-med-ma-client
+    container_name: hanna-med-ma-client-v2
     restart: unless-stopped
     environment:
       - CLIENT_PORT=${V2_CLIENT_PORT:-3003}
