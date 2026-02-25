@@ -10,7 +10,7 @@
 !define DISPLAYNAME "HannaMed RPA"
 
 Name "${DISPLAYNAME}"
-OutFile "${__DIR__}\HannaMed-RPA-Setup.exe"
+OutFile "HannaMed-RPA-Setup.exe"
 InstallDir "${INSTALLDIR}"
 RequestExecutionLevel user
 
