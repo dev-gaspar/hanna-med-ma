@@ -24,7 +24,7 @@ ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
 COPY package*.json ./
 
 # Instalar dependencias
-RUN npm ci
+RUN npm install
 
 # Copiar código fuente
 COPY . .

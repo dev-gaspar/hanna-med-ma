@@ -7,7 +7,7 @@ COPY package*.json ./
 COPY prisma ./prisma/
 
 # Instalar dependencias
-RUN npm ci
+RUN npm install
 
 # Copiar código fuente
 COPY . .
