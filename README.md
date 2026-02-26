@@ -1,10 +1,10 @@
-# Hanna-Med MA V2
+# Hanna-Med MA
 
-Welcome to the Hanna-Med Multi-Agent V2 system. This project consists of three main components:
+Welcome to the Hanna-Med Medical Assistant system. This project consists of three main components:
 
 1. **Client (`hanna-med-ma-client`)**: A React-based web interface for users to interact with the system.
 2. **Server (`hanna-med-ma-server`)**: A Node.js backend handling API requests, WebSocket communication, and orchestration logic.
-3. **RPA (`hanna-med-ma-rpa`)**: A Python-based Robotic Process Automation service that interacts with Electronic Health Record (EHR) systems.
+3. **RPA (`hanna-med-ma-rpa`)**: A Python-based Robotic Process Automation service that interacts with Electronic Medical Record (EMR) systems.
 
 ## Deployment
 
