@@ -1,73 +1,64 @@
 // Firebase Messaging Service Worker
-// This runs in the background to receive push notifications when app is closed
+// Handles push notifications when the app is closed or in background.
+//
+// This SW does NOT need the Firebase JS SDK — push events are standard
+// Web Push delivered by FCM. The client-side Firebase SDK handles token
+// registration; this SW only needs to display the notification.
+//
+// Keeping this SW lightweight avoids conflicts with the VitePWA service
+// worker and prevents the browser's default "site updated in background"
+// notification that appears when a push handler takes too long.
 
-importScripts(
-	"https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js",
-);
-importScripts(
-	"https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js",
-);
+self.addEventListener("push", (event) => {
+	if (!event.data) return;
 
-// Firebase configuration - must match the app config
-firebase.initializeApp({
-	apiKey: "AIzaSyBxOWLfjLm8abnPTU5o9sT-gcgoaphi_sU",
-	authDomain: "hanna-med-ma-b2639.firebaseapp.com",
-	projectId: "hanna-med-ma-b2639",
-	storageBucket: "hanna-med-ma-b2639.firebasestorage.app",
-	messagingSenderId: "784950868961",
-	appId: "1:784950868961:web:83b3b4cb20e77afdeff0a0",
-});
+	let payload;
+	try {
+		payload = event.data.json();
+	} catch {
+		// Not JSON — ignore
+		return;
+	}
 
-const messaging = firebase.messaging();
+	// FCM data-only payloads put everything under "data"
+	const data = payload.data || payload;
+	const title = data.title || "Hanna-Med";
+	const body = data.body || "Tienes un nuevo mensaje";
 
-// Handle background messages (data-only payloads)
-messaging.onBackgroundMessage((payload) => {
-	console.log(
-		"[firebase-messaging-sw.js] Received background message:",
-		payload,
-	);
-
-	// Data-only payload: title/body come from payload.data
-	const notificationTitle = payload.data?.title || "Hanna-Med";
-	const notificationOptions = {
-		body: payload.data?.body || "Tienes un nuevo mensaje",
+	const options = {
+		body,
 		icon: "/pwa-192x192.png",
 		badge: "/pwa-192x192.png",
 		vibrate: [200, 100, 200],
 		requireInteraction: true,
-		data: payload.data,
-		tag: "hanna-med-notification", // Prevents stacking duplicate notifications
-		actions: [
-			{
-				action: "open",
-				title: "Ver mensaje",
-			},
-		],
+		data,
+		tag: "hanna-med-notification",
+		actions: [{ action: "open", title: "Ver mensaje" }],
 	};
 
-	self.registration.showNotification(notificationTitle, notificationOptions);
+	// event.waitUntil ensures the notification is shown before the SW sleeps
+	event.waitUntil(self.registration.showNotification(title, options));
 });
 
 // Handle notification click
 self.addEventListener("notificationclick", (event) => {
-	console.log("[firebase-messaging-sw.js] Notification click:", event);
-
 	event.notification.close();
 
-	// Navigate to chat page when notification is clicked
+	const link = event.notification.data?.link || "/doctor/chat";
+
 	event.waitUntil(
 		clients
 			.matchAll({ type: "window", includeUncontrolled: true })
 			.then((clientList) => {
-				// If a window is already open, focus it
+				// Focus an existing window if open
 				for (const client of clientList) {
-					if (client.url.includes("/doctor/chat") && "focus" in client) {
+					if (client.url.includes(link) && "focus" in client) {
 						return client.focus();
 					}
 				}
-				// Otherwise, open a new window
+				// Otherwise open a new tab
 				if (clients.openWindow) {
-					return clients.openWindow("/doctor/chat");
+					return clients.openWindow(link);
 				}
 			}),
 	);

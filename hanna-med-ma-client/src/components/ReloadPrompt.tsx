@@ -1,6 +1,6 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { Wifi, RefreshCw, X } from "lucide-react";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 /**
  * PWA ReloadPrompt — uses "prompt" registerType to avoid uncontrolled reloads.
@@ -15,6 +15,7 @@ export default function ReloadPrompt() {
 	const updateCheckInterval = useRef<
 		ReturnType<typeof setInterval> | undefined
 	>(undefined);
+	const [isUpdating, setIsUpdating] = useState(false);
 
 	const {
 		offlineReady: [offlineReady, setOfflineReady],
@@ -52,9 +53,22 @@ export default function ReloadPrompt() {
 		}
 	}, [offlineReady, setOfflineReady]);
 
-	// Accept update: activates the waiting SW and performs a single controlled reload
-	const acceptUpdate = useCallback(() => {
-		updateServiceWorker(true);
+	// Accept update: try to activate waiting SW, then force reload as fallback
+	const acceptUpdate = useCallback(async () => {
+		setIsUpdating(true);
+		try {
+			// Try the standard VitePWA update mechanism
+			await updateServiceWorker(true);
+
+			// If updateServiceWorker didn't trigger a reload within 2s,
+			// force a hard reload to pick up the new assets
+			setTimeout(() => {
+				window.location.reload();
+			}, 2000);
+		} catch {
+			// If anything fails, just hard reload
+			window.location.reload();
+		}
 	}, [updateServiceWorker]);
 
 	const close = () => {
@@ -65,7 +79,7 @@ export default function ReloadPrompt() {
 	if (!offlineReady && !needRefresh) return null;
 
 	return (
-		<div className="fixed bottom-4 right-4 z-50 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-w-xs animate-in slide-in-from-bottom-5 fade-in duration-300">
+		<div className="fixed top-4 right-4 z-50 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-w-xs animate-in slide-in-from-top-5 fade-in duration-300">
 			<div className="flex items-center gap-2">
 				{offlineReady ? (
 					<>
@@ -82,22 +96,28 @@ export default function ReloadPrompt() {
 					</>
 				) : (
 					<>
-						<RefreshCw className="w-4 h-4 text-blue-500 flex-shrink-0" />
+						<RefreshCw
+							className={`w-4 h-4 text-blue-500 flex-shrink-0 ${isUpdating ? "animate-spin" : ""}`}
+						/>
 						<p className="text-xs text-slate-600 dark:text-slate-300 flex-1">
-							Nueva versión disponible
+							{isUpdating ? "Actualizando..." : "Nueva versión disponible"}
 						</p>
-						<button
-							onClick={acceptUpdate}
-							className="text-xs font-medium px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-						>
-							Actualizar
-						</button>
-						<button
-							onClick={close}
-							className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-						>
-							<X className="w-3.5 h-3.5" />
-						</button>
+						{!isUpdating && (
+							<>
+								<button
+									onClick={acceptUpdate}
+									className="text-xs font-medium px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
+								>
+									Actualizar
+								</button>
+								<button
+									onClick={close}
+									className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+								>
+									<X className="w-3.5 h-3.5" />
+								</button>
+							</>
+						)}
 					</>
 				)}
 			</div>

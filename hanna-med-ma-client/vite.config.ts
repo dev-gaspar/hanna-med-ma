@@ -41,6 +41,10 @@ export default defineConfig({
 			workbox: {
 				// HIPAA-Safe Caching: Only cache static assets, NEVER cache API responses
 				globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
+				// Exclude Firebase messaging SW from precache — it's a separate SW
+				// that handles push notifications independently. Including it causes
+				// false "new version available" prompts on every build.
+				globIgnores: ["**/firebase-messaging-sw.js"],
 				// Explicitly exclude API routes from caching (HIPAA compliance)
 				navigateFallbackDenylist: [/^\/api/, /^\/auth/],
 				runtimeCaching: [
