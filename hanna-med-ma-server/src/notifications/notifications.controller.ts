@@ -6,6 +6,7 @@ import {
 	UseGuards,
 	Request,
 	UnauthorizedException,
+	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
 	ApiTags,
@@ -59,6 +60,12 @@ export class NotificationsController {
 	@ApiResponse({ status: 201, description: "Notification sent" })
 	@ApiResponse({ status: 401, description: "Unauthorized" })
 	async sendNotification(@Body() dto: SendNotificationDto) {
+		if (!this.fcmService.firebaseReady) {
+			throw new ServiceUnavailableException(
+				"Push notifications are not available. Firebase is not configured on the server.",
+			);
+		}
+
 		const result = await this.fcmService.sendBroadcastNotification(
 			dto.title,
 			dto.body,

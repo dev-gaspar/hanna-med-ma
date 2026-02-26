@@ -8,6 +8,7 @@ import { PrismaService } from "../core/prisma.service";
 @Injectable()
 export class FcmService implements OnModuleInit {
 	private readonly logger = new Logger(FcmService.name);
+	private isInitialized = false;
 
 	constructor(
 		private prisma: PrismaService,
@@ -79,7 +80,17 @@ export class FcmService implements OnModuleInit {
 			}
 
 			admin.initializeApp({ credential });
+			this.isInitialized = true;
+		} else if (admin.apps.length > 0) {
+			this.isInitialized = true;
 		}
+	}
+
+	/**
+	 * Check if Firebase is initialized and ready to send notifications
+	 */
+	get firebaseReady(): boolean {
+		return this.isInitialized;
 	}
 
 	/**
@@ -130,6 +141,13 @@ export class FcmService implements OnModuleInit {
 		title: string,
 		body: string,
 	): Promise<void> {
+		if (!this.isInitialized) {
+			this.logger.warn(
+				"Cannot send push notification: Firebase not initialized",
+			);
+			return;
+		}
+
 		const tokens = await this.prisma.doctorFcmToken.findMany({
 			where: {
 				doctorId,
@@ -206,7 +224,19 @@ export class FcmService implements OnModuleInit {
 		totalDoctors: number;
 		successCount: number;
 		failureCount: number;
+		error?: string;
 	}> {
+		if (!this.isInitialized) {
+			this.logger.warn("Cannot send broadcast: Firebase not initialized");
+			return {
+				totalDoctors: 0,
+				successCount: 0,
+				failureCount: 0,
+				error:
+					"Firebase not configured. Set SERVER_FIREBASE_PROJECT_ID, SERVER_FIREBASE_CLIENT_EMAIL, SERVER_FIREBASE_PRIVATE_KEY.",
+			};
+		}
+
 		// Build the query filter
 		const whereClause: any = { isActive: true };
 		if (doctorIds && doctorIds.length > 0) {
