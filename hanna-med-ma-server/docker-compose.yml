@@ -1,5 +1,5 @@
 services:
-  hanna-med-ma-server:
+  hanna-med-ma-server-v2:
     build:
       context: .
       dockerfile: Dockerfile

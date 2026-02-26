@@ -1,5 +1,5 @@
 services:
-  hanna-med-ma-client:
+  hanna-med-ma-client-v2:
     build:
       context: .
       dockerfile: Dockerfile
