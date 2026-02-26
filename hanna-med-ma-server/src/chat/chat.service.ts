@@ -2,415 +2,380 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { MessageRole, MessageType } from "@prisma/client";
 import { PrismaService } from "../core/prisma.service";
-import { FcmService } from "../notifications/fcm.service";
 import { AiService } from "../ai/ai.service";
 import { JwtService } from "@nestjs/jwt";
 
 interface MessageEventCallbacks {
-  onToolCall?: (toolName: string) => void;
-  onStreaming?: (chunk: string) => void;
+	onToolCall?: (toolName: string) => void;
+	onStreaming?: (chunk: string) => void;
 }
 
 @Injectable()
 export class ChatService {
-  private readonly logger = new Logger(ChatService.name);
+	private readonly logger = new Logger(ChatService.name);
 
-  constructor(
-    private prisma: PrismaService,
-    private configService: ConfigService,
-    private fcmService: FcmService,
-    private aiService: AiService,
-    private jwtService: JwtService,
-  ) {}
+	constructor(
+		private prisma: PrismaService,
+		private configService: ConfigService,
+		private aiService: AiService,
+		private jwtService: JwtService,
+	) {}
 
-  async getSession(doctorId: number, limit: number = 5, cursor?: number) {
-    let session = await this.prisma.chatSession.findUnique({
-      where: { doctorId },
-      include: {
-        doctor: { select: { id: true, name: true, specialty: true } },
-      },
-    });
+	async getSession(doctorId: number, limit: number = 5, cursor?: number) {
+		let session = await this.prisma.chatSession.findUnique({
+			where: { doctorId },
+			include: {
+				doctor: { select: { id: true, name: true, specialty: true } },
+			},
+		});
 
-    if (!session) {
-      session = await this.prisma.chatSession.create({
-        data: { doctorId },
-        include: {
-          doctor: { select: { id: true, name: true, specialty: true } },
-        },
-      });
-    }
+		if (!session) {
+			session = await this.prisma.chatSession.create({
+				data: { doctorId },
+				include: {
+					doctor: { select: { id: true, name: true, specialty: true } },
+				},
+			});
+		}
 
-    const messages = await this.prisma.message.findMany({
-      take: limit,
-      skip: cursor ? 1 : 0,
-      cursor: cursor ? { id: cursor } : undefined,
-      where: { sessionId: session.id },
-      orderBy: { id: "desc" },
-    });
+		const messages = await this.prisma.message.findMany({
+			take: limit,
+			skip: cursor ? 1 : 0,
+			cursor: cursor ? { id: cursor } : undefined,
+			where: { sessionId: session.id },
+			orderBy: { id: "desc" },
+		});
 
-    return {
-      ...session,
-      messages: messages.reverse(),
-      nextCursor: messages.length === limit ? messages[0].id : undefined,
-    };
-  }
+		return {
+			...session,
+			messages: messages.reverse(),
+			nextCursor: messages.length === limit ? messages[0].id : undefined,
+		};
+	}
 
-  /**
-   * Create a message (used by HTTP POST /chat endpoint as fallback).
-   * For WebSocket-based messaging, use sendMessageWithEvents().
-   */
-  async createMessage(
-    doctorId: number,
-    content: string,
-    role: MessageRole = MessageRole.USER,
-    type: MessageType = MessageType.TEXT,
-  ) {
-    let session = await this.prisma.chatSession.findUnique({
-      where: { doctorId },
-      include: {
-        doctor: { select: { id: true, name: true, specialty: true } },
-      },
-    });
+	/**
+	 * Create a message (used by HTTP POST /chat endpoint as fallback).
+	 * For WebSocket-based messaging, use sendMessageWithEvents().
+	 */
+	async createMessage(
+		doctorId: number,
+		content: string,
+		role: MessageRole = MessageRole.USER,
+		type: MessageType = MessageType.TEXT,
+	) {
+		let session = await this.prisma.chatSession.findUnique({
+			where: { doctorId },
+			include: {
+				doctor: { select: { id: true, name: true, specialty: true } },
+			},
+		});
 
-    if (!session) {
-      session = await this.prisma.chatSession.create({
-        data: { doctorId },
-        include: {
-          doctor: { select: { id: true, name: true, specialty: true } },
-        },
-      });
-    }
+		if (!session) {
+			session = await this.prisma.chatSession.create({
+				data: { doctorId },
+				include: {
+					doctor: { select: { id: true, name: true, specialty: true } },
+				},
+			});
+		}
 
-    const message = await this.prisma.message.create({
-      data: {
-        sessionId: session.id,
-        content,
-        role,
-        type,
-      },
-    });
+		const message = await this.prisma.message.create({
+			data: {
+				sessionId: session.id,
+				content,
+				role,
+				type,
+			},
+		});
 
-    // If user sent a message, process it with AI
-    if (role === MessageRole.USER) {
-      this.processWithAi(doctorId, session, content);
-    }
+		// If user sent a message, process it with AI
+		if (role === MessageRole.USER) {
+			this.processWithAi(doctorId, session, content);
+		}
 
-    // Send push notification when AI responds
-    if (role === MessageRole.ASSISTANT) {
-      this.fcmService.sendPushNotification(
-        doctorId,
-        "Hanna-Med",
-        "You have a new message from your medical assistant",
-      );
-    }
+		return message;
+	}
 
-    return message;
-  }
+	/**
+	 * Process a message with AI and save the response.
+	 * Used as a fire-and-forget from createMessage() for HTTP fallback.
+	 */
+	private async processWithAi(doctorId: number, session: any, content: string) {
+		try {
+			const chatHistory = await this.prisma.message.findMany({
+				where: { sessionId: session.id },
+				orderBy: { createdAt: "desc" },
+				take: 10,
+				select: { role: true, content: true },
+			});
 
-  /**
-   * Process a message with AI and save the response.
-   * Used as a fire-and-forget from createMessage() for HTTP fallback.
-   */
-  private async processWithAi(doctorId: number, session: any, content: string) {
-    try {
-      const chatHistory = await this.prisma.message.findMany({
-        where: { sessionId: session.id },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: { role: true, content: true },
-      });
+			const aiResponse = await this.aiService.processMessage({
+				doctorId,
+				doctorName: session.doctor.name,
+				doctorSpecialty: session.doctor.specialty || "General Medicine",
+				userMessage: content,
+				chatHistory: chatHistory.reverse().map((m) => ({
+					role: m.role,
+					content: m.content,
+				})),
+			});
 
-      const aiResponse = await this.aiService.processMessage({
-        doctorId,
-        doctorName: session.doctor.name,
-        doctorSpecialty: session.doctor.specialty || "General Medicine",
-        userMessage: content,
-        chatHistory: chatHistory.reverse().map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      });
+			// Save AI response
+			await this.prisma.message.create({
+				data: {
+					sessionId: session.id,
+					content: aiResponse.text,
+					role: MessageRole.ASSISTANT,
+					type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
+				},
+			});
+		} catch (error) {
+			this.logger.error(
+				`AI processing error for doctor ${doctorId}: ${error.message}`,
+			);
+		}
+	}
 
-      // Save AI response
-      await this.prisma.message.create({
-        data: {
-          sessionId: session.id,
-          content: aiResponse.text,
-          role: MessageRole.ASSISTANT,
-          type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
-        },
-      });
+	/**
+	 * Send a message with real-time event callbacks (WebSocket mode).
+	 */
+	async sendMessageWithEvents(
+		doctorId: number,
+		content: string,
+		callbacks: MessageEventCallbacks,
+	) {
+		// Step 1: Get or create session
+		let session = await this.prisma.chatSession.findUnique({
+			where: { doctorId },
+			include: {
+				doctor: { select: { id: true, name: true, specialty: true } },
+			},
+		});
 
-      // Push notification
-      this.fcmService.sendPushNotification(
-        doctorId,
-        "Hanna-Med",
-        "You have a new message from your medical assistant",
-      );
-    } catch (error) {
-      this.logger.error(
-        `AI processing error for doctor ${doctorId}: ${error.message}`,
-      );
-    }
-  }
+		if (!session) {
+			session = await this.prisma.chatSession.create({
+				data: { doctorId },
+				include: {
+					doctor: { select: { id: true, name: true, specialty: true } },
+				},
+			});
+		}
 
-  /**
-   * Send a message with real-time event callbacks (WebSocket mode).
-   */
-  async sendMessageWithEvents(
-    doctorId: number,
-    content: string,
-    callbacks: MessageEventCallbacks,
-  ) {
-    // Step 1: Get or create session
-    let session = await this.prisma.chatSession.findUnique({
-      where: { doctorId },
-      include: {
-        doctor: { select: { id: true, name: true, specialty: true } },
-      },
-    });
+		// Step 2: Save user message
+		const userMessage = await this.prisma.message.create({
+			data: {
+				sessionId: session.id,
+				content,
+				role: MessageRole.USER,
+				type: MessageType.TEXT,
+			},
+		});
 
-    if (!session) {
-      session = await this.prisma.chatSession.create({
-        data: { doctorId },
-        include: {
-          doctor: { select: { id: true, name: true, specialty: true } },
-        },
-      });
-    }
+		// Step 3: Get chat history for context
+		const chatHistory = await this.prisma.message.findMany({
+			where: { sessionId: session.id },
+			orderBy: { createdAt: "desc" },
+			take: 10,
+			select: { role: true, content: true },
+		});
 
-    // Step 2: Save user message
-    const userMessage = await this.prisma.message.create({
-      data: {
-        sessionId: session.id,
-        content,
-        role: MessageRole.USER,
-        type: MessageType.TEXT,
-      },
-    });
+		// Step 4: Process with AI (with event callbacks)
+		const aiResponse = await this.aiService.processMessage({
+			doctorId,
+			doctorName: session.doctor.name,
+			doctorSpecialty: session.doctor.specialty || "General Medicine",
+			userMessage: content,
+			chatHistory: chatHistory.reverse().map((m) => ({
+				role: m.role,
+				content: m.content,
+			})),
+			callbacks,
+		});
 
-    // Step 3: Get chat history for context
-    const chatHistory = await this.prisma.message.findMany({
-      where: { sessionId: session.id },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: { role: true, content: true },
-    });
+		// Step 5: Save AI response
+		const assistantMessage = await this.prisma.message.create({
+			data: {
+				sessionId: session.id,
+				content: aiResponse.text,
+				role: MessageRole.ASSISTANT,
+				type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
+			},
+		});
 
-    // Step 4: Process with AI (with event callbacks)
-    const aiResponse = await this.aiService.processMessage({
-      doctorId,
-      doctorName: session.doctor.name,
-      doctorSpecialty: session.doctor.specialty || "General Medicine",
-      userMessage: content,
-      chatHistory: chatHistory.reverse().map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      callbacks,
-    });
+		return { userMessage, assistantMessage };
+	}
 
-    // Step 5: Save AI response
-    const assistantMessage = await this.prisma.message.create({
-      data: {
-        sessionId: session.id,
-        content: aiResponse.text,
-        role: MessageRole.ASSISTANT,
-        type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
-      },
-    });
+	/**
+	 * Delete the last assistant message and re-process the preceding user message.
+	 */
+	async regenerateLastMessage(
+		doctorId: number,
+		callbacks: MessageEventCallbacks,
+	) {
+		const session = await this.prisma.chatSession.findUnique({
+			where: { doctorId },
+			include: {
+				doctor: { select: { id: true, name: true, specialty: true } },
+			},
+		});
 
-    // Step 6: Push notification for background/mobile
-    this.fcmService.sendPushNotification(
-      doctorId,
-      "Hanna-Med",
-      "You have a new message from your medical assistant",
-    );
+		if (!session) throw new Error("No chat session found");
 
-    return { userMessage, assistantMessage };
-  }
+		const lastAssistantMsg = await this.prisma.message.findFirst({
+			where: { sessionId: session.id, role: MessageRole.ASSISTANT },
+			orderBy: { createdAt: "desc" },
+		});
 
-  /**
-   * Delete the last assistant message and re-process the preceding user message.
-   */
-  async regenerateLastMessage(
-    doctorId: number,
-    callbacks: MessageEventCallbacks,
-  ) {
-    const session = await this.prisma.chatSession.findUnique({
-      where: { doctorId },
-      include: {
-        doctor: { select: { id: true, name: true, specialty: true } },
-      },
-    });
+		if (!lastAssistantMsg)
+			throw new Error("No assistant message to regenerate");
 
-    if (!session) throw new Error("No chat session found");
+		const lastUserMsg = await this.prisma.message.findFirst({
+			where: {
+				sessionId: session.id,
+				role: MessageRole.USER,
+				createdAt: { lte: lastAssistantMsg.createdAt },
+			},
+			orderBy: { createdAt: "desc" },
+		});
 
-    const lastAssistantMsg = await this.prisma.message.findFirst({
-      where: { sessionId: session.id, role: MessageRole.ASSISTANT },
-      orderBy: { createdAt: "desc" },
-    });
+		if (!lastUserMsg)
+			throw new Error("No user message found to regenerate from");
 
-    if (!lastAssistantMsg) throw new Error("No assistant message to regenerate");
+		await this.prisma.message.delete({
+			where: { id: lastAssistantMsg.id },
+		});
 
-    const lastUserMsg = await this.prisma.message.findFirst({
-      where: {
-        sessionId: session.id,
-        role: MessageRole.USER,
-        createdAt: { lte: lastAssistantMsg.createdAt },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+		this.logger.log(
+			`Regenerating response for doctor ${doctorId} — deleted msg #${lastAssistantMsg.id}, re-processing "${lastUserMsg.content.substring(0, 50)}..."`,
+		);
 
-    if (!lastUserMsg) throw new Error("No user message found to regenerate from");
+		const chatHistory = await this.prisma.message.findMany({
+			where: { sessionId: session.id },
+			orderBy: { createdAt: "desc" },
+			take: 10,
+			select: { role: true, content: true },
+		});
 
-    await this.prisma.message.delete({
-      where: { id: lastAssistantMsg.id },
-    });
+		const aiResponse = await this.aiService.processMessage({
+			doctorId,
+			doctorName: session.doctor.name,
+			doctorSpecialty: session.doctor.specialty || "General Medicine",
+			userMessage: lastUserMsg.content,
+			chatHistory: chatHistory.reverse().map((m) => ({
+				role: m.role,
+				content: m.content,
+			})),
+			callbacks,
+		});
 
-    this.logger.log(
-      `Regenerating response for doctor ${doctorId} — deleted msg #${lastAssistantMsg.id}, re-processing "${lastUserMsg.content.substring(0, 50)}..."`,
-    );
+		const assistantMessage = await this.prisma.message.create({
+			data: {
+				sessionId: session.id,
+				content: aiResponse.text,
+				role: MessageRole.ASSISTANT,
+				type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
+			},
+		});
 
-    const chatHistory = await this.prisma.message.findMany({
-      where: { sessionId: session.id },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: { role: true, content: true },
-    });
+		return { assistantMessage };
+	}
 
-    const aiResponse = await this.aiService.processMessage({
-      doctorId,
-      doctorName: session.doctor.name,
-      doctorSpecialty: session.doctor.specialty || "General Medicine",
-      userMessage: lastUserMsg.content,
-      chatHistory: chatHistory.reverse().map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      callbacks,
-    });
+	/**
+	 * Edit the last user message (paired with the last assistant message)
+	 * and regenerate the assistant response using the updated content.
+	 */
+	async editLastMessage(
+		doctorId: number,
+		newContent: string,
+		callbacks: MessageEventCallbacks,
+	) {
+		const session = await this.prisma.chatSession.findUnique({
+			where: { doctorId },
+			include: {
+				doctor: { select: { id: true, name: true, specialty: true } },
+			},
+		});
 
-    const assistantMessage = await this.prisma.message.create({
-      data: {
-        sessionId: session.id,
-        content: aiResponse.text,
-        role: MessageRole.ASSISTANT,
-        type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
-      },
-    });
+		if (!session) throw new Error("No chat session found");
 
-    this.fcmService.sendPushNotification(
-      doctorId,
-      "Hanna-Med",
-      "You have a new message from your medical assistant",
-    );
+		const lastAssistantMsg = await this.prisma.message.findFirst({
+			where: { sessionId: session.id, role: MessageRole.ASSISTANT },
+			orderBy: { createdAt: "desc" },
+		});
 
-    return { assistantMessage };
-  }
+		if (!lastAssistantMsg) throw new Error("No assistant message to edit from");
 
-  /**
-   * Edit the last user message (paired with the last assistant message)
-   * and regenerate the assistant response using the updated content.
-   */
-  async editLastMessage(
-    doctorId: number,
-    newContent: string,
-    callbacks: MessageEventCallbacks,
-  ) {
-    const session = await this.prisma.chatSession.findUnique({
-      where: { doctorId },
-      include: {
-        doctor: { select: { id: true, name: true, specialty: true } },
-      },
-    });
+		const lastUserMsg = await this.prisma.message.findFirst({
+			where: {
+				sessionId: session.id,
+				role: MessageRole.USER,
+				createdAt: { lte: lastAssistantMsg.createdAt },
+			},
+			orderBy: { createdAt: "desc" },
+		});
 
-    if (!session) throw new Error("No chat session found");
+		if (!lastUserMsg) throw new Error("No user message found to edit");
 
-    const lastAssistantMsg = await this.prisma.message.findFirst({
-      where: { sessionId: session.id, role: MessageRole.ASSISTANT },
-      orderBy: { createdAt: "desc" },
-    });
+		// Update the last user message with the new content
+		await this.prisma.message.update({
+			where: { id: lastUserMsg.id },
+			data: { content: newContent },
+		});
 
-    if (!lastAssistantMsg) throw new Error("No assistant message to edit from");
+		// Remove the old assistant message so a new one can be generated
+		await this.prisma.message.delete({
+			where: { id: lastAssistantMsg.id },
+		});
 
-    const lastUserMsg = await this.prisma.message.findFirst({
-      where: {
-        sessionId: session.id,
-        role: MessageRole.USER,
-        createdAt: { lte: lastAssistantMsg.createdAt },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+		this.logger.log(
+			`Editing last message for doctor ${doctorId} — updated user msg #${lastUserMsg.id}, regenerating assistant response...`,
+		);
 
-    if (!lastUserMsg) throw new Error("No user message found to edit");
+		const chatHistory = await this.prisma.message.findMany({
+			where: { sessionId: session.id },
+			orderBy: { createdAt: "desc" },
+			take: 10,
+			select: { role: true, content: true },
+		});
 
-    // Update the last user message with the new content
-    await this.prisma.message.update({
-      where: { id: lastUserMsg.id },
-      data: { content: newContent },
-    });
+		const aiResponse = await this.aiService.processMessage({
+			doctorId,
+			doctorName: session.doctor.name,
+			doctorSpecialty: session.doctor.specialty || "General Medicine",
+			userMessage: newContent,
+			chatHistory: chatHistory.reverse().map((m) => ({
+				role: m.role,
+				content: m.content,
+			})),
+			callbacks,
+		});
 
-    // Remove the old assistant message so a new one can be generated
-    await this.prisma.message.delete({
-      where: { id: lastAssistantMsg.id },
-    });
+		const assistantMessage = await this.prisma.message.create({
+			data: {
+				sessionId: session.id,
+				content: aiResponse.text,
+				role: MessageRole.ASSISTANT,
+				type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
+			},
+		});
 
-    this.logger.log(
-      `Editing last message for doctor ${doctorId} — updated user msg #${lastUserMsg.id}, regenerating assistant response...`,
-    );
+		return { assistantMessage };
+	}
 
-    const chatHistory = await this.prisma.message.findMany({
-      where: { sessionId: session.id },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: { role: true, content: true },
-    });
-
-    const aiResponse = await this.aiService.processMessage({
-      doctorId,
-      doctorName: session.doctor.name,
-      doctorSpecialty: session.doctor.specialty || "General Medicine",
-      userMessage: newContent,
-      chatHistory: chatHistory.reverse().map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      callbacks,
-    });
-
-    const assistantMessage = await this.prisma.message.create({
-      data: {
-        sessionId: session.id,
-        content: aiResponse.text,
-        role: MessageRole.ASSISTANT,
-        type: (aiResponse.messageType as MessageType) || MessageType.TEXT,
-      },
-    });
-
-    this.fcmService.sendPushNotification(
-      doctorId,
-      "Hanna-Med",
-      "You have a new message from your medical assistant",
-    );
-
-    return { assistantMessage };
-  }
-
-  /**
-   * Verify a JWT token and return the doctor info.
-   * Used by ChatGateway for WebSocket auth.
-   */
-  async verifyToken(token: string) {
-    try {
-      const payload = this.jwtService.verify(token);
-      const doctor = await this.prisma.doctor.findFirst({
-        where: { id: payload.userId || payload.sub, deleted: false },
-        select: { id: true, name: true, specialty: true },
-      });
-      return doctor;
-    } catch {
-      return null;
-    }
-  }
+	/**
+	 * Verify a JWT token and return the doctor info.
+	 * Used by ChatGateway for WebSocket auth.
+	 */
+	async verifyToken(token: string) {
+		try {
+			const payload = this.jwtService.verify(token);
+			const doctor = await this.prisma.doctor.findFirst({
+				where: { id: payload.userId || payload.sub, deleted: false },
+				select: { id: true, name: true, specialty: true },
+			});
+			return doctor;
+		} catch {
+			return null;
+		}
+	}
 }

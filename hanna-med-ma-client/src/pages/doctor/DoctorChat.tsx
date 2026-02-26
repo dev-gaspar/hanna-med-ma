@@ -10,7 +10,6 @@ import {
 import { useNavigate } from "react-router-dom";
 import { doctorAuthService } from "../../services/doctorAuthService";
 import { chatService } from "../../services/chatService";
-import { notificationService } from "../../services/notificationService";
 import { socketService } from "../../services/socketService";
 import type { Message } from "../../types/chat";
 import {
@@ -203,17 +202,6 @@ export default function DoctorChat() {
 		};
 	}, []);
 
-	useEffect(() => {
-		const setupNotifications = async () => {
-			try {
-				await notificationService.initialize();
-			} catch (error) {
-				console.error("Failed to initialize notifications:", error);
-			}
-		};
-		setupNotifications();
-	}, []);
-
 	useLayoutEffect(() => {
 		const container = scrollContainerRef.current;
 		if (!container) return;
@@ -237,7 +225,10 @@ export default function DoctorChat() {
 		const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
 		if (isNearBottom) {
 			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+				messagesEndRef.current?.scrollIntoView({
+					behavior: "smooth",
+					block: "end",
+				});
 			});
 		}
 	}, [messages]);
@@ -245,7 +236,10 @@ export default function DoctorChat() {
 	useEffect(() => {
 		if (isAiThinking) {
 			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+				messagesEndRef.current?.scrollIntoView({
+					behavior: "smooth",
+					block: "end",
+				});
 			});
 		}
 	}, [isAiThinking]);
@@ -253,7 +247,10 @@ export default function DoctorChat() {
 	useEffect(() => {
 		if (currentToolCall) {
 			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+				messagesEndRef.current?.scrollIntoView({
+					behavior: "smooth",
+					block: "end",
+				});
 			});
 		}
 	}, [currentToolCall]);
@@ -377,43 +374,43 @@ export default function DoctorChat() {
 		});
 	}, []);
 
-	const handlePatientAction = useCallback(async (
-		action: "summary" | "insurance",
-		patientName: string,
-	) => {
-		const prefix =
-			action === "summary"
-				? "Check clinical summary of"
-				: "Check medical insurance of";
-		const content = `${prefix} ${patientName}`;
-		setSelectedItem(null);
-		setIsSending(true);
+	const handlePatientAction = useCallback(
+		async (action: "summary" | "insurance", patientName: string) => {
+			const prefix =
+				action === "summary"
+					? "Check clinical summary of"
+					: "Check medical insurance of";
+			const content = `${prefix} ${patientName}`;
+			setSelectedItem(null);
+			setIsSending(true);
 
-		const optimisticMsg: Message = {
-			id: Date.now(),
-			role: "USER" as const,
-			content,
-			type: "TEXT" as const,
-			createdAt: new Date().toISOString(),
-		};
-		setMessages((prev) => [...prev, optimisticMsg]);
-		setScrollSpacerActive(true);
-		scrollToBottom("smooth");
+			const optimisticMsg: Message = {
+				id: Date.now(),
+				role: "USER" as const,
+				content,
+				type: "TEXT" as const,
+				createdAt: new Date().toISOString(),
+			};
+			setMessages((prev) => [...prev, optimisticMsg]);
+			setScrollSpacerActive(true);
+			scrollToBottom("smooth");
 
-		try {
-			if (socketService.isConnected) {
-				socketService.sendMessage(content);
-			} else {
-				await chatService.sendMessage(content);
+			try {
+				if (socketService.isConnected) {
+					socketService.sendMessage(content);
+				} else {
+					await chatService.sendMessage(content);
+					setIsSending(false);
+					setScrollSpacerActive(false);
+				}
+			} catch (error) {
+				console.error("Failed to send patient action message", error);
 				setIsSending(false);
 				setScrollSpacerActive(false);
 			}
-		} catch (error) {
-			console.error("Failed to send patient action message", error);
-			setIsSending(false);
-			setScrollSpacerActive(false);
-		}
-	}, [scrollToBottom]);
+		},
+		[scrollToBottom],
+	);
 
 	const handleRegenerate = useCallback(() => {
 		setMessages((prev) => {
@@ -444,21 +441,18 @@ export default function DoctorChat() {
 		return null;
 	}, [messages]);
 
-	const handleStartEditUser = useCallback(
-		(id: number, content: string) => {
-			setEditingMessageId(id);
-			setInput(content);
-			requestAnimationFrame(() => {
-				if (inputRef.current) {
-					const target = inputRef.current;
-					target.focus();
-					target.style.height = "auto";
-					target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
-				}
-			});
-		},
-		[],
-	);
+	const handleStartEditUser = useCallback((id: number, content: string) => {
+		setEditingMessageId(id);
+		setInput(content);
+		requestAnimationFrame(() => {
+			if (inputRef.current) {
+				const target = inputRef.current;
+				target.focus();
+				target.style.height = "auto";
+				target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
+			}
+		});
+	}, []);
 
 	const handleLogout = () => {
 		doctorAuthService.logout();
@@ -611,54 +605,56 @@ export default function DoctorChat() {
 							</div>
 						)}
 
-					{messages.map((message) => (
-						<MessageItem
-							key={message.id}
-							message={message}
-							selectedId={selectedItem?.id}
-							onSelect={handleSelect}
-							onAction={handlePatientAction}
-							isLastAssistant={message.id === lastAssistantId}
-							onRegenerate={handleRegenerate}
-							isLastUser={message.id === lastUserId}
-							onEditUser={handleStartEditUser}
-						/>
-					))}
+						{messages.map((message) => (
+							<MessageItem
+								key={message.id}
+								message={message}
+								selectedId={selectedItem?.id}
+								onSelect={handleSelect}
+								onAction={handlePatientAction}
+								isLastAssistant={message.id === lastAssistantId}
+								onRegenerate={handleRegenerate}
+								isLastUser={message.id === lastUserId}
+								onEditUser={handleStartEditUser}
+							/>
+						))}
 
-				{(isAiThinking || streamingText) && (
-					<div className="flex gap-2 items-start">
-						<div className="shrink-0 mt-0.5">
-							<div className={`w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm shadow-blue-500/20 ${!streamingText ? "animate-pulse" : ""}`}>
-								<Bot className="w-3 h-3 md:w-3.5 md:h-3.5 text-white" />
+						{(isAiThinking || streamingText) && (
+							<div className="flex gap-2 items-start">
+								<div className="shrink-0 mt-0.5">
+									<div
+										className={`w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm shadow-blue-500/20 ${!streamingText ? "animate-pulse" : ""}`}
+									>
+										<Bot className="w-3 h-3 md:w-3.5 md:h-3.5 text-white" />
+									</div>
+								</div>
+								<div className="flex-1 min-w-0 flex flex-col gap-1.5">
+									{currentToolCall && (
+										<div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-xl px-3 py-2 w-fit">
+											<Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+											<span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+												{currentToolCall}
+											</span>
+										</div>
+									)}
+									{streamingText ? (
+										<div className="pt-0.5 pb-1 text-slate-800 dark:text-slate-100">
+											<div className="text-[13px] leading-relaxed tracking-wide">
+												{parseWhatsAppFormat(streamingText)}
+											</div>
+										</div>
+									) : (
+										<div className="py-3">
+											<div className="flex gap-1.5 items-center">
+												<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
+												<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75" />
+												<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150" />
+											</div>
+										</div>
+									)}
+								</div>
 							</div>
-						</div>
-						<div className="flex-1 min-w-0 flex flex-col gap-1.5">
-							{currentToolCall && (
-								<div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-xl px-3 py-2 w-fit">
-									<Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-									<span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
-										{currentToolCall}
-									</span>
-								</div>
-							)}
-							{streamingText ? (
-							<div className="pt-0.5 pb-1 text-slate-800 dark:text-slate-100">
-								<div className="text-[13px] leading-relaxed tracking-wide">
-										{parseWhatsAppFormat(streamingText)}
-									</div>
-								</div>
-							) : (
-								<div className="py-3">
-									<div className="flex gap-1.5 items-center">
-										<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
-										<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75" />
-										<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150" />
-									</div>
-								</div>
-							)}
-						</div>
-					</div>
-				)}
+						)}
 
 						{scrollSpacerActive && (
 							<div className="shrink-0 min-h-[50vh]" aria-hidden="true" />
