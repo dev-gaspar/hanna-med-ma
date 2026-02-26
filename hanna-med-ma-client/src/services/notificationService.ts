@@ -31,13 +31,38 @@ export const notificationService = {
 			const messaging = await getFirebaseMessaging();
 			if (!messaging) return null;
 
+			// ── Clean up legacy push subscriptions ──────────────────────
+			// Previous versions registered the Firebase SW at scope "/",
+			// which created a push subscription on the main VitePWA SW.
+			// Those old subscriptions cause Chrome to show a generic
+			// "site updated in background" notification because the
+			// VitePWA SW didn't have a push handler at the time.
+			// Unsubscribing them here cleans up the stale tokens.
+			try {
+				const mainReg = await navigator.serviceWorker.ready;
+				const oldSub = await mainReg.pushManager.getSubscription();
+				if (oldSub) {
+					await oldSub.unsubscribe();
+					console.log("Cleaned up old push subscription on main SW");
+				}
+			} catch {
+				// Best-effort cleanup
+			}
+
 			// Register the Firebase SW with a SPECIFIC scope to avoid conflicting
 			// with the VitePWA service worker (which uses scope '/').
-			// Without this, both SWs fight for the same scope causing reload loops.
 			const registration = await navigator.serviceWorker.register(
 				"/firebase-messaging-sw.js",
 				{ scope: "/firebase-cloud-messaging-push-scope" },
 			);
+
+			// Force-check for updates to the Firebase SW so the latest
+			// push handler code is always installed.
+			try {
+				await registration.update();
+			} catch {
+				// update() can throw if the file is unchanged — that's fine
+			}
 
 			const token = await getToken(messaging, {
 				vapidKey: VAPID_KEY,

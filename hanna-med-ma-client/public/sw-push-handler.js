@@ -1,12 +1,14 @@
-// Firebase Messaging Service Worker
-// Handles push notifications when the app is closed or in background.
-//
-// CRITICAL: event.waitUntil() MUST be called for every push event.
-// If it isn't, Chrome shows a generic "This site has been updated in the
-// background" notification, which is confusing to users.
+// Push notification handler — imported by the VitePWA service worker
+// via workbox.importScripts. Handles push events that arrive on the
+// main SW (e.g. from old FCM subscriptions that were registered at
+// scope "/"). Without this, Chrome shows a generic "This site has been
+// updated in the background" notification for each unhandled push.
+
+/* eslint-disable no-restricted-globals */
 
 self.addEventListener("push", (event) => {
-	// ALWAYS wrap in event.waitUntil — no early returns before this call
+	// ALWAYS call event.waitUntil — Chrome requires every push event to
+	// result in a notification, otherwise it shows a default one.
 	event.waitUntil(handlePush(event));
 });
 
@@ -57,14 +59,13 @@ async function handlePush(event) {
 	});
 }
 
-// Handle notification click
 self.addEventListener("notificationclick", (event) => {
 	event.notification.close();
 
 	const link = event.notification.data?.link || "/doctor/chat";
 
 	event.waitUntil(
-		clients
+		self.clients
 			.matchAll({ type: "window", includeUncontrolled: true })
 			.then((clientList) => {
 				for (const client of clientList) {
@@ -72,8 +73,8 @@ self.addEventListener("notificationclick", (event) => {
 						return client.focus();
 					}
 				}
-				if (clients.openWindow) {
-					return clients.openWindow(link);
+				if (self.clients.openWindow) {
+					return self.clients.openWindow(link);
 				}
 			}),
 	);

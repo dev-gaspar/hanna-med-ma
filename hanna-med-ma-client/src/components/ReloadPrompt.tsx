@@ -2,14 +2,20 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { Wifi, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 
+/** sessionStorage key used to detect "just updated → reload" cycles. */
+const UPDATE_FLAG = "pwa-update-pending";
+/** Maximum ms after an update-reload where we suppress a re-prompt. */
+const UPDATE_WINDOW_MS = 15_000;
+
 /**
  * PWA ReloadPrompt — uses "prompt" registerType to avoid uncontrolled reloads.
  *
  * - offlineReady: shown briefly when the app is cached for offline use.
  * - needRefresh: shown when a new SW is waiting; user chooses when to reload.
  *
- * This prevents the reload-loop caused by autoUpdate + multiple service
- * workers (VitePWA + Firebase Messaging) competing for the same scope.
+ * A sessionStorage circuit-breaker prevents the infinite "update → reload →
+ * update" loop that can occur when SKIP_WAITING doesn't fully complete
+ * before the page unloads.
  */
 export default function ReloadPrompt() {
 	const updateCheckInterval = useRef<
@@ -45,6 +51,22 @@ export default function ReloadPrompt() {
 		};
 	}, []);
 
+	// ── Circuit breaker: suppress the prompt if we JUST completed an update ──
+	useEffect(() => {
+		if (!needRefresh) return;
+
+		const ts = sessionStorage.getItem(UPDATE_FLAG);
+		if (ts) {
+			const elapsed = Date.now() - Number(ts);
+			sessionStorage.removeItem(UPDATE_FLAG);
+			if (elapsed < UPDATE_WINDOW_MS) {
+				// We literally just reloaded after an update — suppress the re-prompt
+				setNeedRefresh(false);
+				return;
+			}
+		}
+	}, [needRefresh, setNeedRefresh]);
+
 	// Auto-dismiss "offline ready" after 3 seconds
 	useEffect(() => {
 		if (offlineReady) {
@@ -53,22 +75,43 @@ export default function ReloadPrompt() {
 		}
 	}, [offlineReady, setOfflineReady]);
 
-	// Accept update: try to activate waiting SW, then force reload as fallback
+	// Accept update: try multiple strategies to activate the waiting SW.
 	const acceptUpdate = useCallback(async () => {
 		setIsUpdating(true);
-		try {
-			// Try the standard VitePWA update mechanism
-			await updateServiceWorker(true);
 
-			// If updateServiceWorker didn't trigger a reload within 2s,
-			// force a hard reload to pick up the new assets
-			setTimeout(() => {
-				window.location.reload();
-			}, 2000);
+		// Mark the timestamp BEFORE reload so the next page load can detect the loop
+		sessionStorage.setItem(UPDATE_FLAG, Date.now().toString());
+
+		try {
+			// Strategy 1: VitePWA built-in (sends SKIP_WAITING via workbox-window)
+			await updateServiceWorker(true);
 		} catch {
-			// If anything fails, just hard reload
-			window.location.reload();
+			// ignore — try manual approach below
 		}
+
+		// Strategy 2: Manually post SKIP_WAITING and listen for controllerchange
+		try {
+			const reg = await navigator.serviceWorker.getRegistration("/");
+			if (reg?.waiting) {
+				const onControllerChange = () => {
+					navigator.serviceWorker.removeEventListener(
+						"controllerchange",
+						onControllerChange,
+					);
+					window.location.reload();
+				};
+				navigator.serviceWorker.addEventListener(
+					"controllerchange",
+					onControllerChange,
+				);
+				reg.waiting.postMessage({ type: "SKIP_WAITING" });
+			}
+		} catch {
+			// ignore
+		}
+
+		// Strategy 3: Last-resort — if nothing triggers a reload within 5 s
+		setTimeout(() => window.location.reload(), 5000);
 	}, [updateServiceWorker]);
 
 	const close = () => {

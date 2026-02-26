@@ -41,10 +41,15 @@ export default defineConfig({
 			workbox: {
 				// HIPAA-Safe Caching: Only cache static assets, NEVER cache API responses
 				globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
-				// Exclude Firebase messaging SW from precache — it's a separate SW
-				// that handles push notifications independently. Including it causes
+				// Exclude push-related SWs from precache. They are standalone scripts
+				// that handle push notifications independently. Including them causes
 				// false "new version available" prompts on every build.
-				globIgnores: ["**/firebase-messaging-sw.js"],
+				globIgnores: ["**/firebase-messaging-sw.js", "**/sw-push-handler.js"],
+				// Inject push notification handler into the VitePWA-generated SW.
+				// This ensures push events that arrive on the main SW (e.g. from
+				// legacy FCM subscriptions at scope "/") are handled properly
+				// instead of triggering Chrome's default "site updated" notification.
+				importScripts: ["/sw-push-handler.js"],
 				// Explicitly exclude API routes from caching (HIPAA compliance)
 				navigateFallbackDenylist: [/^\/api/, /^\/auth/],
 				runtimeCaching: [
