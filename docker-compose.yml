@@ -34,9 +34,9 @@ services:
         - VITE_FIREBASE_APP_ID=${VITE_V2_FIREBASE_APP_ID}
     restart: unless-stopped
     environment:
-      - CLIENT_PORT=${V2_CLIENT_PORT:-3004}
+      - CLIENT_PORT=${V2_CLIENT_PORT:-3003}
     expose:
-      - ${V2_CLIENT_PORT:-3004}
+      - ${V2_CLIENT_PORT:-3003}
     networks:
       - dokploy-network
 

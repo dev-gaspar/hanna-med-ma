@@ -42,7 +42,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Exponer puerto
-EXPOSE 3004
+EXPOSE 3003
 
 # Iniciar nginx
 CMD ["nginx", "-g", "daemon off;"]
