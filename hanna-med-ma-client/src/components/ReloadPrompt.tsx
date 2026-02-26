@@ -12,7 +12,9 @@ import { useEffect, useRef, useCallback } from "react";
  * workers (VitePWA + Firebase Messaging) competing for the same scope.
  */
 export default function ReloadPrompt() {
-	const updateCheckInterval = useRef<ReturnType<typeof setInterval>>();
+	const updateCheckInterval = useRef<
+		ReturnType<typeof setInterval> | undefined
+	>(undefined);
 
 	const {
 		offlineReady: [offlineReady, setOfflineReady],
