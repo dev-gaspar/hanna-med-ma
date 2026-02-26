@@ -1,5 +1,5 @@
 services:
-  hanna-med-ma-server-v2:
+  hannamedma-server:
     build:
       context: ./hanna-med-ma-server
       dockerfile: Dockerfile
@@ -21,7 +21,7 @@ services:
     networks:
       - dokploy-network
 
-  hanna-med-ma-client-v2:
+  hannamedma-client:
     build:
       context: ./hanna-med-ma-client
       dockerfile: Dockerfile
