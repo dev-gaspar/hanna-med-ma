@@ -217,40 +217,55 @@ class RpaNode:
                     f"\n{'─' * 60}\n" f"  HOSPITAL: {hospital_type}\n" f"{'─' * 60}"
                 )
 
-                # Task 1: Patient List
-                if not skip_patient_list:
-                    if not self._run_task(
-                        name=f"{hospital_type} patient_list",
-                        fn=self._extract_patient_list,
-                        hospital_type=hospital_type,
-                        hospital_config=hospital_config,
-                        timeout=task_timeout,
-                    ):
-                        logger.warning(
-                            f"Skipping summaries and insurance for {hospital_type} "
-                            "because patient_list failed."
+                # ──────────────────────────────────────────────────────────
+                # JACKSON: single unified flow (login once → list + summary
+                #          + insurance → close once)
+                # ──────────────────────────────────────────────────────────
+                if hospital_type == "JACKSON":
+                    if not (skip_patient_list and skip_summaries and skip_insurance):
+                        self._run_task(
+                            name=f"{hospital_type} unified_batch",
+                            fn=self._extract_unified_batch,
+                            hospital_type=hospital_type,
+                            hospital_config=hospital_config,
+                            timeout=task_timeout,
                         )
-                        continue
+                else:
+                    # OTHER HOSPITALS: keep the legacy 3-task pattern
+                    # Task 1: Patient List
+                    if not skip_patient_list:
+                        if not self._run_task(
+                            name=f"{hospital_type} patient_list",
+                            fn=self._extract_patient_list,
+                            hospital_type=hospital_type,
+                            hospital_config=hospital_config,
+                            timeout=task_timeout,
+                        ):
+                            logger.warning(
+                                f"Skipping summaries and insurance for {hospital_type} "
+                                "because patient_list failed."
+                            )
+                            continue
 
-                # Task 2: Batch Summaries
-                if not skip_summaries:
-                    self._run_task(
-                        name=f"{hospital_type} batch_summaries",
-                        fn=self._extract_batch_summaries,
-                        hospital_type=hospital_type,
-                        hospital_config=hospital_config,
-                        timeout=task_timeout,
-                    )
+                    # Task 2: Batch Summaries
+                    if not skip_summaries:
+                        self._run_task(
+                            name=f"{hospital_type} batch_summaries",
+                            fn=self._extract_batch_summaries,
+                            hospital_type=hospital_type,
+                            hospital_config=hospital_config,
+                            timeout=task_timeout,
+                        )
 
-                # Task 3: Batch Insurance
-                if not skip_insurance:
-                    self._run_task(
-                        name=f"{hospital_type} batch_insurance",
-                        fn=self._extract_batch_insurance,
-                        hospital_type=hospital_type,
-                        hospital_config=hospital_config,
-                        timeout=task_timeout,
-                    )
+                    # Task 3: Batch Insurance
+                    if not skip_insurance:
+                        self._run_task(
+                            name=f"{hospital_type} batch_insurance",
+                            fn=self._extract_batch_insurance,
+                            hospital_type=hospital_type,
+                            hospital_config=hospital_config,
+                            timeout=task_timeout,
+                        )
 
                 logger.info(f"--- {hospital_type} complete ---")
 
@@ -332,7 +347,9 @@ class RpaNode:
         # notify_completion() inside run() already sent data to the backend.
         if result and isinstance(result, list):
             patient_names = [
-                p.get("name", "") for p in result if isinstance(p, dict) and p.get("name")
+                p.get("name", "")
+                for p in result
+                if isinstance(p, dict) and p.get("name")
             ]
             self._last_patient_names[hospital_type] = patient_names
             logger.info(
@@ -343,6 +360,52 @@ class RpaNode:
                 f"Patient list flow for {hospital_type} completed "
                 "(no structured data returned)"
             )
+
+    def _extract_unified_batch(self, hospital_type: str, hospital_config: dict):
+        """
+        Single-session extraction for Jackson: patient list + summary + insurance.
+
+        The unified flow handles everything in one PowerChart login:
+          1. Login → navigate to patient list
+          2. Capture census → OCR → send patient_list to backend
+          3. For each patient: open detail once → extract summary + insurance
+          4. Close PowerChart → return to VDI
+        """
+        logger.info(f"Unified batch (single session): starting for {hospital_type}")
+
+        from flows.jackson_unified_batch import JacksonUnifiedBatchFlow
+
+        flow = JacksonUnifiedBatchFlow()
+        creds = self._get_credentials_for(hospital_type)
+
+        result = flow.run(
+            doctor_id=self.doctor_id,
+            doctor_name=self.doctor_name,
+            credentials=creds,
+            doctor_specialty=self.doctor_specialty,
+            hospital_type=hospital_type,
+        )
+
+        if result and isinstance(result, dict):
+            census_count = len(result.get("structured_patients", []))
+            summary_count = result.get("summary_found_count", 0)
+            insurance_count = result.get("insurance_found_count", 0)
+            logger.info(
+                f"Unified batch complete for {hospital_type}: "
+                f"census={census_count}, summaries={summary_count}, "
+                f"insurance={insurance_count}"
+            )
+
+            # Store patient names in case other code needs them
+            if result.get("structured_patients"):
+                names = [
+                    p.get("name", "")
+                    for p in result["structured_patients"]
+                    if isinstance(p, dict) and p.get("name")
+                ]
+                self._last_patient_names[hospital_type] = names
+        else:
+            logger.info(f"Unified batch for {hospital_type} completed (no return data)")
 
     def _extract_batch_summaries(self, hospital_type: str, hospital_config: dict):
         """
@@ -404,7 +467,9 @@ class RpaNode:
 
         # notify_completion() inside run() already sent data to the backend
         if result:
-            found_count = result.get("found_count", 0) if isinstance(result, dict) else 0
+            found_count = (
+                result.get("found_count", 0) if isinstance(result, dict) else 0
+            )
             logger.info(
                 f"Batch summaries complete for {hospital_type}: "
                 f"{found_count}/{len(patient_names)} patients found"
@@ -476,7 +541,9 @@ class RpaNode:
 
         # notify_completion() inside run() already sent data to the backend
         if result:
-            found_count = result.get("found_count", 0) if isinstance(result, dict) else 0
+            found_count = (
+                result.get("found_count", 0) if isinstance(result, dict) else 0
+            )
             logger.info(
                 f"Batch insurance complete for {hospital_type}: "
                 f"{found_count}/{len(patient_names)} patients found"
