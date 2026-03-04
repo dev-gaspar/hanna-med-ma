@@ -128,7 +128,7 @@ export default function ReloadPrompt() {
 					<>
 						<Wifi className="w-4 h-4 text-green-500 flex-shrink-0" />
 						<p className="text-xs text-slate-600 dark:text-slate-300 flex-1">
-							App lista para uso offline
+							App ready for offline use
 						</p>
 						<button
 							onClick={close}
@@ -143,7 +143,7 @@ export default function ReloadPrompt() {
 							className={`w-4 h-4 text-blue-500 flex-shrink-0 ${isUpdating ? "animate-spin" : ""}`}
 						/>
 						<p className="text-xs text-slate-600 dark:text-slate-300 flex-1">
-							{isUpdating ? "Actualizando..." : "Nueva versión disponible"}
+							{isUpdating ? "Updating..." : "New version available"}
 						</p>
 						{!isUpdating && (
 							<>
@@ -151,7 +151,7 @@ export default function ReloadPrompt() {
 									onClick={acceptUpdate}
 									className="text-xs font-medium px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
 								>
-									Actualizar
+									Update
 								</button>
 								<button
 									onClick={close}
