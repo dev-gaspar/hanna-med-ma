@@ -218,10 +218,11 @@ class RpaNode:
                 )
 
                 # ──────────────────────────────────────────────────────────
-                # JACKSON: single unified flow (login once → list + summary
-                #          + insurance → close once)
+                # UNIFIED FLOW: single login session (login once → list +
+                #   summary + insurance → close once)
+                # Supported: JACKSON, BAPTIST
                 # ──────────────────────────────────────────────────────────
-                if hospital_type == "JACKSON":
+                if hospital_type in ("JACKSON", "BAPTIST"):
                     if not (skip_patient_list and skip_summaries and skip_insurance):
                         self._run_task(
                             name=f"{hospital_type} unified_batch",
@@ -363,19 +364,30 @@ class RpaNode:
 
     def _extract_unified_batch(self, hospital_type: str, hospital_config: dict):
         """
-        Single-session extraction for Jackson: patient list + summary + insurance.
+        Single-session extraction: patient list + summary + insurance.
 
-        The unified flow handles everything in one PowerChart login:
+        The unified flow handles everything in one EMR login:
           1. Login → navigate to patient list
           2. Capture census → OCR → send patient_list to backend
           3. For each patient: open detail once → extract summary + insurance
-          4. Close PowerChart → return to VDI
+          4. Close EMR → return to VDI
+
+        Supported hospitals: JACKSON, BAPTIST.
         """
         logger.info(f"Unified batch (single session): starting for {hospital_type}")
 
-        from flows.jackson_unified_batch import JacksonUnifiedBatchFlow
+        if hospital_type == "JACKSON":
+            from flows.jackson_unified_batch import JacksonUnifiedBatchFlow
 
-        flow = JacksonUnifiedBatchFlow()
+            flow = JacksonUnifiedBatchFlow()
+        elif hospital_type == "BAPTIST":
+            from flows.baptist_unified_batch import BaptistUnifiedBatchFlow
+
+            flow = BaptistUnifiedBatchFlow()
+        else:
+            logger.warning(f"No unified batch flow for hospital type: {hospital_type}")
+            return
+
         creds = self._get_credentials_for(hospital_type)
 
         result = flow.run(

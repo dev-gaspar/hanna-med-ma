@@ -485,7 +485,7 @@ class BaptistSummaryRunner:
             # Check for Telemetry/Order Mismatch OK button
             try:
                 ok_modal = config.get_rpa_setting("images.baptist_ok_modal")
-                location = pyautogui.locateOnScreen(ok_modal, confidence=0.8)
+                location = pyautogui.locateOnScreen(ok_modal, confidence=0.7)
                 if location:
                     logger.info(
                         "[RUNNER] Telemetry/Order Mismatch modal detected - clicking OK"
@@ -533,6 +533,14 @@ class BaptistSummaryRunner:
             self.rpa.safe_click(loc, "Assign Relationship OK")
             self.rpa.stoppable_sleep(2)
 
+        # Define handler for Telemetry/Order Mismatch modal (OK button)
+        def handle_ok_modal(loc):
+            logger.info(
+                "[RUNNER] Telemetry/Order Mismatch during Notes search - clicking OK"
+            )
+            self.rpa.safe_click(loc, "Telemetry OK")
+            self.rpa.stoppable_sleep(2)
+
         handlers = {}
 
         try:
@@ -545,13 +553,23 @@ class BaptistSummaryRunner:
         except Exception:
             pass
 
+        try:
+            ok_modal = config.get_rpa_setting("images.baptist_ok_modal")
+            if ok_modal:
+                handlers[ok_modal] = (
+                    "Telemetry/Order Mismatch",
+                    handle_ok_modal,
+                )
+        except Exception:
+            pass
+
         # Use robust wait with modal handlers
         location = self.rpa.robust_wait_for_element(
             target_image_path=notes_image,
             target_description="Notes Menu",
             handlers=handlers,
             timeout=30,
-            confidence=0.8,
+            confidence=0.7,
             auto_click=True,
         )
 
