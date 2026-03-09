@@ -21,12 +21,10 @@ import DoctorChat from "./pages/doctor/DoctorChat";
 
 // Doctor Components
 import DoctorProtectedRoute from "./components/doctor/DoctorProtectedRoute";
-import ReloadPrompt from "./components/ReloadPrompt";
 
 function App() {
 	return (
 		<BrowserRouter>
-			<ReloadPrompt />
 			<Routes>
 				{/* Public Routes */}
 				<Route path="/" element={<LandingPage />} />

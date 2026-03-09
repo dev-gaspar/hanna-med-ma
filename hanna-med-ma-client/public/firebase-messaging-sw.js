@@ -47,8 +47,8 @@ async function handlePush(event) {
 
 	return self.registration.showNotification(title, {
 		body,
-		icon: "/pwa-192x192.png",
-		badge: "/pwa-192x192.png",
+		icon: "/favicon.ico",
+		badge: "/favicon.ico",
 		vibrate: [200, 100, 200],
 		requireInteraction: true,
 		data,
