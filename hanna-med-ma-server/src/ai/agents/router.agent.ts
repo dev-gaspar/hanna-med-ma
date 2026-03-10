@@ -115,6 +115,11 @@ export class RouterAgent {
           const msgType = chunk?.constructor?.name || typeof chunk;
           chunkIndex++;
 
+          // Extreme logging for debugging empty responses
+          if (attempt === 1 && chunkIndex === 1) {
+             this.logger.debug(`[DEBUG EMPTY] First chunk of attempt 1: msgType=${msgType}, nodeType=${nodeType}, content=${JSON.stringify(chunk.content)}, tool_calls=${JSON.stringify(chunk.tool_calls)}, tool_call_chunks=${JSON.stringify(chunk.tool_call_chunks)}`);
+          }
+
           // --- Detect tool calls ---
           // Method 1: From ToolMessage (most reliable for Google Gemini streams)
           if (msgType === "ToolMessage" || chunk.tool_call_id) {
