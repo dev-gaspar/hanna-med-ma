@@ -164,7 +164,7 @@ export class RouterAgent {
       throw error;
     }
 
-    const finalResult = (fullText + "\\n" + streamedFromTools).trim();
+    const finalResult = (fullText + "\n" + streamedFromTools).trim();
 
     if (!finalResult) {
       this.logger.warn("Agent returned empty text — returning fallback");

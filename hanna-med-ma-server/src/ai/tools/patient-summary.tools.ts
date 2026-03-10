@@ -91,7 +91,7 @@ export class BatchPatientSummaryTool {
     const results: string[] = [];
     for (let i = 0; i < args.patient_names.length; i++) {
         if (i > 0 && callbacks?.onStreaming) {
-            callbacks.onStreaming("\\n\\n---\\n\\n");
+            callbacks.onStreaming("\n\n---\n\n");
         }
         const name = args.patient_names[i];
         const res = await this.summaryTool.execute(
@@ -101,6 +101,6 @@ export class BatchPatientSummaryTool {
         );
         results.push(res);
     }
-    return results.join("\\n\\n---\\n\\n");
+    return results.join("\n\n---\n\n");
   }
 }

@@ -78,7 +78,7 @@ export class BatchPatientListTool {
     const results: string[] = [];
     for (let i = 0; i < args.hospital_types.length; i++) {
         if (i > 0 && callbacks?.onStreaming) {
-            callbacks.onStreaming("\\n\\n---\\n\\n");
+            callbacks.onStreaming("\n\n---\n\n");
         }
         const type = args.hospital_types[i];
         const res = await this.patientListTool.execute(
@@ -88,6 +88,6 @@ export class BatchPatientListTool {
         );
         results.push(res);
     }
-    return results.join("\\n\\n---\\n\\n");
+    return results.join("\n\n---\n\n");
   }
 }
