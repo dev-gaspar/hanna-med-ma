@@ -347,7 +347,9 @@ export default function DoctorChat() {
 
 	const scrollToSpacer = useCallback((behavior: ScrollBehavior = "smooth") => {
 		requestAnimationFrame(() => {
-			spacerEndRef.current?.scrollIntoView({ behavior, block: "end" });
+			setTimeout(() => {
+				spacerEndRef.current?.scrollIntoView({ behavior, block: "end" });
+			}, 50);
 		});
 	}, []);
 
