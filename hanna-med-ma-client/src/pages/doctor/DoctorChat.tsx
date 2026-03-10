@@ -66,6 +66,7 @@ export default function DoctorChat() {
 	// --- Refs ---
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const canvasBottomRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
 	const prevScrollHeightRef = useRef(0);
@@ -217,17 +218,7 @@ export default function DoctorChat() {
 			return;
 		}
 
-		// Auto-scroll when new messages are appended
-		const { scrollTop, scrollHeight, clientHeight } = container;
-		const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
-		if (isNearBottom) {
-			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({
-					behavior: "smooth",
-					block: "end",
-				});
-			});
-		}
+		// Disable generic auto-scroll to preserve "totalmente estatico" AI streaming
 	}, [messages]);
 
     // Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
@@ -235,7 +226,9 @@ export default function DoctorChat() {
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
-		const handleResize = () => scrollToBottom("smooth");
+		const handleResize = () => {
+			// Do nothing to avoid breaking static canvas on mobile keyboard open
+		};
 		window.visualViewport.addEventListener("resize", handleResize);
 		return () =>
 			window.visualViewport?.removeEventListener("resize", handleResize);
@@ -296,7 +289,7 @@ export default function DoctorChat() {
 			});
 
 			setEditingMessageId(null);
-			scrollToBottom("smooth");
+			scrollToCanvasBottom("smooth");
 
 			try {
 				(socketService as any).editLastMessage(tempContent);
@@ -325,7 +318,7 @@ export default function DoctorChat() {
 			createdAt: new Date().toISOString(),
 		};
 		setMessages((prev) => [...prev, optimisticMsg]);
-		scrollToBottom("smooth");
+		scrollToCanvasBottom("smooth");
 
 		try {
 			if (socketService.isConnected) {
@@ -341,9 +334,9 @@ export default function DoctorChat() {
 		}
 	};
 
-	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+	const scrollToCanvasBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
 		requestAnimationFrame(() => {
-			messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+			canvasBottomRef.current?.scrollIntoView({ behavior, block: "end" });
 		});
 	}, []);
 
@@ -365,7 +358,7 @@ export default function DoctorChat() {
 				createdAt: new Date().toISOString(),
 			};
 			setMessages((prev) => [...prev, optimisticMsg]);
-			scrollToBottom("smooth");
+			scrollToCanvasBottom("smooth");
 
 			try {
 				if (socketService.isConnected) {
@@ -379,7 +372,7 @@ export default function DoctorChat() {
 				setIsSending(false);
 			}
 		},
-		[scrollToBottom],
+		[scrollToCanvasBottom],
 	);
 
 	const handleRegenerate = useCallback(() => {
@@ -390,11 +383,11 @@ export default function DoctorChat() {
 		});
 		setIsAiThinking(true);
 		setIsSending(true);
-		scrollToBottom("smooth");
+		scrollToCanvasBottom("smooth");
 		if (socketService.isConnected) {
 			socketService.regenerateMessage();
 		}
-	}, [scrollToBottom]);
+	}, [scrollToCanvasBottom]);
 
 	const lastAssistantId = useMemo(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
@@ -626,8 +619,9 @@ export default function DoctorChat() {
 							</div>
 						)}
 
-						<div className="shrink-0 min-h-[35vh]" aria-hidden="true" />
-						<div ref={messagesEndRef} />
+						<div ref={messagesEndRef} className="h-0 w-0" />
+						<div className="shrink-0 min-h-[40vh]" aria-hidden="true" />
+						<div ref={canvasBottomRef} className="h-0 w-0" />
 					</div>
 
 					{/* Input Area */}
