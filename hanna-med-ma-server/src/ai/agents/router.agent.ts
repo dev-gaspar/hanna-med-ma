@@ -63,7 +63,19 @@ export class RouterAgent {
       }),
     });
 
-    const tools = this.buildTools(doctorContext);
+    let fullText = "";
+    let streamedFromTools = "";
+    let isMuted = false;
+    const toolsNotified = new Set<string>();
+
+    const toolCallbacks = {
+      onStreaming: (chunk: string) => {
+        streamedFromTools += chunk;
+        callbacks?.onStreaming?.(chunk);
+      }
+    };
+
+    const tools = this.buildTools(doctorContext, toolCallbacks);
 
     const agent = createReactAgent({
       llm: this.modelService.getModel(),
@@ -79,9 +91,6 @@ export class RouterAgent {
           : new AIMessage(m.content),
       );
     messages.push(new HumanMessage(userMessage));
-
-    let fullText = "";
-    const toolsNotified = new Set<string>();
 
     this.logger.log(
       `Starting LangGraph agent stream for doctor ${doctorContext.doctorId}`,
@@ -110,6 +119,9 @@ export class RouterAgent {
             this.logger.log(`🔧 Tool executed: ${toolName}`);
             callbacks?.onToolCall?.(toolName);
           }
+          if (["query_patient_summary", "query_batch_patient_summary", "query_patient_insurance", "query_batch_patient_insurance", "query_patient_list", "query_batch_patient_list"].includes(toolName)) {
+             isMuted = true;
+          }
         }
 
         // Method 2: From AIMessage tool_calls/tool_call_chunks
@@ -134,6 +146,8 @@ export class RouterAgent {
 
         // --- Extract streaming text from agent node ---
         if (nodeType === "agent") {
+          if (isMuted) continue;
+
           const text = this.extractTextContent(chunk);
           if (text) {
             fullText += text;
@@ -150,12 +164,14 @@ export class RouterAgent {
       throw error;
     }
 
-    if (!fullText.trim()) {
+    const finalResult = (fullText + "\\n" + streamedFromTools).trim();
+
+    if (!finalResult) {
       this.logger.warn("Agent returned empty text — returning fallback");
       return "I apologize, Doctor. I experienced a momentary issue. Please try again.";
     }
 
-    return fullText;
+    return finalResult;
   }
 
   private extractTextContent(chunk: any): string {
@@ -174,7 +190,10 @@ export class RouterAgent {
     return "";
   }
 
-  private buildTools(ctx: DoctorContext) {
+  private buildTools(
+    ctx: DoctorContext,
+    callbacks?: { onStreaming?: (chunk: string) => void }
+  ) {
     const hospitalEnum = z.enum(["JACKSON", "STEWARD", "BAPTIST"]);
 
     return [
@@ -183,6 +202,7 @@ export class RouterAgent {
           return this.patientListTool.execute(
             { hospital_type, specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
+            callbacks
           );
         },
         {
@@ -207,6 +227,7 @@ export class RouterAgent {
           return this.batchPatientListTool.execute(
             { hospital_types, specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
+            callbacks
           );
         },
         {
@@ -229,6 +250,7 @@ export class RouterAgent {
           return this.patientSummaryTool.execute(
             { hospital_type, patient_name, specific_question },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
+            callbacks
           );
         },
         {
@@ -251,6 +273,7 @@ export class RouterAgent {
           return this.batchPatientSummaryTool.execute(
             { hospital_type, patient_names, specific_question },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
+            callbacks
           );
         },
         {
@@ -274,6 +297,7 @@ export class RouterAgent {
           return this.patientInsuranceTool.execute(
             { hospital_type, patient_name, specific_question },
             { doctorId: ctx.doctorId },
+            callbacks
           );
         },
         {
@@ -296,6 +320,7 @@ export class RouterAgent {
           return this.batchPatientInsuranceTool.execute(
             { hospital_type, patient_names, specific_question },
             { doctorId: ctx.doctorId },
+            callbacks
           );
         },
         {

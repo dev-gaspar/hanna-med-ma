@@ -19,6 +19,7 @@ export class PatientInsuranceTool {
       specific_question?: string;
     },
     doctorContext: { doctorId: number },
+    callbacks?: { onStreaming?: (chunk: string) => void },
   ): Promise<string> {
     const { hospital_type, patient_name, specific_question } = args;
 
@@ -66,6 +67,7 @@ export class PatientInsuranceTool {
         extractedAt: formatDateForDisplay(rawData.extractedAt),
       },
       specific_question,
+      callbacks?.onStreaming,
     );
   }
 }
@@ -83,19 +85,21 @@ export class BatchPatientInsuranceTool {
       specific_question?: string;
     },
     doctorContext: { doctorId: number },
+    callbacks?: { onStreaming?: (chunk: string) => void }
   ): Promise<string> {
-    const results = await Promise.all(
-      args.patient_names.map((name) =>
-        this.insuranceTool.execute(
-          {
-            hospital_type: args.hospital_type,
-            patient_name: name,
-            specific_question: args.specific_question,
-          },
-          doctorContext,
-        ),
-      ),
-    );
-    return results.join("\n\n---\n\n");
+    const results: string[] = [];
+    for (let i = 0; i < args.patient_names.length; i++) {
+        if (i > 0 && callbacks?.onStreaming) {
+            callbacks.onStreaming("\\n\\n---\\n\\n");
+        }
+        const name = args.patient_names[i];
+        const res = await this.insuranceTool.execute(
+            { hospital_type: args.hospital_type, patient_name: name, specific_question: args.specific_question },
+            doctorContext,
+            callbacks
+        );
+        results.push(res);
+    }
+    return results.join("\\n\\n---\\n\\n");
   }
 }

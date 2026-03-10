@@ -16,18 +16,19 @@ export class SubAgentsService {
 
   async formatInsurance(
     rawContent: string,
-    ctx: { patientName: string; hospitalType: string; extractedAt: string },
+    context: { patientName: string; hospitalType: string; extractedAt: string },
     specificQuestion?: string,
+    onStreaming?: (chunk: string) => void,
   ): Promise<string> {
     const prompt = specificQuestion
       ? getConversationalPrompt({
-          patientName: ctx.patientName,
-          hospitalType: ctx.hospitalType,
+          patientName: context.patientName,
+          hospitalType: context.hospitalType,
           specificQuestion,
         })
-      : getInsurancePrompt(ctx);
+      : getInsurancePrompt(context);
 
-    return this.invokeModel(prompt, rawContent);
+    return this.invokeModel(prompt, `Raw Data Context:\n${rawContent}`, onStreaming);
   }
 
   async formatSummary(
@@ -39,6 +40,7 @@ export class SubAgentsService {
       doctorSpecialty: string;
     },
     specificQuestion?: string,
+    onStreaming?: (chunk: string) => void,
   ): Promise<string> {
     const prompt = specificQuestion
       ? getConversationalPrompt({
@@ -48,34 +50,51 @@ export class SubAgentsService {
         })
       : getSummaryPrompt(ctx);
 
-    return this.invokeModel(prompt, rawContent);
+    return this.invokeModel(prompt, `Raw Data Context:\n${rawContent}`, onStreaming);
   }
 
   async formatPatientList(
-    patientsData: string,
-    ctx: { hospitalType: string; lastUpdated: string },
+    patientsJson: string,
+    context: { hospitalType: string; lastUpdated: string },
     specificQuestion?: string,
+    onStreaming?: (chunk: string) => void,
   ): Promise<string> {
     const prompt = specificQuestion
       ? getConversationalPrompt({
-          hospitalType: ctx.hospitalType,
+          hospitalType: context.hospitalType,
           specificQuestion,
         })
-      : getListPrompt(ctx);
+      : getListPrompt(context);
 
-    return this.invokeModel(prompt, patientsData);
+    return this.invokeModel(prompt, `List Data Context:\n${patientsJson}`, onStreaming);
   }
 
   private async invokeModel(
     systemPrompt: string,
     humanContent: string,
+    onStreaming?: (chunk: string) => void,
   ): Promise<string> {
     const model = this.modelService.getModel();
 
     try {
+      if (onStreaming) {
+        let fullContent = "";
+        const stream = await model.stream([
+          new SystemMessage(systemPrompt),
+          new HumanMessage(humanContent),
+        ]);
+        for await (const chunk of stream) {
+          if (chunk.content) {
+            fullContent += chunk.content;
+            onStreaming(chunk.content as string);
+          }
+        }
+        return fullContent;
+      }
+
       const response = await model.invoke([
         new SystemMessage(systemPrompt),
-        new HumanMessage(`Raw Data Context:\\n${humanContent}`),
+        new HumanMessage(humanContent),
       ]);
 
       return response.content as string;

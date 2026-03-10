@@ -15,6 +15,7 @@ export class PatientListTool {
   async execute(
     args: { hospital_type: string; specific_question?: string },
     doctorContext: { doctorId: number; doctorName: string },
+    callbacks?: { onStreaming?: (chunk: string) => void },
   ): Promise<string> {
     const { hospital_type, specific_question } = args;
 
@@ -58,6 +59,7 @@ export class PatientListTool {
         lastUpdated: formatDateForDisplay(mostRecentUpdate),
       },
       specific_question,
+      callbacks?.onStreaming,
     );
   }
 }
@@ -71,15 +73,21 @@ export class BatchPatientListTool {
   async execute(
     args: { hospital_types: string[]; specific_question?: string },
     doctorContext: { doctorId: number; doctorName: string },
+    callbacks?: { onStreaming?: (chunk: string) => void }
   ): Promise<string> {
-    const results = await Promise.all(
-      args.hospital_types.map((type) =>
-        this.patientListTool.execute(
-          { hospital_type: type, specific_question: args.specific_question },
-          doctorContext,
-        ),
-      ),
-    );
+    const results: string[] = [];
+    for (let i = 0; i < args.hospital_types.length; i++) {
+        if (i > 0 && callbacks?.onStreaming) {
+            callbacks.onStreaming("\\n\\n---\\n\\n");
+        }
+        const type = args.hospital_types[i];
+        const res = await this.patientListTool.execute(
+            { hospital_type: type, specific_question: args.specific_question },
+            doctorContext,
+            callbacks
+        );
+        results.push(res);
+    }
     return results.join("\\n\\n---\\n\\n");
   }
 }
