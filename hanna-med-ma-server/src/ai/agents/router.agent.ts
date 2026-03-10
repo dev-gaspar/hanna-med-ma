@@ -75,6 +75,13 @@ export class RouterAgent {
         onStreaming: (chunk: string) => {
           streamedFromTools += chunk;
           callbacks?.onStreaming?.(chunk);
+        },
+        onToolCall: (toolName: string) => {
+          if (!toolsNotified.has(toolName)) {
+            toolsNotified.add(toolName);
+            this.logger.log(`🔧 Tool executed (forced prior): ${toolName}`);
+            callbacks?.onToolCall?.(toolName);
+          }
         }
       };
 
@@ -212,13 +219,17 @@ export class RouterAgent {
 
   private buildTools(
     ctx: DoctorContext,
-    callbacks?: { onStreaming?: (chunk: string) => void }
+    callbacks?: { 
+      onStreaming?: (chunk: string) => void;
+      onToolCall?: (toolName: string) => void;
+    }
   ) {
     const hospitalEnum = z.string().describe("Hospital EMR system (must be uppercase, e.g. JACKSON, STEWARD, BAPTIST)");
 
     return [
       tool(
         async ({ hospital_type, specific_question }) => {
+          callbacks?.onToolCall?.("query_patient_list");
           return this.patientListTool.execute(
             { hospital_type: hospital_type.toUpperCase(), specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
@@ -244,6 +255,7 @@ export class RouterAgent {
       ),
       tool(
         async ({ hospital_types, specific_question }) => {
+          callbacks?.onToolCall?.("query_batch_patient_list");
           return this.batchPatientListTool.execute(
             { hospital_types: hospital_types.map(h => h.toUpperCase()), specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
@@ -267,6 +279,7 @@ export class RouterAgent {
       ),
       tool(
         async ({ hospital_type, patient_name, specific_question }) => {
+          callbacks?.onToolCall?.("query_patient_summary");
           return this.patientSummaryTool.execute(
             { hospital_type: hospital_type.toUpperCase(), patient_name, specific_question },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
@@ -290,6 +303,7 @@ export class RouterAgent {
       ),
       tool(
         async ({ hospital_type, patient_names, specific_question }) => {
+          callbacks?.onToolCall?.("query_batch_patient_summary");
           return this.batchPatientSummaryTool.execute(
             { hospital_type: hospital_type.toUpperCase(), patient_names, specific_question },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
@@ -314,6 +328,7 @@ export class RouterAgent {
       ),
       tool(
         async ({ hospital_type, patient_name, specific_question }) => {
+          callbacks?.onToolCall?.("query_patient_insurance");
           return this.patientInsuranceTool.execute(
             { hospital_type: hospital_type.toUpperCase(), patient_name, specific_question },
             { doctorId: ctx.doctorId },
@@ -337,6 +352,7 @@ export class RouterAgent {
       ),
       tool(
         async ({ hospital_type, patient_names, specific_question }) => {
+          callbacks?.onToolCall?.("query_batch_patient_insurance");
           return this.batchPatientInsuranceTool.execute(
             { hospital_type: hospital_type.toUpperCase(), patient_names, specific_question },
             { doctorId: ctx.doctorId },
@@ -357,6 +373,7 @@ export class RouterAgent {
       ),
       tool(
         async ({ patient_names }) => {
+          callbacks?.onToolCall?.("find_patient_context");
           return this.findPatientContextTool.execute(
             { patient_names },
             { doctorId: ctx.doctorId },
