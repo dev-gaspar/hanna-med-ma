@@ -72,6 +72,9 @@ export default function DoctorChat() {
 	const prevScrollHeightRef = useRef(0);
 	const isPrependRef = useRef(false);
 	const isInitialLoadRef = useRef(true);
+	const isUserScrolledUpRef = useRef(false);
+	const isAutoScrollingRef = useRef(false);
+	const scrollTimeoutRef = useRef<number | null>(null);
 
 	const onStreamingChunk = useCallback((chunk: string) => {
 		streamingBufferRef.current += chunk;
@@ -223,7 +226,7 @@ export default function DoctorChat() {
 		// Auto-scroll when new messages are appended
 		const { scrollTop, scrollHeight, clientHeight } = container;
 		const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
-		if (isNearBottom) {
+		if (isNearBottom && !isUserScrolledUpRef.current) {
 			requestAnimationFrame(() => {
 				messagesEndRef.current?.scrollIntoView({
 					behavior: "smooth",
@@ -233,8 +236,15 @@ export default function DoctorChat() {
 		}
 	}, [messages]);
 
-    // Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
-    // to keep the canvas fixed while chunks are physically streaming in.
+	// Auto-scroll instantly during streaming without "bouncing" (smooth)
+	useLayoutEffect(() => {
+		const container = scrollContainerRef.current;
+		if (!container || !streamingText) return;
+
+		if (!isUserScrolledUpRef.current && !isAutoScrollingRef.current) {
+			container.scrollTop = container.scrollHeight;
+		}
+	}, [streamingText]);
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
@@ -245,7 +255,14 @@ export default function DoctorChat() {
 	}, []);
 
 	const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-		const { scrollTop, scrollHeight } = e.currentTarget;
+		const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+		
+		// Intelligently detect if user manually scrolled up
+		const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+		if (!isLoadingHistory && !isPrependRef.current && !isAutoScrollingRef.current) {
+			isUserScrolledUpRef.current = !isNearBottom;
+		}
+
 		if (scrollTop < 50 && nextCursor && !isLoadingHistory) {
 			setIsLoadingHistory(true);
 			prevScrollHeightRef.current = scrollHeight;
@@ -350,6 +367,18 @@ export default function DoctorChat() {
 	};
 
 	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+		isUserScrolledUpRef.current = false;
+		isAutoScrollingRef.current = true;
+
+		if (scrollTimeoutRef.current) {
+			clearTimeout(scrollTimeoutRef.current);
+		}
+
+		// Use a generous timeout to outlast the native smooth scroll transition
+		scrollTimeoutRef.current = window.setTimeout(() => {
+			isAutoScrollingRef.current = false;
+		}, behavior === "smooth" ? 800 : 100);
+
 		requestAnimationFrame(() => {
 			messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
 		});
