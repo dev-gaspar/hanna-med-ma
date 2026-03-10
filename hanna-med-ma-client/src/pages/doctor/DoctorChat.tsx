@@ -72,6 +72,8 @@ export default function DoctorChat() {
 	const prevScrollHeightRef = useRef(0);
 	const isPrependRef = useRef(false);
 	const isInitialLoadRef = useRef(true);
+	const userScrolledUpRef = useRef(false);
+	const isAutoScrollingRef = useRef(false);
 
 	const onStreamingChunk = useCallback((chunk: string) => {
 		streamingBufferRef.current += chunk;
@@ -179,6 +181,7 @@ export default function DoctorChat() {
 				setCurrentToolCall(null);
 				setIsSending(false);
 				setScrollSpacerActive(false);
+				userScrolledUpRef.current = false;
 				setMessages((prev) => [...prev, data.message]);
 			},
 		);
@@ -234,26 +237,20 @@ export default function DoctorChat() {
 	}, [messages]);
 
 	useEffect(() => {
-		if (isAiThinking) {
-			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({
-					behavior: "smooth",
-					block: "end",
-				});
-			});
+		if (isAiThinking || currentToolCall) {
+			scrollToBottom("smooth");
 		}
-	}, [isAiThinking]);
+	}, [isAiThinking, currentToolCall]);
 
 	useEffect(() => {
-		if (currentToolCall) {
-			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({
-					behavior: "smooth",
-					block: "end",
-				});
-			});
+		// During streaming, we use immediate scrollTop to avoid smooth-scroll animation conflicts
+		if (streamingText && !userScrolledUpRef.current) {
+			const container = scrollContainerRef.current;
+			if (container) {
+				container.scrollTop = container.scrollHeight;
+			}
 		}
-	}, [currentToolCall]);
+	}, [streamingText]);
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
@@ -264,7 +261,15 @@ export default function DoctorChat() {
 	}, []);
 
 	const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-		const { scrollTop, scrollHeight } = e.currentTarget;
+		const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+		
+		// Detect if user manually scrolled up
+		if (!isAutoScrollingRef.current) {
+			const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+			userScrolledUpRef.current = !isNearBottom;
+		}
+
+		// Handle pagination
 		if (scrollTop < 50 && nextCursor && !isLoadingHistory) {
 			setIsLoadingHistory(true);
 			prevScrollHeightRef.current = scrollHeight;
@@ -295,6 +300,7 @@ export default function DoctorChat() {
 			setInput("");
 			setIsSending(true);
 			setScrollSpacerActive(true);
+			userScrolledUpRef.current = false;
 
 			setMessages((prev) => {
 				const updated = [...prev];
@@ -350,6 +356,7 @@ export default function DoctorChat() {
 		};
 		setMessages((prev) => [...prev, optimisticMsg]);
 		setScrollSpacerActive(true);
+		userScrolledUpRef.current = false;
 		scrollToBottom("smooth");
 
 		try {
@@ -369,8 +376,13 @@ export default function DoctorChat() {
 	};
 
 	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+		if (userScrolledUpRef.current) return;
+		isAutoScrollingRef.current = true;
 		requestAnimationFrame(() => {
 			messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+			setTimeout(() => {
+				isAutoScrollingRef.current = false;
+			}, behavior === "smooth" ? 500 : 50);
 		});
 	}, []);
 
@@ -393,6 +405,7 @@ export default function DoctorChat() {
 			};
 			setMessages((prev) => [...prev, optimisticMsg]);
 			setScrollSpacerActive(true);
+			userScrolledUpRef.current = false;
 			scrollToBottom("smooth");
 
 			try {
@@ -421,6 +434,7 @@ export default function DoctorChat() {
 		setIsAiThinking(true);
 		setIsSending(true);
 		setScrollSpacerActive(true);
+		userScrolledUpRef.current = false;
 		scrollToBottom("smooth");
 		if (socketService.isConnected) {
 			socketService.regenerateMessage();
