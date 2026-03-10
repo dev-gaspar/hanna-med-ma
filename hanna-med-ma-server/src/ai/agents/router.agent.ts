@@ -214,13 +214,13 @@ export class RouterAgent {
     ctx: DoctorContext,
     callbacks?: { onStreaming?: (chunk: string) => void }
   ) {
-    const hospitalEnum = z.enum(["JACKSON", "STEWARD", "BAPTIST"]);
+    const hospitalEnum = z.string().describe("Hospital EMR system (must be uppercase, e.g. JACKSON, STEWARD, BAPTIST)");
 
     return [
       tool(
         async ({ hospital_type, specific_question }) => {
           return this.patientListTool.execute(
-            { hospital_type, specific_question },
+            { hospital_type: hospital_type.toUpperCase(), specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
             callbacks
           );
@@ -245,7 +245,7 @@ export class RouterAgent {
       tool(
         async ({ hospital_types, specific_question }) => {
           return this.batchPatientListTool.execute(
-            { hospital_types, specific_question },
+            { hospital_types: hospital_types.map(h => h.toUpperCase()), specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
             callbacks
           );
@@ -268,7 +268,7 @@ export class RouterAgent {
       tool(
         async ({ hospital_type, patient_name, specific_question }) => {
           return this.patientSummaryTool.execute(
-            { hospital_type, patient_name, specific_question },
+            { hospital_type: hospital_type.toUpperCase(), patient_name, specific_question },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
             callbacks
           );
@@ -291,7 +291,7 @@ export class RouterAgent {
       tool(
         async ({ hospital_type, patient_names, specific_question }) => {
           return this.batchPatientSummaryTool.execute(
-            { hospital_type, patient_names, specific_question },
+            { hospital_type: hospital_type.toUpperCase(), patient_names, specific_question },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
             callbacks
           );
@@ -315,7 +315,7 @@ export class RouterAgent {
       tool(
         async ({ hospital_type, patient_name, specific_question }) => {
           return this.patientInsuranceTool.execute(
-            { hospital_type, patient_name, specific_question },
+            { hospital_type: hospital_type.toUpperCase(), patient_name, specific_question },
             { doctorId: ctx.doctorId },
             callbacks
           );
@@ -338,7 +338,7 @@ export class RouterAgent {
       tool(
         async ({ hospital_type, patient_names, specific_question }) => {
           return this.batchPatientInsuranceTool.execute(
-            { hospital_type, patient_names, specific_question },
+            { hospital_type: hospital_type.toUpperCase(), patient_names, specific_question },
             { doctorId: ctx.doctorId },
             callbacks
           );
