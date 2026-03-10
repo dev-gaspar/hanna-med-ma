@@ -55,7 +55,6 @@ export default function DoctorChat() {
 	const [isReady, setIsReady] = useState(false);
 	const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 	const [isSending, setIsSending] = useState(false);
-	const [scrollSpacerActive, setScrollSpacerActive] = useState(false);
 
 	// Real-time AI states
 	const [isAiThinking, setIsAiThinking] = useState(false);
@@ -72,9 +71,6 @@ export default function DoctorChat() {
 	const prevScrollHeightRef = useRef(0);
 	const isPrependRef = useRef(false);
 	const isInitialLoadRef = useRef(true);
-	const isUserScrolledUpRef = useRef(false);
-	const isAutoScrollingRef = useRef(false);
-	const scrollTimeoutRef = useRef<number | null>(null);
 
 	const onStreamingChunk = useCallback((chunk: string) => {
 		streamingBufferRef.current += chunk;
@@ -181,7 +177,6 @@ export default function DoctorChat() {
 				setIsAiThinking(false);
 				setCurrentToolCall(null);
 				setIsSending(false);
-				setScrollSpacerActive(false);
 				setMessages((prev) => [...prev, data.message]);
 			},
 		);
@@ -192,7 +187,6 @@ export default function DoctorChat() {
 			setIsAiThinking(false);
 			setCurrentToolCall(null);
 			setIsSending(false);
-			setScrollSpacerActive(false);
 		});
 
 		return () => {
@@ -226,7 +220,7 @@ export default function DoctorChat() {
 		// Auto-scroll when new messages are appended
 		const { scrollTop, scrollHeight, clientHeight } = container;
 		const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
-		if (isNearBottom && !isUserScrolledUpRef.current) {
+		if (isNearBottom) {
 			requestAnimationFrame(() => {
 				messagesEndRef.current?.scrollIntoView({
 					behavior: "smooth",
@@ -236,15 +230,8 @@ export default function DoctorChat() {
 		}
 	}, [messages]);
 
-	// Auto-scroll instantly during streaming without "bouncing" (smooth)
-	useLayoutEffect(() => {
-		const container = scrollContainerRef.current;
-		if (!container || !streamingText) return;
-
-		if (!isUserScrolledUpRef.current && !isAutoScrollingRef.current) {
-			container.scrollTop = container.scrollHeight;
-		}
-	}, [streamingText]);
+    // Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
+    // to keep the canvas fixed while chunks are physically streaming in.
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
@@ -255,14 +242,7 @@ export default function DoctorChat() {
 	}, []);
 
 	const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-		const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-		
-		// Intelligently detect if user manually scrolled up
-		const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-		if (!isLoadingHistory && !isPrependRef.current && !isAutoScrollingRef.current) {
-			isUserScrolledUpRef.current = !isNearBottom;
-		}
-
+		const { scrollTop, scrollHeight } = e.currentTarget;
 		if (scrollTop < 50 && nextCursor && !isLoadingHistory) {
 			setIsLoadingHistory(true);
 			prevScrollHeightRef.current = scrollHeight;
@@ -292,7 +272,6 @@ export default function DoctorChat() {
 		if (editingMessageId !== null && socketService.isConnected) {
 			setInput("");
 			setIsSending(true);
-			setScrollSpacerActive(true);
 
 			setMessages((prev) => {
 				const updated = [...prev];
@@ -324,7 +303,6 @@ export default function DoctorChat() {
 			} catch (error) {
 				console.error("Failed to edit last message", error);
 				setIsSending(false);
-				setScrollSpacerActive(false);
 			}
 
 			return;
@@ -347,7 +325,6 @@ export default function DoctorChat() {
 			createdAt: new Date().toISOString(),
 		};
 		setMessages((prev) => [...prev, optimisticMsg]);
-		setScrollSpacerActive(true);
 		scrollToBottom("smooth");
 
 		try {
@@ -356,29 +333,15 @@ export default function DoctorChat() {
 			} else {
 				await chatService.sendMessage(tempContent);
 				setIsSending(false);
-				setScrollSpacerActive(false);
 			}
 		} catch (error) {
 			setInput(tempContent);
 			setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
 			setIsSending(false);
-			setScrollSpacerActive(false);
 		}
 	};
 
 	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-		isUserScrolledUpRef.current = false;
-		isAutoScrollingRef.current = true;
-
-		if (scrollTimeoutRef.current) {
-			clearTimeout(scrollTimeoutRef.current);
-		}
-
-		// Use a generous timeout to outlast the native smooth scroll transition
-		scrollTimeoutRef.current = window.setTimeout(() => {
-			isAutoScrollingRef.current = false;
-		}, behavior === "smooth" ? 800 : 100);
-
 		requestAnimationFrame(() => {
 			messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
 		});
@@ -402,7 +365,6 @@ export default function DoctorChat() {
 				createdAt: new Date().toISOString(),
 			};
 			setMessages((prev) => [...prev, optimisticMsg]);
-			setScrollSpacerActive(true);
 			scrollToBottom("smooth");
 
 			try {
@@ -411,12 +373,10 @@ export default function DoctorChat() {
 				} else {
 					await chatService.sendMessage(content);
 					setIsSending(false);
-					setScrollSpacerActive(false);
 				}
 			} catch (error) {
 				console.error("Failed to send patient action message", error);
 				setIsSending(false);
-				setScrollSpacerActive(false);
 			}
 		},
 		[scrollToBottom],
@@ -430,7 +390,6 @@ export default function DoctorChat() {
 		});
 		setIsAiThinking(true);
 		setIsSending(true);
-		setScrollSpacerActive(true);
 		scrollToBottom("smooth");
 		if (socketService.isConnected) {
 			socketService.regenerateMessage();
@@ -667,9 +626,7 @@ export default function DoctorChat() {
 							</div>
 						)}
 
-						{scrollSpacerActive && (
-							<div className="shrink-0 min-h-[50vh]" aria-hidden="true" />
-						)}
+						<div className="shrink-0 min-h-[35vh]" aria-hidden="true" />
 						<div ref={messagesEndRef} />
 					</div>
 
