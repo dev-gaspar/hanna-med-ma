@@ -30,7 +30,7 @@ export class PatientSummaryTool {
       .trim();
     const lastName = normalizedName.split(" ")[0];
 
-    const patient = await this.prisma.patient.findFirst({
+    const patients = await this.prisma.patient.findMany({
       where: {
         doctorId: doctorContext.doctorId,
         emrSystem: hospital_type as any,
@@ -44,15 +44,25 @@ export class PatientSummaryTool {
           take: 1,
         },
       },
+      orderBy: { lastSeenAt: "desc" },
     });
 
-    if (!patient) {
+    if (patients.length === 0) {
       return JSON.stringify({
         error: true,
         message: `Patient "${patient_name}" not found in ${hospital_type}. Please verify the name.`,
       });
     }
 
+    if (patients.length > 1) {
+      const patientList = patients
+        .map((p) => `- ${p.name} (Active: ${p.isActive ? "Yes" : "No"}, Admitted: ${p.admittedDate || "Unknown"})`)
+        .join("\n");
+      // Disable streaming since we are returning a system message to the LLM
+      return `Multiple patients found matching "${patient_name}" in ${hospital_type}. Please ask the doctor to clarify which one they mean:\n${patientList}`;
+    }
+
+    const patient = patients[0];
     const rawData = patient.rawData[0];
     if (!rawData) {
       return `I apologize, Doctor. Found ${patient.name} in ${hospital_type}, but no clinical summary is available yet.`;
