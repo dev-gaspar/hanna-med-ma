@@ -66,7 +66,7 @@ export default function DoctorChat() {
 	// --- Refs ---
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
-	const canvasBottomRef = useRef<HTMLDivElement>(null);
+	const spacerEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
 	const prevScrollHeightRef = useRef(0);
@@ -205,7 +205,9 @@ export default function DoctorChat() {
 		if (!container) return;
 
 		if (isInitialLoadRef.current && messages.length > 0) {
-			container.scrollTop = container.scrollHeight;
+			requestAnimationFrame(() => {
+				messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+			});
 			isInitialLoadRef.current = false;
 			return;
 		}
@@ -218,7 +220,18 @@ export default function DoctorChat() {
 			return;
 		}
 
-		// Disable generic auto-scroll to preserve "totalmente estatico" AI streaming
+		// Auto-scroll when new messages are appended, BUT only if near the bottom of MESSAGES (ignoring spacer)
+		const containerRect = container.getBoundingClientRect();
+		const messagesEndRect = messagesEndRef.current?.getBoundingClientRect();
+
+		if (messagesEndRect && messagesEndRect.bottom <= containerRect.bottom + 150) {
+			requestAnimationFrame(() => {
+				messagesEndRef.current?.scrollIntoView({
+					behavior: "smooth",
+					block: "end",
+				});
+			});
+		}
 	}, [messages]);
 
     // Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
@@ -226,9 +239,7 @@ export default function DoctorChat() {
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
-		const handleResize = () => {
-			// Do nothing to avoid breaking static canvas on mobile keyboard open
-		};
+		const handleResize = () => scrollToSpacer("smooth");
 		window.visualViewport.addEventListener("resize", handleResize);
 		return () =>
 			window.visualViewport?.removeEventListener("resize", handleResize);
@@ -289,7 +300,7 @@ export default function DoctorChat() {
 			});
 
 			setEditingMessageId(null);
-			scrollToCanvasBottom("smooth");
+			scrollToSpacer("smooth");
 
 			try {
 				(socketService as any).editLastMessage(tempContent);
@@ -318,7 +329,7 @@ export default function DoctorChat() {
 			createdAt: new Date().toISOString(),
 		};
 		setMessages((prev) => [...prev, optimisticMsg]);
-		scrollToCanvasBottom("smooth");
+		scrollToSpacer("smooth");
 
 		try {
 			if (socketService.isConnected) {
@@ -334,9 +345,9 @@ export default function DoctorChat() {
 		}
 	};
 
-	const scrollToCanvasBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+	const scrollToSpacer = useCallback((behavior: ScrollBehavior = "smooth") => {
 		requestAnimationFrame(() => {
-			canvasBottomRef.current?.scrollIntoView({ behavior, block: "end" });
+			spacerEndRef.current?.scrollIntoView({ behavior, block: "end" });
 		});
 	}, []);
 
@@ -358,7 +369,7 @@ export default function DoctorChat() {
 				createdAt: new Date().toISOString(),
 			};
 			setMessages((prev) => [...prev, optimisticMsg]);
-			scrollToCanvasBottom("smooth");
+			scrollToSpacer("smooth");
 
 			try {
 				if (socketService.isConnected) {
@@ -372,7 +383,7 @@ export default function DoctorChat() {
 				setIsSending(false);
 			}
 		},
-		[scrollToCanvasBottom],
+		[scrollToSpacer],
 	);
 
 	const handleRegenerate = useCallback(() => {
@@ -383,11 +394,11 @@ export default function DoctorChat() {
 		});
 		setIsAiThinking(true);
 		setIsSending(true);
-		scrollToCanvasBottom("smooth");
+		scrollToSpacer("smooth");
 		if (socketService.isConnected) {
 			socketService.regenerateMessage();
 		}
-	}, [scrollToCanvasBottom]);
+	}, [scrollToSpacer]);
 
 	const lastAssistantId = useMemo(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
@@ -619,9 +630,9 @@ export default function DoctorChat() {
 							</div>
 						)}
 
-						<div ref={messagesEndRef} className="h-0 w-0" />
-						<div className="shrink-0 min-h-[40vh]" aria-hidden="true" />
-						<div ref={canvasBottomRef} className="h-0 w-0" />
+						<div ref={messagesEndRef} />
+						<div className="shrink-0 min-h-[35vh]" aria-hidden="true" />
+						<div ref={spacerEndRef} />
 					</div>
 
 					{/* Input Area */}
