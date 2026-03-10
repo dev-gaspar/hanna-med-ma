@@ -1,18 +1,26 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
 import { formatDateForDisplay } from "../../core/date-format.util";
+import { SubAgentsService } from "../agents/sub-agents.service";
 
 @Injectable()
 export class PatientInsuranceTool {
   private readonly logger = new Logger(PatientInsuranceTool.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private subAgents: SubAgentsService,
+  ) {}
 
   async execute(
-    args: { hospital_type: string; patient_name: string },
+    args: {
+      hospital_type: string;
+      patient_name: string;
+      specific_question?: string;
+    },
     doctorContext: { doctorId: number },
   ): Promise<string> {
-    const { hospital_type, patient_name } = args;
+    const { hospital_type, patient_name, specific_question } = args;
 
     const normalizedName = patient_name
       .toLowerCase()
@@ -46,20 +54,19 @@ export class PatientInsuranceTool {
 
     const rawData = patient.rawData[0];
     if (!rawData) {
-      return JSON.stringify({
-        error: true,
-        patientName: patient.name,
-        hospital: hospital_type,
-        message: `Found ${patient.name} in ${hospital_type}, but no insurance information is available yet.`,
-      });
+      return `I apologize, Doctor. Found ${patient.name} in ${hospital_type}, but no insurance information is available yet.`;
     }
 
-    return JSON.stringify({
-      patientName: patient.name,
-      hospital: hospital_type,
-      extractedAt: formatDateForDisplay(rawData.extractedAt),
-      rawContent: rawData.rawContent,
-    });
+    // Direct LLM Sub-Agent formatter
+    return this.subAgents.formatInsurance(
+      rawData.rawContent,
+      {
+        patientName: patient.name,
+        hospitalType: hospital_type,
+        extractedAt: formatDateForDisplay(rawData.extractedAt),
+      },
+      specific_question,
+    );
   }
 }
 
@@ -70,17 +77,25 @@ export class BatchPatientInsuranceTool {
   constructor(private insuranceTool: PatientInsuranceTool) {}
 
   async execute(
-    args: { hospital_type: string; patient_names: string[] },
+    args: {
+      hospital_type: string;
+      patient_names: string[];
+      specific_question?: string;
+    },
     doctorContext: { doctorId: number },
   ): Promise<string> {
     const results = await Promise.all(
       args.patient_names.map((name) =>
         this.insuranceTool.execute(
-          { hospital_type: args.hospital_type, patient_name: name },
+          {
+            hospital_type: args.hospital_type,
+            patient_name: name,
+            specific_question: args.specific_question,
+          },
           doctorContext,
         ),
       ),
     );
-    return `[${results.join(",")}]`;
+    return results.join("\n\n---\n\n");
   }
 }

@@ -179,9 +179,9 @@ export class RouterAgent {
 
     return [
       tool(
-        async ({ hospital_type }) => {
+        async ({ hospital_type, specific_question }) => {
           return this.patientListTool.execute(
-            { hospital_type },
+            { hospital_type, specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
           );
         },
@@ -193,13 +193,19 @@ export class RouterAgent {
             hospital_type: hospitalEnum.describe(
               "Hospital EMR system to query",
             ),
+            specific_question: z
+              .string()
+              .optional()
+              .describe(
+                "If the doctor asks a specific question about the list",
+              ),
           }),
         },
       ),
       tool(
-        async ({ hospital_types }) => {
+        async ({ hospital_types, specific_question }) => {
           return this.batchPatientListTool.execute(
-            { hospital_types },
+            { hospital_types, specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
           );
         },
@@ -211,31 +217,40 @@ export class RouterAgent {
             hospital_types: z
               .array(hospitalEnum)
               .describe("Array of hospital types to query"),
+            specific_question: z
+              .string()
+              .optional()
+              .describe("Specific question about the lists"),
           }),
         },
       ),
       tool(
-        async ({ hospital_type, patient_name }) => {
+        async ({ hospital_type, patient_name, specific_question }) => {
           return this.patientSummaryTool.execute(
-            { hospital_type, patient_name },
-            { doctorId: ctx.doctorId },
+            { hospital_type, patient_name, specific_question },
+            { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
           );
         },
         {
           name: "query_patient_summary",
-          description:
-            "Get clinical summary for a single patient. Returns raw EMR data for formatting.",
+          description: "Get clinical summary for a single patient.",
           schema: z.object({
             hospital_type: hospitalEnum.describe("Hospital EMR system"),
             patient_name: z.string().describe("Patient full name"),
+            specific_question: z
+              .string()
+              .optional()
+              .describe(
+                "If the doctor asks a specific question instead of generic report",
+              ),
           }),
         },
       ),
       tool(
-        async ({ hospital_type, patient_names }) => {
+        async ({ hospital_type, patient_names, specific_question }) => {
           return this.batchPatientSummaryTool.execute(
-            { hospital_type, patient_names },
-            { doctorId: ctx.doctorId },
+            { hospital_type, patient_names, specific_question },
+            { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
           );
         },
         {
@@ -247,13 +262,17 @@ export class RouterAgent {
             patient_names: z
               .array(z.string())
               .describe("Array of patient names"),
+            specific_question: z
+              .string()
+              .optional()
+              .describe("Specific question"),
           }),
         },
       ),
       tool(
-        async ({ hospital_type, patient_name }) => {
+        async ({ hospital_type, patient_name, specific_question }) => {
           return this.patientInsuranceTool.execute(
-            { hospital_type, patient_name },
+            { hospital_type, patient_name, specific_question },
             { doctorId: ctx.doctorId },
           );
         },
@@ -263,13 +282,19 @@ export class RouterAgent {
           schema: z.object({
             hospital_type: hospitalEnum.describe("Hospital EMR system"),
             patient_name: z.string().describe("Patient full name"),
+            specific_question: z
+              .string()
+              .optional()
+              .describe(
+                "If the doctor asks a specific question instead of generic report",
+              ),
           }),
         },
       ),
       tool(
-        async ({ hospital_type, patient_names }) => {
+        async ({ hospital_type, patient_names, specific_question }) => {
           return this.batchPatientInsuranceTool.execute(
-            { hospital_type, patient_names },
+            { hospital_type, patient_names, specific_question },
             { doctorId: ctx.doctorId },
           );
         },
@@ -281,6 +306,7 @@ export class RouterAgent {
             patient_names: z
               .array(z.string())
               .describe("Array of patient names"),
+            specific_question: z.string().optional(),
           }),
         },
       ),

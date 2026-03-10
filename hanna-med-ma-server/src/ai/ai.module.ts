@@ -16,6 +16,7 @@ import {
   BatchPatientInsuranceTool,
 } from "./tools/patient-insurance.tools";
 import { FindPatientContextTool } from "./tools/find-patient-context.tool";
+import { SubAgentsService } from "./agents/sub-agents.service";
 
 @Module({
   providers: [
@@ -29,6 +30,7 @@ import { FindPatientContextTool } from "./tools/find-patient-context.tool";
     PatientInsuranceTool,
     BatchPatientInsuranceTool,
     FindPatientContextTool,
+    SubAgentsService,
   ],
   exports: [AiService],
 })

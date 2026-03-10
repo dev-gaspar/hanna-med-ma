@@ -1,10 +1,14 @@
 # Hanna-Med MA
 
-Welcome to the Hanna-Med Medical Assistant system. This project consists of three main components:
+**HannaMed MA** is a medical assistant system that automates clinical data extraction from EMR (Electronic Medical Records) systems using RPA and artificial intelligence. It allows doctors to view patient records, receive real-time notifications, and manage automation nodes — all from a centralized web interface.
 
-1. **Client (`hanna-med-ma-client`)**: A React-based web interface for users to interact with the system.
-2. **Server (`hanna-med-ma-server`)**: A Node.js backend handling API requests, WebSocket communication, and orchestration logic.
-3. **RPA (`hanna-med-ma-rpa`)**: A Python-based Robotic Process Automation service that interacts with Electronic Medical Record (EMR) systems.
+This project consists of three main components:
+
+1. **Client (`hanna-med-ma-client`)**: Web interface built with React, Vite, and TailwindCSS. Serves as the dashboard for doctors and administrators to view patient records, manage reports, receive push notifications (Firebase), and monitor RPA node status in real time via WebSocket.
+
+2. **Server (`hanna-med-ma-server`)**: Backend built with NestJS, Prisma, and PostgreSQL. Handles authentication (JWT), business logic, real-time communication (WebSocket/Socket.IO), RPA node orchestration, AI-powered data processing (LangChain + Gemini), and push notifications. Exposes the REST API consumed by both the client and RPA nodes.
+
+3. **RPA (`hanna-med-ma-rpa`)**: Robotic Process Automation service written in Python. Runs as a headless process on Windows that registers with the backend, receives doctor assignments, and automatically extracts patient data from EMR systems via GUI automation (PyAutoGUI, image recognition). Extracted data is sent to the server for AI processing.
 
 ## Deployment
 

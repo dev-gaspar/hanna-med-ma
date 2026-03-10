@@ -5,7 +5,10 @@
 	"skip_batch_summaries": false,
 	"skip_batch_insurance": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": [],
+	"disabled_emr_types": [
+		"STEWARD",
+		"BAPTIST"
+	],
 	"screen_resolution": "1024x768",
 	"available_resolutions": [
 		"1366x768",

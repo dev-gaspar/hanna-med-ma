@@ -1,18 +1,22 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
 import { formatDateForDisplay } from "../../core/date-format.util";
+import { SubAgentsService } from "../agents/sub-agents.service";
 
 @Injectable()
 export class PatientListTool {
   private readonly logger = new Logger(PatientListTool.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private subAgents: SubAgentsService,
+  ) {}
 
   async execute(
-    args: { hospital_type: string },
+    args: { hospital_type: string; specific_question?: string },
     doctorContext: { doctorId: number; doctorName: string },
   ): Promise<string> {
-    const { hospital_type } = args;
+    const { hospital_type, specific_question } = args;
 
     const patients = await this.prisma.patient.findMany({
       where: {
@@ -37,18 +41,24 @@ export class PatientListTool {
       return ts > latest ? ts : latest;
     }, patients[0].lastSeenAt || patients[0].updatedAt);
 
-    return JSON.stringify({
-      hospital: hospital_type,
-      count: patients.length,
-      lastUpdated: formatDateForDisplay(mostRecentUpdate),
-      patients: patients.map((p) => ({
+    const patientsJson = JSON.stringify(
+      patients.map((p) => ({
         name: p.name,
         location: p.location || null,
         ...(p.facility && { facility: p.facility }),
         reason: p.reason || null,
         admittedDate: p.admittedDate || null,
       })),
-    });
+    );
+
+    return this.subAgents.formatPatientList(
+      patientsJson,
+      {
+        hospitalType: hospital_type,
+        lastUpdated: formatDateForDisplay(mostRecentUpdate),
+      },
+      specific_question,
+    );
   }
 }
 
@@ -59,14 +69,17 @@ export class BatchPatientListTool {
   constructor(private patientListTool: PatientListTool) {}
 
   async execute(
-    args: { hospital_types: string[] },
+    args: { hospital_types: string[]; specific_question?: string },
     doctorContext: { doctorId: number; doctorName: string },
   ): Promise<string> {
     const results = await Promise.all(
       args.hospital_types.map((type) =>
-        this.patientListTool.execute({ hospital_type: type }, doctorContext),
+        this.patientListTool.execute(
+          { hospital_type: type, specific_question: args.specific_question },
+          doctorContext,
+        ),
       ),
     );
-    return `[${results.join(",")}]`;
+    return results.join("\\n\\n---\\n\\n");
   }
 }

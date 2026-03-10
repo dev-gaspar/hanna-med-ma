@@ -155,8 +155,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(`Regeneration error: ${error.message}`);
       this.server.to(room).emit("error", {
-        message:
-          "I apologize, Doctor. Something went wrong. Please try again.",
+        message: "I apologize, Doctor. Something went wrong. Please try again.",
       });
     } finally {
       this.server.to(room).emit("ai_thinking", { status: false });
@@ -209,8 +208,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       this.logger.error(`Edit message error: ${error.message}`);
       this.server.to(room).emit("error", {
-        message:
-          "I apologize, Doctor. Something went wrong. Please try again.",
+        message: "I apologize, Doctor. Something went wrong. Please try again.",
       });
     } finally {
       this.server.to(room).emit("ai_thinking", { status: false });
