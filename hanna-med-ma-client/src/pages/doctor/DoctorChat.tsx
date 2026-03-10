@@ -72,8 +72,6 @@ export default function DoctorChat() {
 	const prevScrollHeightRef = useRef(0);
 	const isPrependRef = useRef(false);
 	const isInitialLoadRef = useRef(true);
-	const userScrolledUpRef = useRef(false);
-	const isAutoScrollingRef = useRef(false);
 
 	const onStreamingChunk = useCallback((chunk: string) => {
 		streamingBufferRef.current += chunk;
@@ -181,7 +179,6 @@ export default function DoctorChat() {
 				setCurrentToolCall(null);
 				setIsSending(false);
 				setScrollSpacerActive(false);
-				userScrolledUpRef.current = false;
 				setMessages((prev) => [...prev, data.message]);
 			},
 		);
@@ -236,21 +233,8 @@ export default function DoctorChat() {
 		}
 	}, [messages]);
 
-	useEffect(() => {
-		if (isAiThinking || currentToolCall) {
-			scrollToBottom("smooth");
-		}
-	}, [isAiThinking, currentToolCall]);
-
-	useEffect(() => {
-		// During streaming, we use immediate scrollTop to avoid smooth-scroll animation conflicts
-		if (streamingText && !userScrolledUpRef.current) {
-			const container = scrollContainerRef.current;
-			if (container) {
-				container.scrollTop = container.scrollHeight;
-			}
-		}
-	}, [streamingText]);
+    // Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
+    // to keep the canvas fixed while chunks are physically streaming in.
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
@@ -261,15 +245,7 @@ export default function DoctorChat() {
 	}, []);
 
 	const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-		const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-		
-		// Detect if user manually scrolled up
-		if (!isAutoScrollingRef.current) {
-			const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-			userScrolledUpRef.current = !isNearBottom;
-		}
-
-		// Handle pagination
+		const { scrollTop, scrollHeight } = e.currentTarget;
 		if (scrollTop < 50 && nextCursor && !isLoadingHistory) {
 			setIsLoadingHistory(true);
 			prevScrollHeightRef.current = scrollHeight;
@@ -300,7 +276,6 @@ export default function DoctorChat() {
 			setInput("");
 			setIsSending(true);
 			setScrollSpacerActive(true);
-			userScrolledUpRef.current = false;
 
 			setMessages((prev) => {
 				const updated = [...prev];
@@ -356,7 +331,6 @@ export default function DoctorChat() {
 		};
 		setMessages((prev) => [...prev, optimisticMsg]);
 		setScrollSpacerActive(true);
-		userScrolledUpRef.current = false;
 		scrollToBottom("smooth");
 
 		try {
@@ -376,13 +350,8 @@ export default function DoctorChat() {
 	};
 
 	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-		if (userScrolledUpRef.current) return;
-		isAutoScrollingRef.current = true;
 		requestAnimationFrame(() => {
 			messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
-			setTimeout(() => {
-				isAutoScrollingRef.current = false;
-			}, behavior === "smooth" ? 500 : 50);
 		});
 	}, []);
 
@@ -405,7 +374,6 @@ export default function DoctorChat() {
 			};
 			setMessages((prev) => [...prev, optimisticMsg]);
 			setScrollSpacerActive(true);
-			userScrolledUpRef.current = false;
 			scrollToBottom("smooth");
 
 			try {
@@ -434,7 +402,6 @@ export default function DoctorChat() {
 		setIsAiThinking(true);
 		setIsSending(true);
 		setScrollSpacerActive(true);
-		userScrolledUpRef.current = false;
 		scrollToBottom("smooth");
 		if (socketService.isConnected) {
 			socketService.regenerateMessage();
@@ -603,6 +570,7 @@ export default function DoctorChat() {
 						onScroll={handleScroll}
 						className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-3 min-h-0 transition-opacity duration-300 custom-scrollbar
                         ${isReady ? "opacity-100" : "opacity-0"}`}
+                        style={{ overflowAnchor: "none" }}
 					>
 						{isReady && messages.length === 0 && (
 							<div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 pointer-events-none">
