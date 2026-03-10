@@ -63,111 +63,126 @@ export class RouterAgent {
       }),
     });
 
-    let fullText = "";
-    let streamedFromTools = "";
-    let isMuted = false;
-    const toolsNotified = new Set<string>();
+    let finalResult = "";
 
-    const toolCallbacks = {
-      onStreaming: (chunk: string) => {
-        streamedFromTools += chunk;
-        callbacks?.onStreaming?.(chunk);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let fullText = "";
+      let streamedFromTools = "";
+      let isMuted = false;
+      const toolsNotified = new Set<string>();
+
+      const toolCallbacks = {
+        onStreaming: (chunk: string) => {
+          streamedFromTools += chunk;
+          callbacks?.onStreaming?.(chunk);
+        }
+      };
+
+      const tools = this.buildTools(doctorContext, toolCallbacks);
+
+      const agent = createReactAgent({
+        llm: this.modelService.getModel(),
+        tools,
+        prompt: systemPrompt,
+      });
+
+      const messages = chatHistory
+        .slice(-10)
+        .map((m) =>
+          m.role === "USER"
+            ? new HumanMessage(m.content)
+            : new AIMessage(m.content),
+        );
+      messages.push(new HumanMessage(userMessage));
+
+      if (attempt > 1) {
+        this.logger.warn(`Retrying LangGraph agent stream for doctor ${doctorContext.doctorId} (attempt ${attempt})`);
+      } else {
+        this.logger.log(`Starting LangGraph agent stream for doctor ${doctorContext.doctorId}`);
       }
-    };
 
-    const tools = this.buildTools(doctorContext, toolCallbacks);
+      try {
+        const stream = await agent.stream(
+          { messages },
+          { streamMode: "messages" },
+        );
 
-    const agent = createReactAgent({
-      llm: this.modelService.getModel(),
-      tools,
-      prompt: systemPrompt,
-    });
+        let chunkIndex = 0;
+        for await (const item of stream as AsyncIterable<any>) {
+          const [message, metadata] = Array.isArray(item) ? item : [item, {}];
+          const chunk = message as any;
+          const nodeType = metadata?.langgraph_node || "unknown";
+          const msgType = chunk?.constructor?.name || typeof chunk;
+          chunkIndex++;
 
-    const messages = chatHistory
-      .slice(-10)
-      .map((m) =>
-        m.role === "USER"
-          ? new HumanMessage(m.content)
-          : new AIMessage(m.content),
-      );
-    messages.push(new HumanMessage(userMessage));
-
-    this.logger.log(
-      `Starting LangGraph agent stream for doctor ${doctorContext.doctorId}`,
-    );
-
-    try {
-      const stream = await agent.stream(
-        { messages },
-        { streamMode: "messages" },
-      );
-
-      let chunkIndex = 0;
-      for await (const item of stream as AsyncIterable<any>) {
-        const [message, metadata] = Array.isArray(item) ? item : [item, {}];
-        const chunk = message as any;
-        const nodeType = metadata?.langgraph_node || "unknown";
-        const msgType = chunk?.constructor?.name || typeof chunk;
-        chunkIndex++;
-
-        // --- Detect tool calls ---
-        // Emit GUI notifications as soon as the LLM requests a tool (AIMessage chunk)
-        if (chunk.tool_call_chunks?.length > 0) {
-          for (const tc of chunk.tool_call_chunks) {
-            if (tc.name && !toolsNotified.has(tc.name)) {
-              toolsNotified.add(tc.name);
-              this.logger.log(`🔧 Tool requested (chunk): ${tc.name}`);
-              callbacks?.onToolCall?.(tc.name);
+          // --- Detect tool calls ---
+          // Method 1: From ToolMessage (most reliable for Google Gemini streams)
+          if (msgType === "ToolMessage" || chunk.tool_call_id) {
+            const toolName = chunk.name || "unknown_tool";
+            if (!toolsNotified.has(toolName) && toolName !== "unknown_tool") {
+              toolsNotified.add(toolName);
+              this.logger.log(`🔧 Tool executed: ${toolName}`);
+              callbacks?.onToolCall?.(toolName);
+            }
+            if (["query_patient_summary", "query_batch_patient_summary", "query_patient_insurance", "query_batch_patient_insurance", "query_patient_list", "query_batch_patient_list"].includes(toolName)) {
+               isMuted = true;
             }
           }
-        }
-        if (chunk.tool_calls?.length > 0) {
-          for (const tc of chunk.tool_calls) {
-            // LangGraph sometimes sends full tool_calls in an AIMessage
-            if (tc.name && !toolsNotified.has(tc.name)) {
-              toolsNotified.add(tc.name);
-              this.logger.log(`🔧 Tool requested: ${tc.name}`);
-              callbacks?.onToolCall?.(tc.name);
+
+          // Method 2: From AIMessage chunks
+          if (chunk.tool_call_chunks?.length > 0) {
+            for (const tc of chunk.tool_call_chunks) {
+              if (tc.name && !toolsNotified.has(tc.name)) {
+                toolsNotified.add(tc.name);
+                this.logger.log(`🔧 Tool requested (chunk): ${tc.name}`);
+                callbacks?.onToolCall?.(tc.name);
+              }
             }
           }
-        }
-
-        // Track when a data tool actually executes to mute the LLM hallucination
-        if (msgType === "ToolMessage" || chunk.tool_call_id) {
-          const toolName = chunk.name || "unknown_tool";
-          if (["query_patient_summary", "query_batch_patient_summary", "query_patient_insurance", "query_batch_patient_insurance", "query_patient_list", "query_batch_patient_list"].includes(toolName)) {
-             isMuted = true;
+          if (chunk.tool_calls?.length > 0) {
+            for (const tc of chunk.tool_calls) {
+              // LangGraph sometimes sends full tool_calls in an AIMessage
+              if (tc.name && !toolsNotified.has(tc.name)) {
+                toolsNotified.add(tc.name);
+                this.logger.log(`🔧 Tool requested: ${tc.name}`);
+                callbacks?.onToolCall?.(tc.name);
+              }
+            }
           }
-        }
 
-        // --- Extract streaming text from agent node ---
-        if (nodeType === "agent") {
-          // If we successfully streamed markdown from a SubAgent, ignore the Router LLM's attempt to hallucinate/summarize it
-          if (isMuted && streamedFromTools.length > 0) continue;
-
-          const text = this.extractTextContent(chunk);
-          if (text) {
-            // Mute logic: don't append if we already printed stuff from SubAgents
+          // --- Extract streaming text from agent node ---
+          if (nodeType === "agent") {
+            // If we successfully streamed markdown from a SubAgent, ignore the Router LLM's attempt to hallucinate/summarize it
             if (isMuted && streamedFromTools.length > 0) continue;
-            
-            fullText += text;
-            callbacks?.onStreaming?.(text);
+
+            const text = this.extractTextContent(chunk);
+            if (text) {
+              // Mute logic: don't append if we already printed stuff from SubAgents
+              if (isMuted && streamedFromTools.length > 0) continue;
+              
+              fullText += text;
+              callbacks?.onStreaming?.(text);
+            }
           }
         }
+
+        this.logger.log(
+          `Stream completed: ${chunkIndex} chunks | ${toolsNotified.size} tools called | ${fullText.length} chars`,
+        );
+      } catch (error) {
+        this.logger.error(`LangGraph agent error: ${error.message}`, error.stack);
+        if (attempt === 2) throw error;
       }
 
-      this.logger.log(
-        `Stream completed: ${chunkIndex} chunks | ${toolsNotified.size} tools called | ${fullText.length} chars`,
-      );
-    } catch (error) {
-      this.logger.error(`LangGraph agent error: ${error.message}`, error.stack);
-      throw error;
+      const combinedResult = (streamedFromTools + "\n" + fullText).trim();
+      if (combinedResult) {
+        finalResult = combinedResult;
+        break;
+      }
     }
 
-    const finalResult = (streamedFromTools + "\n" + fullText).trim();
-
     if (!finalResult) {
-      this.logger.warn("Agent returned empty text — returning fallback");
+      this.logger.warn("Agent returned empty text after all attempts — returning fallback");
       return "I apologize, Doctor. I experienced a momentary issue. Please try again.";
     }
 
