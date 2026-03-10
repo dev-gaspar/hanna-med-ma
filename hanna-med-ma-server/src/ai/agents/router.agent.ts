@@ -111,45 +111,45 @@ export class RouterAgent {
         chunkIndex++;
 
         // --- Detect tool calls ---
-        // Method 1: From ToolMessage (most reliable for Google Gemini)
-        if (msgType === "ToolMessage" || chunk.tool_call_id) {
-          const toolName = chunk.name || "unknown_tool";
-          if (!toolsNotified.has(toolName)) {
-            toolsNotified.add(toolName);
-            this.logger.log(`🔧 Tool executed: ${toolName}`);
-            callbacks?.onToolCall?.(toolName);
-          }
-          if (["query_patient_summary", "query_batch_patient_summary", "query_patient_insurance", "query_batch_patient_insurance", "query_patient_list", "query_batch_patient_list"].includes(toolName)) {
-             isMuted = true;
-          }
-        }
-
-        // Method 2: From AIMessage tool_calls/tool_call_chunks
+        // Emit GUI notifications as soon as the LLM requests a tool (AIMessage chunk)
         if (chunk.tool_call_chunks?.length > 0) {
           for (const tc of chunk.tool_call_chunks) {
             if (tc.name && !toolsNotified.has(tc.name)) {
               toolsNotified.add(tc.name);
-              this.logger.log(`🔧 Tool call (chunk): ${tc.name}`);
+              this.logger.log(`🔧 Tool requested (chunk): ${tc.name}`);
               callbacks?.onToolCall?.(tc.name);
             }
           }
         }
         if (chunk.tool_calls?.length > 0) {
           for (const tc of chunk.tool_calls) {
+            // LangGraph sometimes sends full tool_calls in an AIMessage
             if (tc.name && !toolsNotified.has(tc.name)) {
               toolsNotified.add(tc.name);
-              this.logger.log(`🔧 Tool call: ${tc.name}`);
+              this.logger.log(`🔧 Tool requested: ${tc.name}`);
               callbacks?.onToolCall?.(tc.name);
             }
           }
         }
 
+        // Track when a data tool actually executes to mute the LLM hallucination
+        if (msgType === "ToolMessage" || chunk.tool_call_id) {
+          const toolName = chunk.name || "unknown_tool";
+          if (["query_patient_summary", "query_batch_patient_summary", "query_patient_insurance", "query_batch_patient_insurance", "query_patient_list", "query_batch_patient_list"].includes(toolName)) {
+             isMuted = true;
+          }
+        }
+
         // --- Extract streaming text from agent node ---
         if (nodeType === "agent") {
-          if (isMuted) continue;
+          // If we successfully streamed markdown from a SubAgent, ignore the Router LLM's attempt to hallucinate/summarize it
+          if (isMuted && streamedFromTools.length > 0) continue;
 
           const text = this.extractTextContent(chunk);
           if (text) {
+            // Mute logic: don't append if we already printed stuff from SubAgents
+            if (isMuted && streamedFromTools.length > 0) continue;
+            
             fullText += text;
             callbacks?.onStreaming?.(text);
           }
@@ -164,7 +164,7 @@ export class RouterAgent {
       throw error;
     }
 
-    const finalResult = (fullText + "\n" + streamedFromTools).trim();
+    const finalResult = (streamedFromTools + "\n" + fullText).trim();
 
     if (!finalResult) {
       this.logger.warn("Agent returned empty text — returning fallback");
