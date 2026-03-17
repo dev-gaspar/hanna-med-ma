@@ -11,6 +11,8 @@ from .jackson import JacksonFlow
 from .jackson_summary import JacksonSummaryFlow
 from .jackson_insurance import JacksonInsuranceFlow
 from .jackson_batch_insurance import JacksonBatchInsuranceFlow
+from .jackson_lab import JacksonLabFlow
+from .jackson_batch_lab import JacksonBatchLabFlow
 from .jackson_unified_batch import JacksonUnifiedBatchFlow
 from .baptist_unified_batch import BaptistUnifiedBatchFlow
 from .steward import StewardFlow
@@ -38,6 +40,7 @@ FLOW_REGISTRY = {
     "jackson": JacksonFlow,
     "jackson_summary": JacksonSummaryFlow,
     "jackson_insurance": JacksonInsuranceFlow,
+    "jackson_lab": JacksonLabFlow,
     "steward": StewardFlow,
     "steward_summary": StewardSummaryFlow,
     "steward_insurance": StewardInsuranceFlow,
@@ -45,7 +48,9 @@ FLOW_REGISTRY = {
     "jackson_batch_summary": JacksonBatchSummaryFlow,
     # Batch insurance
     "jackson_batch_insurance": JacksonBatchInsuranceFlow,
-    # Unified (summary + insurance in one visit)
+    # Batch lab
+    "jackson_batch_lab": JacksonBatchLabFlow,
+    # Unified (summary + insurance + lab in one visit)
     "jackson_unified_batch": JacksonUnifiedBatchFlow,
     "baptist_unified_batch": BaptistUnifiedBatchFlow,
     "steward_batch_insurance": StewardBatchInsuranceFlow,
@@ -85,6 +90,8 @@ __all__ = [
     "JacksonSummaryFlow",
     "JacksonInsuranceFlow",
     "JacksonBatchInsuranceFlow",
+    "JacksonLabFlow",
+    "JacksonBatchLabFlow",
     "JacksonUnifiedBatchFlow",
     "BaptistUnifiedBatchFlow",
     "StewardFlow",

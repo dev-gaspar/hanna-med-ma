@@ -133,6 +133,8 @@ enum MessageType {
   BATCH_PATIENT_SUMMARY
   PATIENT_INSURANCE
   BATCH_PATIENT_INSURANCE
+  PATIENT_LAB
+  BATCH_PATIENT_LAB
   ERROR
 }
 
@@ -193,11 +195,12 @@ model Patient {
   @@map("patients")
 }
 
-// ─── Patient Raw Data (Summaries, Insurance) ────────────────
+// ─── Patient Raw Data (Summaries, Insurance, Lab Results) ───
 
 enum RawDataType {
   SUMMARY
   INSURANCE
+  LAB
 }
 
 model PatientRawData {

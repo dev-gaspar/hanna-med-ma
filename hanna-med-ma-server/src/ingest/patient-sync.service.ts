@@ -1,19 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../core/prisma.service";
+import { normalizeName } from "../core/patient-name.util";
 
 @Injectable()
 export class PatientSyncService {
   private readonly logger = new Logger(PatientSyncService.name);
 
   constructor(private prisma: PrismaService) {}
-
-  /**
-   * Normalize a patient name for matching.
-   * "GARCIA, JOSE" → "garcia jose"
-   */
-  normalizeName(name: string): string {
-    return name.toLowerCase().replace(/,/g, "").replace(/\s+/g, " ").trim();
-  }
 
   /**
    * Sync a patient list from the EMR with the database.
@@ -40,7 +33,7 @@ export class PatientSyncService {
     const activeNormalizedNames: string[] = [];
 
     for (const p of patients) {
-      const normalizedName = this.normalizeName(p.name);
+      const normalizedName = normalizeName(p.name);
       activeNormalizedNames.push(normalizedName);
 
       await this.prisma.patient.upsert({
@@ -111,7 +104,7 @@ export class PatientSyncService {
     hospitalType: string,
     patientName: string,
   ) {
-    const normalizedInput = this.normalizeName(patientName);
+    const normalizedInput = normalizeName(patientName);
 
     // Strategy 1: Exact match
     const exactMatch = await this.prisma.patient.findFirst({

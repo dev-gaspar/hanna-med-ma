@@ -64,6 +64,9 @@ export class AiService {
         ? "BATCH_PATIENT_INSURANCE"
         : "PATIENT_INSURANCE";
     }
+    if (text.includes("LAB RESULTS")) {
+      return text.includes("---") ? "BATCH_PATIENT_LAB" : "PATIENT_LAB";
+    }
     if (text.includes("├") || text.includes("└")) {
       return "PATIENT_LIST";
     }

@@ -8,7 +8,10 @@ interface PatientListMessageProps {
 		selectedId?: string | number;
 		onSelect: (item: SelectedItem | null) => void;
 	};
-	onAction?: (action: "summary" | "insurance", patientName: string) => void;
+	onAction?: (
+		action: "summary" | "insurance" | "lab",
+		patientName: string,
+	) => void;
 }
 
 type ListItem =
@@ -35,7 +38,8 @@ export const PatientListMessage = ({
 
 	for (const line of lines) {
 		const t = line.trim();
-		const isDetail = t.startsWith("├") || t.startsWith("└") || t.startsWith("│");
+		const isDetail =
+			t.startsWith("├") || t.startsWith("└") || t.startsWith("│");
 
 		if (t.startsWith("🏥")) {
 			flushPatient();

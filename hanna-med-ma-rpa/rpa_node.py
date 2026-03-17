@@ -177,6 +177,7 @@ class RpaNode:
         skip_patient_list = config.get_rpa_setting("skip_patient_list", False)
         skip_summaries = config.get_rpa_setting("skip_batch_summaries", False)
         skip_insurance = config.get_rpa_setting("skip_batch_insurance", False)
+        skip_lab = config.get_rpa_setting("skip_batch_lab", False)
 
         while not check_should_stop():
             # Refresh config and heartbeat at the start of each cycle
@@ -223,7 +224,12 @@ class RpaNode:
                 # Supported: JACKSON, BAPTIST
                 # ──────────────────────────────────────────────────────────
                 if hospital_type in ("JACKSON", "BAPTIST"):
-                    if not (skip_patient_list and skip_summaries and skip_insurance):
+                    if not (
+                        skip_patient_list
+                        and skip_summaries
+                        and skip_insurance
+                        and skip_lab
+                    ):
                         self._run_task(
                             name=f"{hospital_type} unified_batch",
                             fn=self._extract_unified_batch,
@@ -263,6 +269,16 @@ class RpaNode:
                         self._run_task(
                             name=f"{hospital_type} batch_insurance",
                             fn=self._extract_batch_insurance,
+                            hospital_type=hospital_type,
+                            hospital_config=hospital_config,
+                            timeout=task_timeout,
+                        )
+
+                    # Task 4: Batch Lab
+                    if not skip_lab:
+                        self._run_task(
+                            name=f"{hospital_type} batch_lab",
+                            fn=self._extract_batch_lab,
                             hospital_type=hospital_type,
                             hospital_config=hospital_config,
                             timeout=task_timeout,
@@ -364,12 +380,12 @@ class RpaNode:
 
     def _extract_unified_batch(self, hospital_type: str, hospital_config: dict):
         """
-        Single-session extraction: patient list + summary + insurance.
+        Single-session extraction: patient list + summary + insurance + lab.
 
         The unified flow handles everything in one EMR login:
           1. Login → navigate to patient list
           2. Capture census → OCR → send patient_list to backend
-          3. For each patient: open detail once → extract summary + insurance
+          3. For each patient: open detail once → extract summary + insurance + lab
           4. Close EMR → return to VDI
 
         Supported hospitals: JACKSON, BAPTIST.
@@ -402,10 +418,11 @@ class RpaNode:
             census_count = len(result.get("structured_patients", []))
             summary_count = result.get("summary_found_count", 0)
             insurance_count = result.get("insurance_found_count", 0)
+            lab_count = result.get("lab_found_count", 0)
             logger.info(
                 f"Unified batch complete for {hospital_type}: "
                 f"census={census_count}, summaries={summary_count}, "
-                f"insurance={insurance_count}"
+                f"insurance={insurance_count}, lab={lab_count}"
             )
 
             # Store patient names in case other code needs them
@@ -563,6 +580,74 @@ class RpaNode:
         else:
             logger.info(
                 f"Batch insurance flow for {hospital_type} completed (no return data)"
+            )
+
+    def _extract_batch_lab(self, hospital_type: str, hospital_config: dict):
+        """
+        Extract lab results for all patients in a batch EMR session.
+
+        The flow's notify_completion() already sends data to the backend.
+        Patient names are passed from the previously extracted patient list.
+        """
+        logger.info(f"Extracting batch lab from {hospital_type}...")
+
+        # Get patient names from the patient list extraction
+        patient_names = self._last_patient_names.get(hospital_type, [])
+        if not patient_names:
+            logger.warning(
+                f"No patient names available for {hospital_type} batch lab. "
+                "Skipping — patient list may have failed or returned no patients."
+            )
+            return
+
+        logger.info(
+            f"Batch lab: processing {len(patient_names)} patients for {hospital_type}"
+        )
+
+        batch_map = {
+            "JACKSON": ("flows.jackson_batch_lab", "JacksonBatchLabFlow"),
+        }
+
+        mapping = batch_map.get(hospital_type)
+        if not mapping:
+            logger.warning(f"No batch lab flow for hospital type: {hospital_type}")
+            return
+
+        import importlib
+
+        module_name, class_name = mapping
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            logger.warning(f"Batch lab flow module not available for {hospital_type}")
+            return
+
+        flow_cls = getattr(module, class_name)
+        flow = flow_cls()
+        creds = self._get_credentials_for(hospital_type)
+
+        # Pass patient_names and hospital_type to the batch flow
+        result = flow.run(
+            doctor_id=self.doctor_id,
+            doctor_name=self.doctor_name,
+            credentials=creds,
+            doctor_specialty=self.doctor_specialty,
+            patient_names=patient_names,
+            hospital_type=hospital_type,
+        )
+
+        # notify_completion() inside run() already sent data to the backend
+        if result:
+            found_count = (
+                result.get("found_count", 0) if isinstance(result, dict) else 0
+            )
+            logger.info(
+                f"Batch lab complete for {hospital_type}: "
+                f"{found_count}/{len(patient_names)} patients found"
+            )
+        else:
+            logger.info(
+                f"Batch lab flow for {hospital_type} completed (no return data)"
             )
 
     def _get_credentials_for(self, hospital_type: str) -> list:

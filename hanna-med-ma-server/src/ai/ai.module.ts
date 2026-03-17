@@ -16,6 +16,7 @@ import {
   BatchPatientInsuranceTool,
 } from "./tools/patient-insurance.tools";
 import { FindPatientContextTool } from "./tools/find-patient-context.tool";
+import { PatientLabTool, BatchPatientLabTool } from "./tools/patient-lab.tools";
 import { SubAgentsService } from "./agents/sub-agents.service";
 
 @Module({
@@ -29,6 +30,8 @@ import { SubAgentsService } from "./agents/sub-agents.service";
     BatchPatientSummaryTool,
     PatientInsuranceTool,
     BatchPatientInsuranceTool,
+    PatientLabTool,
+    BatchPatientLabTool,
     FindPatientContextTool,
     SubAgentsService,
   ],

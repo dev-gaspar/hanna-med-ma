@@ -138,7 +138,7 @@ class Config:
             return saved_config["screen_resolution"]
 
         # Otherwise use default from rpa_config.json
-        return Config.RPA_CONFIG.get("screen_resolution", "1366x768")
+        return Config.RPA_CONFIG.get("screen_resolution", "1024x768")
 
     @staticmethod
     def set_screen_resolution(resolution: str):
@@ -153,7 +153,7 @@ class Config:
     @staticmethod
     def get_available_resolutions():
         """Get list of available screen resolutions"""
-        return Config.RPA_CONFIG.get("available_resolutions", ["1366x768"])
+        return Config.RPA_CONFIG.get("available_resolutions", ["1024x768"])
 
     @staticmethod
     def get_hospitals():

@@ -1,17 +1,19 @@
 """
 Jackson Unified Batch Flow — Single-session extraction.
 
-ONE PowerChart login performs ALL three tasks:
+ONE PowerChart login performs ALL four tasks:
   1. Capture patient list census  (screenshot → OCR → send patient_list)
   2. For each patient, open detail ONCE and extract:
      - Clinical summary  (Notes tree → report → Ctrl+A / Ctrl+C)
      - Insurance info    (More → Insurance Information → Guarantors → copy)
+     - Lab results       (Results Review → Print to PDF → extract text)
   3. Close PowerChart and return to VDI
 
-Sends THREE payloads to the backend (patient_list, patient_summary,
-patient_insurance) so the contract remains 100 % backward-compatible.
+Sends FOUR payloads to the backend (patient_list, patient_summary,
+patient_insurance, patient_lab) so the contract remains 100 % backward-compatible.
 """
 
+import os
 from datetime import datetime
 from typing import List, Optional
 
@@ -44,7 +46,8 @@ class JacksonUnifiedBatchFlow(BaseFlow):
          a. Find patient and navigate to report  (JacksonSummaryRunner)
          b. Extract summary content              (Ctrl+A / Ctrl+C)
          c. Extract insurance                    (More → Insurance Info → Guarantors → copy → Alt+F4)
-         d. Close patient detail → return to list (Alt+F4 + patience wait)
+         d. Extract lab results                  (Results Review → Print PDF → extract text)
+         e. Close patient detail → return to list (Alt+F4 + patience wait)
       6. Exit fullscreen
       7. Cleanup  (close EMR, return to VDI)
     """
@@ -52,6 +55,8 @@ class JacksonUnifiedBatchFlow(BaseFlow):
     FLOW_NAME = "Jackson Unified Batch"
     FLOW_TYPE = "jackson_unified_batch"
     EMR_TYPE = "JACKSON"
+
+    PDF_FILENAME = "lab jackson.pdf"
 
     def __init__(self):
         super().__init__()
@@ -64,6 +69,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         self.doctor_specialty: Optional[str] = None
         self.summary_results: List[dict] = []
         self.insurance_results: List[dict] = []
+        self.lab_results: List[dict] = []
         self.s3_client = get_s3_client()
 
     # ------------------------------------------------------------------
@@ -93,6 +99,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         self.doctor_specialty = doctor_specialty
         self.summary_results = []
         self.insurance_results = []
+        self.lab_results = []
 
         # Also setup the internal Jackson flow reference
         self._jackson_flow.setup(
@@ -109,11 +116,22 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
     def execute(self):
         """
-        Main execution — ONE login, patient list + summary + insurance.
+        Main execution — ONE login, patient list + summary + insurance + lab.
         """
         logger.info("=" * 70)
         logger.info(" JACKSON UNIFIED BATCH - STARTING (single session)")
         logger.info("=" * 70)
+
+        # Read skip flags from config
+        skip_patient_list = config.get_rpa_setting("skip_patient_list", False)
+        skip_summaries = config.get_rpa_setting("skip_batch_summaries", False)
+        skip_insurance = config.get_rpa_setting("skip_batch_insurance", False)
+        skip_lab = config.get_rpa_setting("skip_batch_lab", False)
+
+        logger.info(
+            f"[JACKSON-UNIFIED] Skip flags — list={skip_patient_list}, "
+            f"summaries={skip_summaries}, insurance={skip_insurance}, lab={skip_lab}"
+        )
 
         # Phase 1: Navigate to patient list (login once — steps 1-8)
         if not self._navigate_to_patient_list():
@@ -122,18 +140,29 @@ class JacksonUnifiedBatchFlow(BaseFlow):
                 "structured_patients": [],
                 "summary_patients": [],
                 "insurance_patients": [],
+                "lab_patients": [],
                 "hospital": self.hospital_type,
                 "error": "Navigation failed",
             }
 
         # Phase 2: Capture patient list census
-        logger.info("[JACKSON-UNIFIED] Phase 2 — Capturing patient list census...")
-        self.structured_patients = self._capture_patient_list()
-        patient_count = len(self.structured_patients)
-        logger.info(f"[JACKSON-UNIFIED] Census captured: {patient_count} patient(s)")
+        if not skip_patient_list:
+            logger.info("[JACKSON-UNIFIED] Phase 2 — Capturing patient list census...")
+            self.structured_patients = self._capture_patient_list()
+            patient_count = len(self.structured_patients)
+            logger.info(
+                f"[JACKSON-UNIFIED] Census captured: {patient_count} patient(s)"
+            )
 
-        # Send patient_list payload to backend immediately
-        self._send_patient_list_to_backend(self.structured_patients)
+            # Send patient_list payload to backend immediately
+            self._send_patient_list_to_backend(self.structured_patients)
+        else:
+            logger.info("[JACKSON-UNIFIED] Phase 2 — SKIPPED (skip_patient_list=true)")
+            patient_count = 0
+            # Enter fullscreen since _capture_patient_list would have done it
+            if not self._click_fullscreen():
+                raise Exception("Failed to enter fullscreen mode")
+            stoppable_sleep(3)
 
         # Derive patient names for batch processing
         if not self.patient_names:
@@ -147,8 +176,17 @@ class JacksonUnifiedBatchFlow(BaseFlow):
                 "name(s) from census"
             )
 
-        if not self.patient_names:
-            logger.warning("[JACKSON-UNIFIED] No patients to process — cleaning up")
+        # Check if there is any per-patient work to do
+        need_per_patient = not (skip_summaries and skip_insurance and skip_lab)
+
+        if not self.patient_names or not need_per_patient:
+            if not self.patient_names:
+                logger.warning("[JACKSON-UNIFIED] No patients to process — cleaning up")
+            else:
+                logger.info(
+                    "[JACKSON-UNIFIED] All per-patient tasks skipped "
+                    "(summaries, insurance, lab) — skipping patient loop"
+                )
             self._click_normalscreen()
             stoppable_sleep(3)
             self._cleanup()
@@ -156,12 +194,13 @@ class JacksonUnifiedBatchFlow(BaseFlow):
                 "structured_patients": self.structured_patients,
                 "summary_patients": [],
                 "insurance_patients": [],
+                "lab_patients": [],
                 "hospital": self.hospital_type,
             }
 
         logger.info(
             f"[JACKSON-UNIFIED] Phase 3 — Processing {len(self.patient_names)} "
-            "patient(s) for summary + insurance"
+            "patient(s) for summary + insurance + lab"
         )
 
         # Already in fullscreen from patient list capture — proceed directly
@@ -177,34 +216,63 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
             summary_content = None
             insurance_content = None
+            lab_content = None
             patient_found = False
 
             try:
                 # Step A: Find patient + navigate to report
-                runner_result = self._find_patient_and_report(patient)
+                # Only navigate to Notes/Report if summaries are needed
+                need_report = not skip_summaries
+                runner_result = self._find_patient_and_report(
+                    patient, need_report=need_report
+                )
 
                 if runner_result.status == AgentStatus.FINISHED:
-                    # Report found — extract summary then insurance
+                    # Report found — extract summary then insurance then lab
                     patient_found = True
                     self._patient_detail_open = True
 
                     # Step B: Extract summary
-                    summary_content = self._extract_summary()
-                    logger.info(f"[JACKSON-UNIFIED] Summary extracted for {patient}")
+                    if not skip_summaries:
+                        summary_content = self._extract_summary()
+                        logger.info(
+                            f"[JACKSON-UNIFIED] Summary extracted for {patient}"
+                        )
+                    else:
+                        logger.info(f"[JACKSON-UNIFIED] Summary SKIPPED for {patient}")
 
                     # Step C: Extract insurance
-                    try:
-                        insurance_content = self._extract_insurance()
+                    if not skip_insurance:
+                        try:
+                            insurance_content = self._extract_insurance()
+                            logger.info(
+                                f"[JACKSON-UNIFIED] Insurance extracted for {patient}"
+                            )
+                        except Exception as ins_err:
+                            logger.error(
+                                f"[JACKSON-UNIFIED] Insurance failed for {patient}: {ins_err}"
+                            )
+                            self._safe_close_insurance_window()
+                    else:
                         logger.info(
-                            f"[JACKSON-UNIFIED] Insurance extracted for {patient}"
+                            f"[JACKSON-UNIFIED] Insurance SKIPPED for {patient}"
                         )
-                    except Exception as ins_err:
-                        logger.error(
-                            f"[JACKSON-UNIFIED] Insurance failed for {patient}: {ins_err}"
-                        )
-                        self._safe_close_insurance_window()
 
-                    # Step D: Return to patient list
+                    # Step D: Extract lab results
+                    if not skip_lab:
+                        try:
+                            lab_content = self._extract_lab()
+                            logger.info(
+                                f"[JACKSON-UNIFIED] Lab extracted for {patient}"
+                            )
+                        except Exception as lab_err:
+                            logger.error(
+                                f"[JACKSON-UNIFIED] Lab failed for {patient}: {lab_err}"
+                            )
+                    else:
+                        logger.info(f"[JACKSON-UNIFIED] Lab SKIPPED for {patient}")
+
+                    # Step E: Return to patient list
                     if not is_last:
                         self._return_to_patient_list()
                     else:
@@ -214,26 +282,41 @@ class JacksonUnifiedBatchFlow(BaseFlow):
                         )
 
                 elif runner_result.patient_detail_open:
-                    # Patient detail open but report not found — still try insurance
+                    # Patient detail open but report not found — still try insurance + lab
                     patient_found = True
                     self._patient_detail_open = True
                     logger.warning(
                         f"[JACKSON-UNIFIED] Report not found for {patient}, "
-                        "trying insurance anyway..."
+                        "trying insurance/lab anyway..."
                     )
 
-                    try:
-                        insurance_content = self._extract_insurance()
-                        logger.info(
-                            f"[JACKSON-UNIFIED] Insurance extracted for {patient} "
-                            "(no summary)"
-                        )
-                    except Exception as ins_err:
-                        logger.error(
-                            f"[JACKSON-UNIFIED] Insurance also failed for {patient}: "
-                            f"{ins_err}"
-                        )
-                        self._safe_close_insurance_window()
+                    if not skip_insurance:
+                        try:
+                            insurance_content = self._extract_insurance()
+                            logger.info(
+                                f"[JACKSON-UNIFIED] Insurance extracted for {patient} "
+                                "(no summary)"
+                            )
+                        except Exception as ins_err:
+                            logger.error(
+                                f"[JACKSON-UNIFIED] Insurance also failed for {patient}: "
+                                f"{ins_err}"
+                            )
+                            self._safe_close_insurance_window()
+
+                    # Still try lab extraction even without summary
+                    if not skip_lab:
+                        try:
+                            lab_content = self._extract_lab()
+                            logger.info(
+                                f"[JACKSON-UNIFIED] Lab extracted for {patient} "
+                                "(no summary)"
+                            )
+                        except Exception as lab_err:
+                            logger.error(
+                                f"[JACKSON-UNIFIED] Lab also failed for {patient}: "
+                                f"{lab_err}"
+                            )
 
                     if not is_last:
                         self._return_to_patient_list()
@@ -264,6 +347,13 @@ class JacksonUnifiedBatchFlow(BaseFlow):
                     "content": insurance_content,
                 }
             )
+            self.lab_results.append(
+                {
+                    "patient": patient,
+                    "found": patient_found,
+                    "content": lab_content,
+                }
+            )
 
         # Exit fullscreen before cleanup
         logger.info("[JACKSON-UNIFIED] Exiting fullscreen mode...")
@@ -276,6 +366,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
         summary_ok = sum(1 for r in self.summary_results if r.get("content"))
         insurance_ok = sum(1 for r in self.insurance_results if r.get("content"))
+        lab_ok = sum(1 for r in self.lab_results if r.get("content"))
 
         logger.info("=" * 70)
         logger.info(" JACKSON UNIFIED BATCH - COMPLETE")
@@ -283,12 +374,14 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         logger.info(f" Processed: {total} patient(s)")
         logger.info(f" Summaries extracted: {summary_ok}")
         logger.info(f" Insurance extracted: {insurance_ok}")
+        logger.info(f" Lab results extracted: {lab_ok}")
         logger.info("=" * 70)
 
         return {
             "structured_patients": self.structured_patients,
             "summary_patients": self.summary_results,
             "insurance_patients": self.insurance_results,
+            "lab_patients": self.lab_results,
             "hospital": self.hospital_type,
             "total": total,
             "summary_found_count": sum(
@@ -297,6 +390,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
             "insurance_found_count": sum(
                 1 for r in self.insurance_results if r.get("found")
             ),
+            "lab_found_count": sum(1 for r in self.lab_results if r.get("found")),
         }
 
     # ------------------------------------------------------------------
@@ -415,12 +509,17 @@ class JacksonUnifiedBatchFlow(BaseFlow):
     # Patient Finding  (from JacksonBatchSummaryFlow — uses SummaryRunner)
     # ------------------------------------------------------------------
 
-    def _find_patient_and_report(self, patient_name: str):
+    def _find_patient_and_report(self, patient_name: str, need_report: bool = True):
         """
         Find patient in the list and navigate to their clinical report.
 
         Uses JacksonSummaryRunner which chains:
           PatientFinder → open patient + Notes → ReportFinder
+
+        Args:
+            patient_name: Name of the patient to find.
+            need_report: If True, navigate all the way to the report (Notes + tree).
+                If False, only open the patient detail (for lab/insurance-only).
         """
         self.set_step(f"FIND_PATIENT_{patient_name}")
         logger.info(f"[JACKSON-UNIFIED] Finding patient: {patient_name}")
@@ -431,7 +530,10 @@ class JacksonUnifiedBatchFlow(BaseFlow):
             doctor_specialty=self.doctor_specialty,
         )
 
-        result = runner.run(patient_name=patient_name)
+        result = runner.run(
+            patient_name=patient_name,
+            find_patient_only=not need_report,
+        )
         self._patient_detail_open = result.patient_detail_open
 
         if result.status == AgentStatus.PATIENT_NOT_FOUND:
@@ -473,8 +575,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         if report_element:
             self.safe_click(report_element, "Report Document")
         else:
-            screen_w, screen_h = pyautogui.size()
-            pyautogui.click(screen_w // 2, screen_h // 2)
+            self._focus_window_click()
         stoppable_sleep(0.5)
 
         # Clear clipboard
@@ -648,6 +749,202 @@ class JacksonUnifiedBatchFlow(BaseFlow):
             self._insurance_window_open = False
 
     # ------------------------------------------------------------------
+    # Lab Extraction  (Results Review → Print PDF → extract text)
+    # ------------------------------------------------------------------
+
+    def _extract_lab(self) -> str:
+        """
+        Extract lab results via Results Review → Print to PDF → extract text.
+
+        Steps:
+          1. Click 'Results Review'
+          2. Unpin menu
+          3. Click 'Labs Group' radiobutton (if visible)
+          4. Click Print button
+          5. Press Enter, click 'Lab Jackson'
+          6. Enter → Left → Enter (confirm save/replace)
+          7. Extract text from PDF on desktop
+          8. Re-open menu and pin it
+        """
+        self.set_step("EXTRACT_LAB")
+        logger.info("[JACKSON-UNIFIED] Extracting lab results...")
+
+        # Step 1: Click Results Review
+        logger.info("[JACKSON-UNIFIED] Clicking 'Results Review'...")
+        results_review_img = config.get_rpa_setting("images.jackson_results_review")
+        location = self.wait_for_element(
+            results_review_img,
+            timeout=10,
+            confidence=0.8,
+            description="Results Review",
+        )
+        if not location:
+            raise Exception("Results Review button not found")
+        self.safe_click(location, "Results Review")
+        stoppable_sleep(2)
+
+        # Step 2: Unpin menu
+        logger.info("[JACKSON-UNIFIED] Unpinning menu...")
+        unpin_img = config.get_rpa_setting("images.jackson_unpin_menu")
+        location = self.wait_for_element(
+            unpin_img,
+            timeout=10,
+            confidence=0.8,
+            description="Unpin Menu",
+        )
+        if not location:
+            raise Exception("Unpin menu button not found")
+        self.safe_click(location, "Unpin Menu")
+        stoppable_sleep(2)
+
+        # Step 3: Click Labs Group radiobutton (if visible — already in view if not)
+        logger.info("[JACKSON-UNIFIED] Looking for 'Labs Group' radiobutton...")
+        labs_group_img = config.get_rpa_setting("images.jackson_labs_group")
+        location = self.wait_for_element(
+            labs_group_img,
+            timeout=5,
+            confidence=0.8,
+            description="Labs Group",
+        )
+        if location:
+            logger.info("[JACKSON-UNIFIED] Labs Group found - clicking...")
+            self.safe_click(location, "Labs Group")
+            stoppable_sleep(2)
+        else:
+            logger.info(
+                "[JACKSON-UNIFIED] Labs Group not visible - already in correct view"
+            )
+
+        # Step 4: Click Print button
+        logger.info("[JACKSON-UNIFIED] Clicking Print button...")
+        print_img = config.get_rpa_setting("images.jackson_print")
+        location = self.wait_for_element(
+            print_img,
+            timeout=10,
+            confidence=0.8,
+            description="Print button",
+        )
+        if not location:
+            raise Exception("Print button not found")
+        self.safe_click(location, "Print button")
+        stoppable_sleep(2)
+
+        # Step 5: Press Enter, then click 'Lab Jackson'
+        logger.info("[JACKSON-UNIFIED] Confirming print dialog (Enter)...")
+        pydirectinput.press("enter")
+        stoppable_sleep(2)
+
+        logger.info("[JACKSON-UNIFIED] Clicking 'Lab Jackson' file...")
+        lab_jackson_img = config.get_rpa_setting("images.jackson_lab_jackson")
+        location = self.wait_for_element(
+            lab_jackson_img,
+            timeout=10,
+            confidence=0.8,
+            description="Lab Jackson file",
+        )
+        if not location:
+            raise Exception("Lab Jackson file not found")
+        self.safe_click(location, "Lab Jackson file")
+        stoppable_sleep(2)
+
+        # Step 6: Enter → Left → Enter (confirm save/replace)
+        logger.info("[JACKSON-UNIFIED] Confirming save (Enter, Left, Enter)...")
+        pydirectinput.press("enter")
+        stoppable_sleep(1)
+        pydirectinput.press("left")
+        stoppable_sleep(1)
+        pydirectinput.press("enter")
+        stoppable_sleep(5)  # Wait for PDF to be saved
+
+        # Step 7: Extract text from PDF
+        logger.info("[JACKSON-UNIFIED] Extracting text from PDF...")
+        content = self._extract_pdf_content()
+
+        # Step 8: Re-open menu and pin it
+        logger.info("[JACKSON-UNIFIED] Re-opening menu...")
+        open_menu_img = config.get_rpa_setting("images.jackson_open_menu")
+        location = self.wait_for_element(
+            open_menu_img,
+            timeout=10,
+            confidence=0.8,
+            description="Open Menu",
+        )
+        if not location:
+            logger.warning("[JACKSON-UNIFIED] Open Menu not found, continuing...")
+        else:
+            self.safe_click(location, "Open Menu")
+            stoppable_sleep(2)
+
+        logger.info("[JACKSON-UNIFIED] Pinning menu...")
+        pin_menu_img = config.get_rpa_setting("images.jackson_pin_menu")
+        location = self.wait_for_element(
+            pin_menu_img,
+            timeout=10,
+            confidence=0.8,
+            description="Pin Menu",
+        )
+        if not location:
+            logger.warning("[JACKSON-UNIFIED] Pin Menu not found, continuing...")
+        else:
+            self.safe_click(location, "Pin Menu")
+            stoppable_sleep(2)
+
+        logger.info(f"[JACKSON-UNIFIED] Lab: {len(content)} characters")
+        return content or ""
+
+    def _extract_pdf_content(self) -> str:
+        """Extract text content from the saved PDF file with retry logic."""
+        try:
+            import PyPDF2
+
+            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            pdf_path = os.path.join(desktop_path, self.PDF_FILENAME)
+
+            if not os.path.exists(pdf_path):
+                logger.error(f"[JACKSON-UNIFIED] PDF not found at: {pdf_path}")
+                return "[ERROR] PDF file not found on desktop"
+
+            max_attempts = 5
+            for attempt in range(1, max_attempts + 1):
+                file_size = os.path.getsize(pdf_path)
+                if file_size > 0:
+                    logger.info(f"[JACKSON-UNIFIED] PDF ready ({file_size} bytes)")
+                    break
+                logger.warning(
+                    f"[JACKSON-UNIFIED] PDF empty, waiting... "
+                    f"(attempt {attempt}/{max_attempts})"
+                )
+                stoppable_sleep(1)
+            else:
+                logger.error("[JACKSON-UNIFIED] PDF still empty after max attempts")
+                return "[ERROR] PDF file is empty after waiting"
+
+            with open(pdf_path, "rb") as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                text_content = []
+
+                for page_num, page in enumerate(pdf_reader.pages):
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_content.append(page_text)
+
+                content = "\n".join(text_content)
+
+            logger.info(
+                f"[JACKSON-UNIFIED] Extracted {len(content)} characters from PDF"
+            )
+            return content
+
+        except ImportError:
+            logger.error(
+                "[JACKSON-UNIFIED] PyPDF2 not installed - cannot extract PDF content"
+            )
+            return "[ERROR] PyPDF2 library not available"
+        except Exception as e:
+            logger.error(f"[JACKSON-UNIFIED] Error extracting PDF content: {e}")
+            return f"[ERROR] Failed to extract PDF: {e}"
+
+    # ------------------------------------------------------------------
     # Return to Patient List  (from JacksonBatchSummaryFlow)
     # ------------------------------------------------------------------
 
@@ -660,8 +957,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         self.set_step("RETURN_TO_PATIENT_LIST")
         logger.info("[JACKSON-UNIFIED] Returning to patient list...")
 
-        screen_w, screen_h = pyautogui.size()
-        pyautogui.click(screen_w // 2, screen_h // 2)
+        self._focus_window_click()
         stoppable_sleep(0.5)
 
         # Close patient detail with Alt+F4
@@ -699,8 +995,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
     def _close_patient_detail(self):
         """Close patient detail window (Alt+F4) — error recovery helper."""
-        screen_w, screen_h = pyautogui.size()
-        pyautogui.click(screen_w // 2, screen_h // 2)
+        self._focus_window_click()
         stoppable_sleep(0.5)
 
         pydirectinput.keyDown("alt")
@@ -722,12 +1017,10 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         self.set_step("CLEANUP")
         logger.info("[JACKSON-UNIFIED] Cleanup — closing EMR...")
 
-        screen_w, screen_h = pyautogui.size()
-
         # If patient detail is still open (last patient), close it first
         if self._patient_detail_open:
             logger.info("[JACKSON-UNIFIED] Closing last patient detail...")
-            pyautogui.click(screen_w // 2, screen_h // 2)
+            self._focus_window_click()
             stoppable_sleep(0.5)
 
             pydirectinput.keyDown("alt")
@@ -741,7 +1034,7 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
         # Close the patient list / Jackson main window
         logger.info("[JACKSON-UNIFIED] Closing Jackson main window...")
-        pyautogui.click(screen_w // 2, screen_h // 2)
+        self._focus_window_click()
         stoppable_sleep(0.5)
 
         pydirectinput.keyDown("alt")
@@ -766,47 +1059,83 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
     def notify_completion(self, result):
         """
-        Send summary + insurance payloads to the backend.
+        Send summary + insurance + lab payloads to the backend.
 
         patient_list was already sent during execute() right after capture,
         so we only send the batch results here.
+
+        Respects skip flags: if a task was skipped, its payload is NOT sent
+        to avoid overwriting real data with empty lists.
         """
+        skip_summaries = config.get_rpa_setting("skip_batch_summaries", False)
+        skip_insurance = config.get_rpa_setting("skip_batch_insurance", False)
+        skip_lab = config.get_rpa_setting("skip_batch_lab", False)
+
         # 1. Summary payload
-        summary_payload = {
-            "status": "completed",
-            "type": f"batch_{self.hospital_type.lower()}_summary",
-            "doctor_name": self.doctor_name,
-            "doctor_specialty": self.doctor_specialty,
-            "hospital": self.hospital_type,
-            "patients": result.get("summary_patients", []),
-            "total": result.get("total", 0),
-            "found_count": result.get("summary_found_count", 0),
-        }
-        logger.info("[JACKSON-UNIFIED] Sending summary results to backend...")
-        resp = self._send_to_summary_webhook_n8n(summary_payload)
-        if resp:
-            logger.info(
-                f"[JACKSON-UNIFIED] Summary backend response: {resp.status_code}"
-            )
+        if not skip_summaries:
+            summary_payload = {
+                "status": "completed",
+                "type": f"batch_{self.hospital_type.lower()}_summary",
+                "doctor_name": self.doctor_name,
+                "doctor_specialty": self.doctor_specialty,
+                "hospital": self.hospital_type,
+                "patients": result.get("summary_patients", []),
+                "total": result.get("total", 0),
+                "found_count": result.get("summary_found_count", 0),
+            }
+            logger.info("[JACKSON-UNIFIED] Sending summary results to backend...")
+            resp = self._send_to_summary_webhook_n8n(summary_payload)
+            if resp:
+                logger.info(
+                    f"[JACKSON-UNIFIED] Summary backend response: {resp.status_code}"
+                )
+            else:
+                logger.error("[JACKSON-UNIFIED] Failed to send summary to backend")
         else:
-            logger.error("[JACKSON-UNIFIED] Failed to send summary to backend")
+            logger.info("[JACKSON-UNIFIED] Summary SKIPPED — not sending to backend")
 
         # 2. Insurance payload
-        insurance_payload = {
-            "status": "completed",
-            "type": "jackson_batch_insurance",
-            "doctor_name": self.doctor_name,
-            "hospital": self.hospital_type,
-            "patients": result.get("insurance_patients", []),
-            "total": result.get("total", 0),
-            "found_count": result.get("insurance_found_count", 0),
-            "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
-        }
-        logger.info("[JACKSON-UNIFIED] Sending insurance results to backend...")
-        resp = self._send_to_batch_insurance_webhook_n8n(insurance_payload)
-        if resp:
-            logger.info(
-                f"[JACKSON-UNIFIED] Insurance backend response: {resp.status_code}"
-            )
+        if not skip_insurance:
+            insurance_payload = {
+                "status": "completed",
+                "type": "jackson_batch_insurance",
+                "doctor_name": self.doctor_name,
+                "hospital": self.hospital_type,
+                "patients": result.get("insurance_patients", []),
+                "total": result.get("total", 0),
+                "found_count": result.get("insurance_found_count", 0),
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            }
+            logger.info("[JACKSON-UNIFIED] Sending insurance results to backend...")
+            resp = self._send_to_batch_insurance_webhook_n8n(insurance_payload)
+            if resp:
+                logger.info(
+                    f"[JACKSON-UNIFIED] Insurance backend response: {resp.status_code}"
+                )
+            else:
+                logger.error("[JACKSON-UNIFIED] Failed to send insurance to backend")
         else:
-            logger.error("[JACKSON-UNIFIED] Failed to send insurance to backend")
+            logger.info("[JACKSON-UNIFIED] Insurance SKIPPED — not sending to backend")
+
+        # 3. Lab payload
+        if not skip_lab:
+            lab_payload = {
+                "status": "completed",
+                "type": "jackson_batch_lab",
+                "doctor_name": self.doctor_name,
+                "hospital": self.hospital_type,
+                "patients": result.get("lab_patients", []),
+                "total": result.get("total", 0),
+                "found_count": result.get("lab_found_count", 0),
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            }
+            logger.info("[JACKSON-UNIFIED] Sending lab results to backend...")
+            resp = self._send_to_lab_webhook_n8n(lab_payload)
+            if resp:
+                logger.info(
+                    f"[JACKSON-UNIFIED] Lab backend response: {resp.status_code}"
+                )
+            else:
+                logger.error("[JACKSON-UNIFIED] Failed to send lab to backend")
+        else:
+            logger.info("[JACKSON-UNIFIED] Lab SKIPPED — not sending to backend")

@@ -75,12 +75,15 @@ class JacksonSummaryRunner:
         self.history: List[Dict[str, Any]] = []
         self.current_step = 0
 
-    def run(self, patient_name: str) -> RunnerResult:
+    def run(self, patient_name: str, find_patient_only: bool = False) -> RunnerResult:
         """
         Run the full flow to find patient report.
 
         Args:
             patient_name: Name of patient to find
+            find_patient_only: If True, only find and open the patient detail
+                without navigating to Notes/Report. Useful when only lab or
+                insurance extraction is needed (no summary).
 
         Returns:
             RunnerResult with outcome
@@ -139,11 +142,32 @@ class JacksonSummaryRunner:
                 f"[RUNNER] Phase 1 complete - Patient at element {patient_element_id}"
             )
 
-            # === PHASE 2: Open Patient + Notes (RPA) ===
+            # === PHASE 2a: Open Patient (always needed) ===
             # CRITICAL: Pass Phase 1 elements to avoid new OmniParser call with different IDs
             logger.info("[RUNNER] Phase 2: Opening patient record...")
-            self._phase2_open_patient_and_notes(patient_element_id, phase1_elements)
+            self._phase2a_open_patient(patient_element_id, phase1_elements)
             patient_detail_opened = True  # Mark that patient detail is now open
+
+            if find_patient_only:
+                # Lab-only / insurance-only mode: patient detail is open, skip Notes/Report
+                logger.info(
+                    "[RUNNER] find_patient_only=True — skipping Notes/Report navigation"
+                )
+                logger.info("=" * 70)
+                logger.info(" LOCAL JACKSON RUNNER - FINISHED (patient only)")
+                logger.info(f" Steps: {self.current_step}")
+                logger.info("=" * 70)
+
+                return RunnerResult(
+                    status=AgentStatus.FINISHED,
+                    execution_id=self.execution_id,
+                    steps_taken=self.current_step,
+                    history=self.history,
+                    patient_detail_open=True,
+                )
+
+            # === PHASE 2b: Open Notes + By Type (only for summary) ===
+            self._phase2b_open_notes()
             logger.info("[RUNNER] Phase 2 complete - Notes view open")
 
             # === PHASE 3: Find Report (Agent Loop) ===
@@ -216,10 +240,9 @@ class JacksonSummaryRunner:
         # Return both result AND elements for Phase 2 to reuse
         return result, elements
 
-    def _phase2_open_patient_and_notes(self, element_id: int, elements: list):
+    def _phase2a_open_patient(self, element_id: int, elements: list):
         """
-        Phase 2: RPA to open patient and click Notes.
-        Uses robust modal handling for Same Name Alert and Assign Relationship modals.
+        Phase 2a: Double-click patient and handle modals (opens patient detail).
 
         Args:
             element_id: ID of patient element from Phase 1
@@ -243,6 +266,8 @@ class JacksonSummaryRunner:
         self._handle_patient_open_modals()
         self.rpa.check_stop()
 
+    def _phase2b_open_notes(self):
+        """Phase 2b: Click Notes menu and 'By Type' sort (only needed for summary)."""
         # Click Notes menu using robust wait with modal handlers
         self.current_step += 1
         notes_found = self._click_notes_menu_with_modal_handling()

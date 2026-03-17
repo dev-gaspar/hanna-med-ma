@@ -4,6 +4,7 @@ import {
   getInsurancePrompt,
   getSummaryPrompt,
   getListPrompt,
+  getLabPrompt,
   getConversationalPrompt,
 } from "../prompts/sub-agents.prompt";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -28,7 +29,11 @@ export class SubAgentsService {
         })
       : getInsurancePrompt(context);
 
-    return this.invokeModel(prompt, `Raw Data Context:\n${rawContent}`, onStreaming);
+    return this.invokeModel(
+      prompt,
+      `Raw Data Context:\n${rawContent}`,
+      onStreaming,
+    );
   }
 
   async formatSummary(
@@ -50,7 +55,11 @@ export class SubAgentsService {
         })
       : getSummaryPrompt(ctx);
 
-    return this.invokeModel(prompt, `Raw Data Context:\n${rawContent}`, onStreaming);
+    return this.invokeModel(
+      prompt,
+      `Raw Data Context:\n${rawContent}`,
+      onStreaming,
+    );
   }
 
   async formatPatientList(
@@ -66,7 +75,37 @@ export class SubAgentsService {
         })
       : getListPrompt(context);
 
-    return this.invokeModel(prompt, `List Data Context:\n${patientsJson}`, onStreaming);
+    return this.invokeModel(
+      prompt,
+      `List Data Context:\n${patientsJson}`,
+      onStreaming,
+    );
+  }
+
+  async formatLab(
+    rawContent: string,
+    ctx: {
+      patientName: string;
+      hospitalType: string;
+      extractedAt: string;
+      doctorSpecialty: string;
+    },
+    specificQuestion?: string,
+    onStreaming?: (chunk: string) => void,
+  ): Promise<string> {
+    const prompt = specificQuestion
+      ? getConversationalPrompt({
+          patientName: ctx.patientName,
+          hospitalType: ctx.hospitalType,
+          specificQuestion,
+        })
+      : getLabPrompt(ctx);
+
+    return this.invokeModel(
+      prompt,
+      `Raw Lab Data Context:\n${rawContent}`,
+      onStreaming,
+    );
   }
 
   private async invokeModel(

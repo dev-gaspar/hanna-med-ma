@@ -4,13 +4,11 @@
 	"skip_patient_list": false,
 	"skip_batch_summaries": false,
 	"skip_batch_insurance": false,
+	"skip_batch_lab": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": [],
+	"disabled_emr_types": ["STEWARD", "BAPTIST"],
 	"screen_resolution": "1024x768",
-	"available_resolutions": [
-		"1366x768",
-		"1024x768"
-	],
+	"available_resolutions": ["1024x768"],
 	"aws": {
 		"access_key_id": "${AWS_ACCESS_KEY_ID}",
 		"secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
@@ -120,6 +118,13 @@
 		"jackson_insurance_guarantors": "images/{resolution}/jackson/insurance_guarantors.png",
 		"jackson_insurance_guarantors_alt": "images/{resolution}/jackson/insurance_guarantors_alt.png",
 		"jackson_by_type": "images/{resolution}/jackson/by_type.png",
+		"jackson_results_review": "images/{resolution}/jackson/results_review.png",
+		"jackson_unpin_menu": "images/{resolution}/jackson/unpin_menu.png",
+		"jackson_labs_group": "images/{resolution}/jackson/labs_group.png",
+		"jackson_lab_jackson": "images/{resolution}/jackson/lab_jackson.png",
+		"jackson_open_menu": "images/{resolution}/jackson/open_menu.png",
+		"jackson_pin_menu": "images/{resolution}/jackson/pin_menu.png",
+		"jackson_print": "images/{resolution}/jackson/print.png",
 		"steward_tab": "images/{resolution}/steward/step1_tab_steward.png",
 		"steward_favorite": "images/{resolution}/steward/step2_favorite_steward.png",
 		"steward_meditech": "images/{resolution}/steward/step3_meditech.png",
@@ -246,70 +251,21 @@
 	"roi_definitions": {
 		"jackson": {
 			"1024x768": {
-				"patient_finder": [
-					"patient_list"
-				],
-				"report_finder": [
-					"notes_tree",
-					"report_content"
-				]
-			},
-			"1366x768": {
-				"patient_finder": [
-					"patient_list"
-				],
-				"report_finder": [
-					"notes_tree",
-					"report_content"
-				]
+				"patient_finder": ["patient_list"],
+				"report_finder": ["notes_tree", "report_content"]
 			}
 		},
 		"baptist": {
 			"1024x768": {
-				"patient_finder": [
-					"hospital_tabs",
-					"patient_list"
-				],
-				"report_finder": [
-					"notes_tree",
-					"report_content"
-				]
-			},
-			"1366x768": {
-				"patient_finder": [
-					"hospital_tabs",
-					"patient_list"
-				],
-				"report_finder": [
-					"notes_tree",
-					"report_content"
-				]
+				"patient_finder": ["hospital_tabs", "patient_list"],
+				"report_finder": ["notes_tree", "report_content"]
 			}
 		},
 		"steward": {
 			"1024x768": {
-				"patient_finder": [
-					"patient_list"
-				],
-				"reason_finder": [
-					"orders_list"
-				],
-				"report_finder": [
-					"document_list",
-					"document_content"
-				]
-			},
-			"1366x768": {
-				"patient_finder": [
-					"patient_list"
-				],
-				"reason_finder": [
-					"orders_list"
-				],
-				"report_finder": [
-					"document_list",
-					"document_content"
-				]
+				"patient_finder": ["patient_list"],
+				"reason_finder": ["orders_list"],
+				"report_finder": ["document_list", "document_content"]
 			}
 		}
 	},
@@ -334,26 +290,6 @@
 					"w": 583,
 					"h": 497
 				}
-			},
-			"1366x768": {
-				"patient_list": {
-					"x": 18,
-					"y": 213,
-					"w": 986,
-					"h": 481
-				},
-				"notes_tree": {
-					"x": 234,
-					"y": 201,
-					"w": 150,
-					"h": 322
-				},
-				"report_content": {
-					"x": 388,
-					"y": 201,
-					"w": 583,
-					"h": 497
-				}
 			}
 		},
 		"baptist": {
@@ -382,62 +318,10 @@
 					"w": 587,
 					"h": 359
 				}
-			},
-			"1366x768": {
-				"hospital_tabs": {
-					"x": 5,
-					"y": 191,
-					"w": 800,
-					"h": 27
-				},
-				"patient_list": {
-					"x": 11,
-					"y": 241,
-					"w": 1006,
-					"h": 365
-				},
-				"notes_tree": {
-					"x": 274,
-					"y": 257,
-					"w": 126,
-					"h": 213
-				},
-				"report_content": {
-					"x": 398,
-					"y": 256,
-					"w": 587,
-					"h": 359
-				}
 			}
 		},
 		"steward": {
 			"1024x768": {
-				"patient_list": {
-					"x": 6,
-					"y": 315,
-					"w": 767,
-					"h": 389
-				},
-				"orders_list": {
-					"x": 2,
-					"y": 371,
-					"w": 762,
-					"h": 354
-				},
-				"document_list": {
-					"x": 44,
-					"y": 320,
-					"w": 231,
-					"h": 317
-				},
-				"document_content": {
-					"x": 277,
-					"y": 366,
-					"w": 700,
-					"h": 330
-				}
-			},
-			"1366x768": {
 				"patient_list": {
 					"x": 6,
 					"y": 315,

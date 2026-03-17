@@ -73,20 +73,20 @@ export class BatchPatientListTool {
   async execute(
     args: { hospital_types: string[]; specific_question?: string },
     doctorContext: { doctorId: number; doctorName: string },
-    callbacks?: { onStreaming?: (chunk: string) => void }
+    callbacks?: { onStreaming?: (chunk: string) => void },
   ): Promise<string> {
     const results: string[] = [];
     for (let i = 0; i < args.hospital_types.length; i++) {
-        if (i > 0 && callbacks?.onStreaming) {
-            callbacks.onStreaming("\n\n---\n\n");
-        }
-        const type = args.hospital_types[i];
-        const res = await this.patientListTool.execute(
-            { hospital_type: type, specific_question: args.specific_question },
-            doctorContext,
-            callbacks
-        );
-        results.push(res);
+      if (i > 0 && callbacks?.onStreaming) {
+        callbacks.onStreaming("\n\n---\n\n");
+      }
+      const type = args.hospital_types[i];
+      const res = await this.patientListTool.execute(
+        { hospital_type: type, specific_question: args.specific_question },
+        doctorContext,
+        callbacks,
+      );
+      results.push(res);
     }
     return results.join("\n\n---\n\n");
   }

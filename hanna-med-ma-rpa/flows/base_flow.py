@@ -456,6 +456,17 @@ class BaseFlow(RPABotBase, ABC):
                 f"[{self.EMR_TYPE.upper()}] Error clicking normalscreen: {e}"
             )
 
+    def _focus_window_click(self):
+        """
+        Click at the top-center of the screen to focus the foreground window
+        without triggering interactive UI elements.
+
+        Uses y=1 (title bar area) instead of screen center to avoid
+        accidentally clicking buttons, links, or tabs in the EMR.
+        """
+        screen_w, _ = pyautogui.size()
+        pyautogui.click(screen_w // 2, 1)
+
     def _wait_for_patient_list_with_patience(
         self,
         patient_list_header_img: str,
@@ -481,8 +492,6 @@ class BaseFlow(RPABotBase, ABC):
         Returns:
             True if Patient List Header was detected, False otherwise
         """
-        screen_w, screen_h = pyautogui.size()
-
         for alt_f4_cycle in range(
             max_alt_f4_retries + 1
         ):  # 0 = initial, 1 = after retry
@@ -497,8 +506,8 @@ class BaseFlow(RPABotBase, ABC):
                     f"({cycle_name}, attempt {attempt_num}/{max_attempts}, {attempt_timeout}s)..."
                 )
 
-                # Click center to wake up system (Citrix/VDI can freeze)
-                pyautogui.click(screen_w // 2, screen_h // 2)
+                # Click top-center to wake up system (Citrix/VDI can freeze)
+                self._focus_window_click()
                 stoppable_sleep(0.5)
 
                 # Try to detect header
@@ -524,7 +533,7 @@ class BaseFlow(RPABotBase, ABC):
                 logger.warning(
                     f"[{self.EMR_TYPE.upper()}] Patience exhausted - sending rescue Alt+F4..."
                 )
-                pyautogui.click(screen_w // 2, screen_h // 2)
+                self._focus_window_click()
                 stoppable_sleep(0.5)
 
                 pydirectinput.keyDown("alt")
@@ -670,7 +679,9 @@ class BaseFlow(RPABotBase, ABC):
                 )
                 continue
 
-            logger.info(f"[OCR+LLM] OCR screenshot {idx}/{len(screenshots)}: {hospital_ctx}")
+            logger.info(
+                f"[OCR+LLM] OCR screenshot {idx}/{len(screenshots)}: {hospital_ctx}"
+            )
             extracted_text = self._ocr_image_google_vision(image_b64)
 
             if not extracted_text.strip():
@@ -815,3 +826,7 @@ Rules:
     def _send_to_batch_insurance_webhook_n8n(self, data):
         """Send batch insurance data to the backend (backward-compatible name)."""
         return self._send_to_backend_ingest("patient_insurance", data)
+
+    def _send_to_lab_webhook_n8n(self, data):
+        """Send patient lab data to the backend (backward-compatible name)."""
+        return self._send_to_backend_ingest("patient_lab", data)

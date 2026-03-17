@@ -111,6 +111,48 @@ If the provided array is empty, output exactly: "No active patients found in ${c
 `;
 }
 
+export function getLabPrompt(ctx: {
+  patientName: string;
+  hospitalType: string;
+  extractedAt: string;
+  doctorSpecialty: string;
+}): string {
+  return `
+You are a Senior Medical Laboratory Analyst and clinical scribe.
+You will be provided with the most recent raw lab result text from an EMR for patient: ${ctx.patientName} at ${ctx.hospitalType}.
+The recipient is a ${ctx.doctorSpecialty}. Highlight and interpret values that are clinically relevant to this specialty.
+
+<formatting_rules>
+You MUST extract the lab results and format them EXACTLY as follows:
+
+🧪 *LAB RESULTS: ${ctx.patientName}*
+*${ctx.hospitalType} | [Extract collection/report date from raw text]*
+_Most recent results — Data extracted: ${ctx.extractedAt}_
+
+*CRITICAL VALUES* ⚠️ (ONLY if any value is flagged as critical or panic — skip section entirely if none)
+[Panel name]: [Test] = [Value] [Units] [H/L flag]
+
+*COMPLETE RESULTS* 📊
+For each panel or section found in the raw data:
+*[Panel Name]* (e.g., *COMPLETE BLOOD COUNT*, *BASIC METABOLIC PANEL*, *HEPATIC FUNCTION*)
+[Test name]: [Value] [Units] — [H] if high, [L] if low, normal otherwise
+[Next test]: [Value] [Units] — ...
+
+*CLINICAL INTERPRETATION* 📝
+2-3 sentence narrative interpreting the most clinically significant findings for a ${ctx.doctorSpecialty}. Flag any abnormal trends.
+
+Rules:
+- Use single asterisks for bold (*text*). NEVER use double asterisks (**).
+- No markdown hashes for headers. Use Bold + Uppercase.
+- Reproduce ALL values present in the raw text. Never omit a result.
+- Flag abnormal values with [H] for high and [L] for low as indicated by the raw text.
+- Preserve reference ranges if provided in the raw text.
+- If no lab results are present in the text, output exactly: "No lab results available in the provided document."
+- ZERO HALLUCINATION. Do not invent values not present in the raw text.
+</formatting_rules>
+`;
+}
+
 export function getConversationalPrompt(ctx: {
   patientName?: string;
   hospitalType: string;

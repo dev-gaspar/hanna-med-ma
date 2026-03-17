@@ -1,5 +1,5 @@
 import { parseInlineFormatting } from "../../lib/chatUtils";
-import { FileText, Landmark } from "lucide-react";
+import { FileText, Landmark, FlaskConical } from "lucide-react";
 import type { SelectedItem } from "./DoctorChat";
 
 interface PatientCardProps {
@@ -9,7 +9,10 @@ interface PatientCardProps {
 		selectedId?: string | number;
 		onSelect: (item: SelectedItem | null) => void;
 	};
-	onAction?: (action: "summary" | "insurance", patientName: string) => void;
+	onAction?: (
+		action: "summary" | "insurance" | "lab",
+		patientName: string,
+	) => void;
 }
 
 export const PatientCard = ({
@@ -75,6 +78,16 @@ export const PatientCard = ({
 					>
 						<Landmark className="w-4 h-4" />
 						<span className="text-[10px] font-medium">Insurance</span>
+					</button>
+					<button
+						onClick={(e) => {
+							e.stopPropagation();
+							onAction?.("lab", patientName);
+						}}
+						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30`}
+					>
+						<FlaskConical className="w-4 h-4" />
+						<span className="text-[10px] font-medium">Lab</span>
 					</button>
 				</div>
 			</div>

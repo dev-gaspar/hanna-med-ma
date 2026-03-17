@@ -9,7 +9,10 @@ interface MessageItemProps {
 	message: Message;
 	selectedId?: string | number;
 	onSelect: (item: SelectedItem | null) => void;
-	onAction?: (action: "summary" | "insurance", patientName: string) => void;
+	onAction?: (
+		action: "summary" | "insurance" | "lab",
+		patientName: string,
+	) => void;
 	isLastAssistant?: boolean;
 	onRegenerate?: () => void;
 	isLastUser?: boolean;

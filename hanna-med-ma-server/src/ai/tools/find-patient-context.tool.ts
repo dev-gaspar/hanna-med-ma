@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
+import { normalizeName } from "../../core/patient-name.util";
 
 @Injectable()
 export class FindPatientContextTool {
@@ -48,12 +49,7 @@ export class FindPatientContextTool {
     const result: Record<string, string[]> = {};
 
     for (const name of names) {
-      const normalized = name
-        .toLowerCase()
-        .replace(/,/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      const lastName = normalized.split(" ")[0];
+      const lastName = normalizeName(name).split(" ")[0];
 
       const matches = await this.prisma.patient.findMany({
         where: {

@@ -13,6 +13,7 @@ export enum IngestDataType {
   PATIENT_LIST = "patient_list",
   PATIENT_SUMMARY = "patient_summary",
   PATIENT_INSURANCE = "patient_insurance",
+  PATIENT_LAB = "patient_lab",
 }
 
 export enum HospitalType {

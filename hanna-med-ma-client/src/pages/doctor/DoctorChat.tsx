@@ -23,6 +23,7 @@ import {
 	Copy,
 	FileText,
 	Landmark,
+	FlaskConical,
 	Check,
 } from "lucide-react";
 import ThemeToggle from "../../components/ThemeToggle";
@@ -206,7 +207,10 @@ export default function DoctorChat() {
 
 		if (isInitialLoadRef.current && messages.length > 0) {
 			requestAnimationFrame(() => {
-				messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+				messagesEndRef.current?.scrollIntoView({
+					behavior: "auto",
+					block: "end",
+				});
 			});
 			isInitialLoadRef.current = false;
 			return;
@@ -224,7 +228,10 @@ export default function DoctorChat() {
 		const containerRect = container.getBoundingClientRect();
 		const messagesEndRect = messagesEndRef.current?.getBoundingClientRect();
 
-		if (messagesEndRect && messagesEndRect.bottom <= containerRect.bottom + 150) {
+		if (
+			messagesEndRect &&
+			messagesEndRect.bottom <= containerRect.bottom + 150
+		) {
 			requestAnimationFrame(() => {
 				messagesEndRef.current?.scrollIntoView({
 					behavior: "smooth",
@@ -234,8 +241,8 @@ export default function DoctorChat() {
 		}
 	}, [messages]);
 
-    // Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
-    // to keep the canvas fixed while chunks are physically streaming in.
+	// Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
+	// to keep the canvas fixed while chunks are physically streaming in.
 
 	useEffect(() => {
 		if (!window.visualViewport) return;
@@ -354,11 +361,13 @@ export default function DoctorChat() {
 	}, []);
 
 	const handlePatientAction = useCallback(
-		async (action: "summary" | "insurance", patientName: string) => {
+		async (action: "summary" | "insurance" | "lab", patientName: string) => {
 			const prefix =
 				action === "summary"
 					? "Check clinical summary of"
-					: "Check medical insurance of";
+					: action === "insurance"
+						? "Check medical insurance of"
+						: "Check lab results of";
 			const content = `${prefix} ${patientName}`;
 			setSelectedItem(null);
 			setIsSending(true);
@@ -488,6 +497,18 @@ export default function DoctorChat() {
 										Insurance
 									</span>
 								</button>
+								<button
+									onClick={() =>
+										handlePatientAction("lab", selectedItem?.patientName!)
+									}
+									className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
+									title="Lab"
+								>
+									<FlaskConical className="w-5 h-5 text-emerald-500" />
+									<span className="text-xs font-semibold hidden sm:inline">
+										Lab
+									</span>
+								</button>
 							</>
 						)}
 
@@ -564,7 +585,7 @@ export default function DoctorChat() {
 						onScroll={handleScroll}
 						className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-3 min-h-0 transition-opacity duration-300 custom-scrollbar
                         ${isReady ? "opacity-100" : "opacity-0"}`}
-                        style={{ overflowAnchor: "none" }}
+						style={{ overflowAnchor: "none" }}
 					>
 						{isReady && messages.length === 0 && (
 							<div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 pointer-events-none">

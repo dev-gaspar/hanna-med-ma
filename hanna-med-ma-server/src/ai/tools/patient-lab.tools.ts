@@ -1,0 +1,118 @@
+import { Injectable, Logger } from "@nestjs/common";
+import { RawDataType } from "@prisma/client";
+import { PrismaService } from "../../core/prisma.service";
+import { formatDateForDisplay } from "../../core/date-format.util";
+import { SubAgentsService } from "../agents/sub-agents.service";
+import { normalizeName } from "../../core/patient-name.util";
+
+@Injectable()
+export class PatientLabTool {
+  private readonly logger = new Logger(PatientLabTool.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private subAgents: SubAgentsService,
+  ) {}
+
+  async execute(
+    args: {
+      hospital_type: string;
+      patient_name: string;
+      specific_question?: string;
+    },
+    doctorContext: { doctorId: number; doctorSpecialty: string },
+    callbacks?: { onStreaming?: (chunk: string) => void },
+  ): Promise<string> {
+    const { hospital_type, patient_name, specific_question } = args;
+
+    const lastName = normalizeName(patient_name).split(" ")[0];
+
+    const patients = await this.prisma.patient.findMany({
+      where: {
+        doctorId: doctorContext.doctorId,
+        emrSystem: hospital_type as any,
+        normalizedName: { contains: lastName },
+        isActive: true,
+      },
+      include: {
+        rawData: {
+          where: { dataType: RawDataType.LAB },
+          orderBy: { extractedAt: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: { lastSeenAt: "desc" },
+    });
+
+    if (patients.length === 0) {
+      return JSON.stringify({
+        error: true,
+        message: `Patient "${patient_name}" not found in ${hospital_type}. Please verify the name.`,
+      });
+    }
+
+    if (patients.length > 1) {
+      const patientList = patients
+        .map(
+          (p) =>
+            `- ${p.name} (Active: ${p.isActive ? "Yes" : "No"}, Admitted: ${p.admittedDate || "Unknown"})`,
+        )
+        .join("\n");
+      return `Multiple patients found matching "${patient_name}" in ${hospital_type}. Please ask the doctor to clarify which one they mean:\n${patientList}`;
+    }
+
+    const patient = patients[0];
+    const rawData = patient.rawData[0];
+    if (!rawData) {
+      return `${patient.name} does not have recent lab results on file in ${hospital_type} at this time.`;
+    }
+
+    return this.subAgents.formatLab(
+      rawData.rawContent,
+      {
+        patientName: patient.name,
+        hospitalType: hospital_type,
+        extractedAt: formatDateForDisplay(rawData.extractedAt),
+        doctorSpecialty: doctorContext.doctorSpecialty,
+      },
+      specific_question,
+      callbacks?.onStreaming,
+    );
+  }
+}
+
+@Injectable()
+export class BatchPatientLabTool {
+  private readonly logger = new Logger(BatchPatientLabTool.name);
+
+  constructor(private labTool: PatientLabTool) {}
+
+  async execute(
+    args: {
+      hospital_type: string;
+      patient_names: string[];
+      specific_question?: string;
+    },
+    doctorContext: { doctorId: number; doctorSpecialty: string },
+    callbacks?: { onStreaming?: (chunk: string) => void },
+  ): Promise<string> {
+    const results: string[] = [];
+    for (let i = 0; i < args.patient_names.length; i++) {
+      if (i > 0 && callbacks?.onStreaming) {
+        callbacks.onStreaming("\n\n---\n\n");
+      }
+      const name = args.patient_names[i];
+      const res = await this.labTool.execute(
+        {
+          hospital_type: args.hospital_type,
+          patient_name: name,
+          specific_question: args.specific_question,
+        },
+        doctorContext,
+        callbacks,
+      );
+      results.push(res);
+    }
+    return results.join("\n\n---\n\n");
+  }
+}

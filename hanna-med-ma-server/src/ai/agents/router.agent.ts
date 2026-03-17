@@ -22,6 +22,10 @@ import {
   BatchPatientInsuranceTool,
 } from "../tools/patient-insurance.tools";
 import { FindPatientContextTool } from "../tools/find-patient-context.tool";
+import {
+  PatientLabTool,
+  BatchPatientLabTool,
+} from "../tools/patient-lab.tools";
 
 interface DoctorContext {
   doctorId: number;
@@ -41,6 +45,8 @@ export class RouterAgent {
     private batchPatientSummaryTool: BatchPatientSummaryTool,
     private patientInsuranceTool: PatientInsuranceTool,
     private batchPatientInsuranceTool: BatchPatientInsuranceTool,
+    private patientLabTool: PatientLabTool,
+    private batchPatientLabTool: BatchPatientLabTool,
     private findPatientContextTool: FindPatientContextTool,
   ) {}
 
@@ -82,7 +88,7 @@ export class RouterAgent {
             this.logger.log(`🔧 Tool executed (forced prior): ${toolName}`);
             callbacks?.onToolCall?.(toolName);
           }
-        }
+        },
       };
 
       const tools = this.buildTools(doctorContext, toolCallbacks);
@@ -103,9 +109,13 @@ export class RouterAgent {
       messages.push(new HumanMessage(userMessage));
 
       if (attempt > 1) {
-        this.logger.warn(`Retrying LangGraph agent stream for doctor ${doctorContext.doctorId} (attempt ${attempt})`);
+        this.logger.warn(
+          `Retrying LangGraph agent stream for doctor ${doctorContext.doctorId} (attempt ${attempt})`,
+        );
       } else {
-        this.logger.log(`Starting LangGraph agent stream for doctor ${doctorContext.doctorId}`);
+        this.logger.log(
+          `Starting LangGraph agent stream for doctor ${doctorContext.doctorId}`,
+        );
       }
 
       try {
@@ -124,7 +134,9 @@ export class RouterAgent {
 
           // Extreme logging for debugging empty responses
           if (attempt === 1 && chunkIndex === 1) {
-             this.logger.debug(`[DEBUG EMPTY] First chunk of attempt 1: msgType=${msgType}, nodeType=${nodeType}, content=${JSON.stringify(chunk.content)}, tool_calls=${JSON.stringify(chunk.tool_calls)}, tool_call_chunks=${JSON.stringify(chunk.tool_call_chunks)}`);
+            this.logger.debug(
+              `[DEBUG EMPTY] First chunk of attempt 1: msgType=${msgType}, nodeType=${nodeType}, content=${JSON.stringify(chunk.content)}, tool_calls=${JSON.stringify(chunk.tool_calls)}, tool_call_chunks=${JSON.stringify(chunk.tool_call_chunks)}`,
+            );
           }
 
           // --- Detect tool calls ---
@@ -136,8 +148,19 @@ export class RouterAgent {
               this.logger.log(`🔧 Tool executed: ${toolName}`);
               callbacks?.onToolCall?.(toolName);
             }
-            if (["query_patient_summary", "query_batch_patient_summary", "query_patient_insurance", "query_batch_patient_insurance", "query_patient_list", "query_batch_patient_list"].includes(toolName)) {
-               isMuted = true;
+            if (
+              [
+                "query_patient_summary",
+                "query_batch_patient_summary",
+                "query_patient_insurance",
+                "query_batch_patient_insurance",
+                "query_patient_list",
+                "query_batch_patient_list",
+                "query_patient_lab",
+                "query_batch_patient_lab",
+              ].includes(toolName)
+            ) {
+              isMuted = true;
             }
           }
 
@@ -171,7 +194,7 @@ export class RouterAgent {
             if (text) {
               // Mute logic: don't append if we already printed stuff from SubAgents
               if (isMuted && streamedFromTools.length > 0) continue;
-              
+
               fullText += text;
               callbacks?.onStreaming?.(text);
             }
@@ -182,7 +205,10 @@ export class RouterAgent {
           `Stream completed: ${chunkIndex} chunks | ${toolsNotified.size} tools called | ${fullText.length} chars`,
         );
       } catch (error) {
-        this.logger.error(`LangGraph agent error: ${error.message}`, error.stack);
+        this.logger.error(
+          `LangGraph agent error: ${error.message}`,
+          error.stack,
+        );
         if (attempt === 2) throw error;
       }
 
@@ -194,7 +220,9 @@ export class RouterAgent {
     }
 
     if (!finalResult) {
-      this.logger.warn("Agent returned empty text after all attempts — returning fallback");
+      this.logger.warn(
+        "Agent returned empty text after all attempts — returning fallback",
+      );
       return "I apologize, Doctor. I experienced a momentary issue. Please try again.";
     }
 
@@ -219,12 +247,16 @@ export class RouterAgent {
 
   private buildTools(
     ctx: DoctorContext,
-    callbacks?: { 
+    callbacks?: {
       onStreaming?: (chunk: string) => void;
       onToolCall?: (toolName: string) => void;
-    }
+    },
   ) {
-    const hospitalEnum = z.string().describe("Hospital EMR system (must be uppercase, e.g. JACKSON, STEWARD, BAPTIST)");
+    const hospitalEnum = z
+      .string()
+      .describe(
+        "Hospital EMR system (must be uppercase, e.g. JACKSON, STEWARD, BAPTIST)",
+      );
 
     return [
       tool(
@@ -233,7 +265,7 @@ export class RouterAgent {
           return this.patientListTool.execute(
             { hospital_type: hospital_type.toUpperCase(), specific_question },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
-            callbacks
+            callbacks,
           );
         },
         {
@@ -257,9 +289,12 @@ export class RouterAgent {
         async ({ hospital_types, specific_question }) => {
           callbacks?.onToolCall?.("query_batch_patient_list");
           return this.batchPatientListTool.execute(
-            { hospital_types: hospital_types.map(h => h.toUpperCase()), specific_question },
+            {
+              hospital_types: hospital_types.map((h) => h.toUpperCase()),
+              specific_question,
+            },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
-            callbacks
+            callbacks,
           );
         },
         {
@@ -281,9 +316,13 @@ export class RouterAgent {
         async ({ hospital_type, patient_name, specific_question }) => {
           callbacks?.onToolCall?.("query_patient_summary");
           return this.patientSummaryTool.execute(
-            { hospital_type: hospital_type.toUpperCase(), patient_name, specific_question },
+            {
+              hospital_type: hospital_type.toUpperCase(),
+              patient_name,
+              specific_question,
+            },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
-            callbacks
+            callbacks,
           );
         },
         {
@@ -305,9 +344,13 @@ export class RouterAgent {
         async ({ hospital_type, patient_names, specific_question }) => {
           callbacks?.onToolCall?.("query_batch_patient_summary");
           return this.batchPatientSummaryTool.execute(
-            { hospital_type: hospital_type.toUpperCase(), patient_names, specific_question },
+            {
+              hospital_type: hospital_type.toUpperCase(),
+              patient_names,
+              specific_question,
+            },
             { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
-            callbacks
+            callbacks,
           );
         },
         {
@@ -330,9 +373,13 @@ export class RouterAgent {
         async ({ hospital_type, patient_name, specific_question }) => {
           callbacks?.onToolCall?.("query_patient_insurance");
           return this.patientInsuranceTool.execute(
-            { hospital_type: hospital_type.toUpperCase(), patient_name, specific_question },
+            {
+              hospital_type: hospital_type.toUpperCase(),
+              patient_name,
+              specific_question,
+            },
             { doctorId: ctx.doctorId },
-            callbacks
+            callbacks,
           );
         },
         {
@@ -354,14 +401,73 @@ export class RouterAgent {
         async ({ hospital_type, patient_names, specific_question }) => {
           callbacks?.onToolCall?.("query_batch_patient_insurance");
           return this.batchPatientInsuranceTool.execute(
-            { hospital_type: hospital_type.toUpperCase(), patient_names, specific_question },
+            {
+              hospital_type: hospital_type.toUpperCase(),
+              patient_names,
+              specific_question,
+            },
             { doctorId: ctx.doctorId },
-            callbacks
+            callbacks,
           );
         },
         {
           name: "query_batch_patient_insurance",
           description: "Get insurance for multiple patients at one hospital.",
+          schema: z.object({
+            hospital_type: hospitalEnum.describe("Hospital EMR system"),
+            patient_names: z
+              .array(z.string())
+              .describe("Array of patient names"),
+            specific_question: z.string().optional(),
+          }),
+        },
+      ),
+      tool(
+        async ({ hospital_type, patient_name, specific_question }) => {
+          callbacks?.onToolCall?.("query_patient_lab");
+          return this.patientLabTool.execute(
+            {
+              hospital_type: hospital_type.toUpperCase(),
+              patient_name,
+              specific_question,
+            },
+            { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
+            callbacks,
+          );
+        },
+        {
+          name: "query_patient_lab",
+          description:
+            "Get the most recent lab results on file for a single patient.",
+          schema: z.object({
+            hospital_type: hospitalEnum.describe("Hospital EMR system"),
+            patient_name: z.string().describe("Patient full name"),
+            specific_question: z
+              .string()
+              .optional()
+              .describe(
+                "If the doctor asks a specific question about lab values instead of the full report",
+              ),
+          }),
+        },
+      ),
+      tool(
+        async ({ hospital_type, patient_names, specific_question }) => {
+          callbacks?.onToolCall?.("query_batch_patient_lab");
+          return this.batchPatientLabTool.execute(
+            {
+              hospital_type: hospital_type.toUpperCase(),
+              patient_names,
+              specific_question,
+            },
+            { doctorId: ctx.doctorId, doctorSpecialty: ctx.doctorSpecialty },
+            callbacks,
+          );
+        },
+        {
+          name: "query_batch_patient_lab",
+          description:
+            "Get the most recent lab results on file for multiple patients at one hospital.",
           schema: z.object({
             hospital_type: hospitalEnum.describe("Hospital EMR system"),
             patient_names: z
