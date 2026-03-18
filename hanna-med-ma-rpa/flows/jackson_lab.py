@@ -33,7 +33,7 @@ from .base_flow import BaseFlow
 from .jackson import JacksonFlow
 from agentic.models import AgentStatus
 from agentic.omniparser_client import start_warmup_async
-from agentic.runners import JacksonInsuranceRunner
+from agentic.runners import JacksonLabRunner
 
 
 class JacksonLabFlow(BaseFlow):
@@ -216,14 +216,14 @@ class JacksonLabFlow(BaseFlow):
 
     def _phase2_agentic_find_and_click_patient(self) -> tuple:
         """
-        Phase 2: Use JacksonInsuranceRunner to find and click patient.
+        Phase 2: Use JacksonLabRunner to find and click patient.
 
         Returns:
             Tuple of (status, error_message, patient_detail_open)
         """
         self.set_step("PHASE2_AGENTIC_FIND_AND_CLICK_PATIENT")
 
-        runner = JacksonInsuranceRunner(
+        runner = JacksonLabRunner(
             max_steps=15,
             step_delay=1.5,
         )

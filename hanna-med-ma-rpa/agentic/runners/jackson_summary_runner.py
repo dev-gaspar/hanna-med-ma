@@ -75,15 +75,12 @@ class JacksonSummaryRunner:
         self.history: List[Dict[str, Any]] = []
         self.current_step = 0
 
-    def run(self, patient_name: str, find_patient_only: bool = False) -> RunnerResult:
+    def run(self, patient_name: str) -> RunnerResult:
         """
         Run the full flow to find patient report.
 
         Args:
             patient_name: Name of patient to find
-            find_patient_only: If True, only find and open the patient detail
-                without navigating to Notes/Report. Useful when only lab or
-                insurance extraction is needed (no summary).
 
         Returns:
             RunnerResult with outcome
@@ -147,24 +144,6 @@ class JacksonSummaryRunner:
             logger.info("[RUNNER] Phase 2: Opening patient record...")
             self._phase2a_open_patient(patient_element_id, phase1_elements)
             patient_detail_opened = True  # Mark that patient detail is now open
-
-            if find_patient_only:
-                # Lab-only / insurance-only mode: patient detail is open, skip Notes/Report
-                logger.info(
-                    "[RUNNER] find_patient_only=True — skipping Notes/Report navigation"
-                )
-                logger.info("=" * 70)
-                logger.info(" LOCAL JACKSON RUNNER - FINISHED (patient only)")
-                logger.info(f" Steps: {self.current_step}")
-                logger.info("=" * 70)
-
-                return RunnerResult(
-                    status=AgentStatus.FINISHED,
-                    execution_id=self.execution_id,
-                    steps_taken=self.current_step,
-                    history=self.history,
-                    patient_detail_open=True,
-                )
 
             # === PHASE 2b: Open Notes + By Type (only for summary) ===
             self._phase2b_open_notes()

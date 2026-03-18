@@ -1,9 +1,9 @@
 """
-Jackson Batch Lab Flow - Batch patient lab results extraction for Jackson Health.
+Baptist Batch Lab Flow - Batch patient lab results extraction for Baptist Health.
 
 Processes multiple patients in a single EMR session, extracting lab results
 via Results Review > Print to PDF > extract text.
-Uses JacksonLabRunner for patient finding.
+Uses BaptistLabRunner with VDI OCR enhancement.
 """
 
 import os
@@ -18,18 +18,18 @@ from core.vdi_input import stoppable_sleep
 from logger import logger
 
 from .base_flow import BaseFlow
-from .jackson import JacksonFlow
+from .baptist import BaptistFlow
 from agentic.models import AgentStatus
 from agentic.omniparser_client import start_warmup_async
-from agentic.runners import JacksonLabRunner
+from agentic.runners import BaptistLabRunner
 
 
-class JacksonBatchLabFlow(BaseFlow):
+class BaptistBatchLabFlow(BaseFlow):
     """
-    Batch lab flow for Jackson Health.
+    Batch lab flow for Baptist Health.
 
-    Keeps the Jackson EMR session open in FULLSCREEN mode while processing
-    multiple patients, extracting lab results from Results Review,
+    Keeps the Baptist EMR session open while processing multiple patients,
+    extracting lab results from Results Review via PDF printing,
     returning consolidated results.
 
     Flow:
@@ -37,23 +37,22 @@ class JacksonBatchLabFlow(BaseFlow):
     2. Enter fullscreen mode (better for agentic vision)
     3. For each patient:
        - Find patient and open patient detail (agentic)
-       - Click Results Review, unpin menu, select Labs Group
+       - Click Results Review, select Group
        - Print to PDF, extract text
-       - Re-open menu and pin it
        - Alt+F4 to close patient detail (wait for patient list header)
     4. Exit fullscreen mode
     5. Cleanup (close EMR, return to VDI)
     """
 
-    FLOW_NAME = "Jackson Batch Lab"
-    FLOW_TYPE = "jackson_batch_lab"
-    EMR_TYPE = "jackson"
+    FLOW_NAME = "Baptist Batch Lab"
+    FLOW_TYPE = "baptist_batch_lab"
+    EMR_TYPE = "baptist"
 
-    PDF_FILENAME = "lab jackson.pdf"
+    PDF_FILENAME = "lab baptis.pdf"
 
     def __init__(self):
         super().__init__()
-        self._jackson_flow = JacksonFlow()
+        self._baptist_flow = BaptistFlow()
         self._patient_detail_open = False
         self.patient_names: List[str] = []
         self.hospital_type: str = ""
@@ -78,16 +77,16 @@ class JacksonBatchLabFlow(BaseFlow):
             **kwargs,
         )
         self.patient_names = patient_names or []
-        self.hospital_type = hospital_type or "JACKSON"
+        self.hospital_type = hospital_type or "BAPTIST"
         self.results = []
 
-        self._jackson_flow.setup(
+        self._baptist_flow.setup(
             doctor_id=self.doctor_id,
             doctor_name=self.doctor_name,
             credentials=self.credentials,
         )
 
-        logger.info(f"[JACKSON-BATCH-LAB] Setup for {len(self.patient_names)} patients")
+        logger.info(f"[BAPTIST-BATCH-LAB] Setup for {len(self.patient_names)} patients")
 
     def execute(self):
         """
@@ -100,22 +99,22 @@ class JacksonBatchLabFlow(BaseFlow):
         5. Cleanup (once)
         """
         logger.info("=" * 70)
-        logger.info(" JACKSON BATCH LAB - STARTING")
+        logger.info(" BAPTIST BATCH LAB - STARTING")
         logger.info("=" * 70)
-        logger.info(f"[JACKSON-BATCH-LAB] Patients to process: {self.patient_names}")
+        logger.info(f"[BAPTIST-BATCH-LAB] Patients to process: {self.patient_names}")
         logger.info("=" * 70)
 
         # Phase 1: Navigate to patient list (once)
         if not self._navigate_to_patient_list():
-            logger.error("[JACKSON-BATCH-LAB] Failed to navigate to patient list")
+            logger.error("[BAPTIST-BATCH-LAB] Failed to navigate to patient list")
             return {
                 "patients": [],
                 "hospital": self.hospital_type,
                 "error": "Navigation failed",
             }
 
-        # Enter fullscreen mode
-        logger.info("[JACKSON-BATCH-LAB] Entering fullscreen mode...")
+        # Enter fullscreen mode for better agentic vision
+        logger.info("[BAPTIST-BATCH-LAB] Entering fullscreen mode...")
         self._click_fullscreen()
 
         # Phase 2: Process each patient
@@ -125,7 +124,7 @@ class JacksonBatchLabFlow(BaseFlow):
             self.current_content = None
 
             logger.info(
-                f"[JACKSON-BATCH-LAB] Processing patient {idx}/{total_patients}: {patient}"
+                f"[BAPTIST-BATCH-LAB] Processing patient {idx}/{total_patients}: {patient}"
             )
 
             try:
@@ -133,12 +132,14 @@ class JacksonBatchLabFlow(BaseFlow):
 
                 if found:
                     self.current_content = self._extract_lab()
-                    logger.info(f"[JACKSON-BATCH-LAB] Extracted lab for {patient}")
+                    logger.info(f"[BAPTIST-BATCH-LAB] Extracted lab for {patient}")
 
                     # Return to patient list
                     self._return_to_patient_list()
                 else:
-                    logger.warning(f"[JACKSON-BATCH-LAB] Patient not found: {patient}")
+                    logger.warning(
+                        f"[BAPTIST-BATCH-LAB] Patient not found: {patient}"
+                    )
 
                 self.results.append(
                     {
@@ -150,7 +151,7 @@ class JacksonBatchLabFlow(BaseFlow):
 
             except Exception as e:
                 logger.error(
-                    f"[JACKSON-BATCH-LAB] Error processing {patient}: {str(e)}"
+                    f"[BAPTIST-BATCH-LAB] Error processing {patient}: {str(e)}"
                 )
                 self.results.append(
                     {
@@ -164,16 +165,16 @@ class JacksonBatchLabFlow(BaseFlow):
                     self._close_patient_detail()
 
         # Exit fullscreen before cleanup
-        logger.info("[JACKSON-BATCH-LAB] Exiting fullscreen mode...")
+        logger.info("[BAPTIST-BATCH-LAB] Exiting fullscreen mode...")
         self._click_normalscreen()
         stoppable_sleep(3)
 
         # Phase 3: Cleanup
-        logger.info("[JACKSON-BATCH-LAB] Cleanup phase")
+        logger.info("[BAPTIST-BATCH-LAB] Cleanup phase")
         self._cleanup()
 
         logger.info("=" * 70)
-        logger.info(" JACKSON BATCH LAB - COMPLETE")
+        logger.info(" BAPTIST BATCH LAB - COMPLETE")
         logger.info(f" Processed: {total_patients} patients")
         logger.info(f" Found: {sum(1 for r in self.results if r.get('found'))}")
         logger.info("=" * 70)
@@ -190,45 +191,42 @@ class JacksonBatchLabFlow(BaseFlow):
     # ------------------------------------------------------------------
 
     def _navigate_to_patient_list(self) -> bool:
-        """Navigate to Jackson patient list. Reuses JacksonFlow steps 1-8."""
+        """Navigate to Baptist patient list. Reuses BaptistFlow steps 1-10."""
         self.set_step("NAVIGATE_TO_PATIENT_LIST")
-        logger.info("[JACKSON-BATCH-LAB] Navigating to patient list...")
+        logger.info("[BAPTIST-BATCH-LAB] Navigating to patient list...")
 
         try:
             start_warmup_async()
 
-            self._jackson_flow.step_1_tab()
-            self._jackson_flow.step_2_powered()
-            self._jackson_flow.step_3_open_download()
-            self._jackson_flow.step_4_username()
-            self._jackson_flow.step_5_password()
-            self._jackson_flow.step_6_login_ok()
+            self._baptist_flow.step_1_open_vdi_desktop()
+            self._baptist_flow.step_2_open_edge()
+            self._baptist_flow.step_3_wait_pineapple_connect()
+            self._baptist_flow.step_4_open_menu()
+            self._baptist_flow.step_5_scroll_modal()
+            self._baptist_flow.step_6_click_cerner()
+            self._baptist_flow.step_7_wait_cerner_login()
+            self._baptist_flow.step_8_click_favorites()
+            self._baptist_flow.step_9_click_powerchart()
+            self._baptist_flow.step_10_wait_powerchart_open()
 
-            self._handle_info_modal_after_login()
-
-            self._jackson_flow.step_7_patient_list()
-            self._jackson_flow.step_8_hospital_tab()
-
+            # Click patient list
+            logger.info("[BAPTIST-BATCH-LAB] Clicking patient list...")
+            patient_list_btn = self._baptist_flow.wait_for_element(
+                config.get_rpa_setting("images.patient_list"),
+                timeout=10,
+                description="Patient List button",
+                auto_click=True,
+            )
+            if not patient_list_btn:
+                raise Exception("Patient List not found")
             stoppable_sleep(3)
-            logger.info("[JACKSON-BATCH-LAB] Patient list visible")
+
+            logger.info("[BAPTIST-BATCH-LAB] Patient list visible")
             return True
 
         except Exception as e:
-            logger.error(f"[JACKSON-BATCH-LAB] Navigation failed: {e}")
+            logger.error(f"[BAPTIST-BATCH-LAB] Navigation failed: {e}")
             return False
-
-    def _handle_info_modal_after_login(self):
-        """Handle info modal that may appear after login."""
-        info_modal = self.wait_for_element(
-            config.get_rpa_setting("images.jackson_info_modal"),
-            timeout=3,
-            description="Info Modal",
-        )
-
-        if info_modal:
-            logger.info("[JACKSON-BATCH-LAB] Info modal detected - dismissing")
-            pydirectinput.press("enter")
-            stoppable_sleep(2)
 
     # ------------------------------------------------------------------
     # Patient Finding
@@ -236,17 +234,18 @@ class JacksonBatchLabFlow(BaseFlow):
 
     def _find_patient(self, patient_name: str) -> bool:
         """
-        Find a patient using the JacksonLabRunner.
+        Find a patient and open their detail using the BaptistInsuranceRunner.
 
         Returns:
-            True if patient found and clicked, False otherwise.
+            True if patient found and detail opened, False otherwise.
         """
         self.set_step(f"FIND_PATIENT_{patient_name}")
-        logger.info(f"[JACKSON-BATCH-LAB] Finding patient: {patient_name}")
+        logger.info(f"[BAPTIST-BATCH-LAB] Finding patient: {patient_name}")
 
-        runner = JacksonLabRunner(
+        runner = BaptistLabRunner(
             max_steps=15,
-            step_delay=1.0,
+            step_delay=1.5,
+            vdi_enhance=True,
         )
 
         result = runner.run(patient_name=patient_name)
@@ -254,21 +253,27 @@ class JacksonBatchLabFlow(BaseFlow):
         self._patient_detail_open = getattr(result, "patient_detail_open", False)
 
         if result.status == AgentStatus.PATIENT_NOT_FOUND:
-            logger.warning(f"[JACKSON-BATCH-LAB] Patient not found: {patient_name}")
+            logger.warning(
+                f"[BAPTIST-BATCH-LAB] Patient not found: {patient_name}"
+            )
             return False
 
         if result.status != AgentStatus.FINISHED:
             error_msg = result.error or "Agent did not complete"
             logger.error(
-                f"[JACKSON-BATCH-LAB] Agent error for {patient_name}: {error_msg}"
+                f"[BAPTIST-BATCH-LAB] Agent error for {patient_name}: {error_msg}"
             )
             if self._patient_detail_open:
-                logger.info("[JACKSON-BATCH-LAB] Closing patient detail after error...")
+                logger.info(
+                    "[BAPTIST-BATCH-LAB] Closing patient detail after error..."
+                )
                 self._close_patient_detail()
             return False
 
         self._patient_detail_open = True
-        logger.info(f"[JACKSON-BATCH-LAB] Patient found in {result.steps_taken} steps")
+        logger.info(
+            f"[BAPTIST-BATCH-LAB] Patient found in {result.steps_taken} steps"
+        )
         stoppable_sleep(2)
         return True
 
@@ -282,20 +287,22 @@ class JacksonBatchLabFlow(BaseFlow):
 
         Steps:
         1. Click 'Results Review'
-        2. Unpin menu
-        3. Click 'Labs Group' radiobutton (if visible)
-        4. Click Print button
-        5. Press Enter, click 'Lab Jackson'
-        6. Enter → Left arrow → Enter (confirm save/replace)
-        7. Extract text from PDF
-        8. Re-open menu and pin it
+        2. Click 'Group' radiobutton (if visible — already in view if not)
+        3. Click Print button
+        4. Press Enter (confirm print dialog)
+        5. Ctrl+Alt (exit VDI focus)
+        6. Click 'lab baptis' file
+        7. Enter, Left arrow, Enter (confirm save/replace)
+        8. Extract text from PDF
         """
         self.set_step("EXTRACT_LAB")
-        logger.info(f"[JACKSON-BATCH-LAB] Extracting lab for: {self.current_patient}")
+        logger.info(
+            f"[BAPTIST-BATCH-LAB] Extracting lab for: {self.current_patient}"
+        )
 
         # Step 1: Click Results Review
-        logger.info("[JACKSON-BATCH-LAB] Step 1: Clicking 'Results Review'...")
-        results_review_img = config.get_rpa_setting("images.jackson_results_review")
+        logger.info("[BAPTIST-BATCH-LAB] Step 1: Clicking 'Results Review'...")
+        results_review_img = config.get_rpa_setting("images.baptist_results_review")
         location = self.wait_for_element(
             results_review_img,
             timeout=10,
@@ -307,41 +314,27 @@ class JacksonBatchLabFlow(BaseFlow):
         self.safe_click(location, "Results Review")
         stoppable_sleep(2)
 
-        # Step 2: Unpin menu
-        logger.info("[JACKSON-BATCH-LAB] Step 2: Unpinning menu...")
-        unpin_img = config.get_rpa_setting("images.jackson_unpin_menu")
+        # Step 2: Click Group radiobutton (if visible — already in view if not)
+        logger.info("[BAPTIST-BATCH-LAB] Step 2: Looking for 'Group'...")
+        group_img = config.get_rpa_setting("images.baptist_group")
         location = self.wait_for_element(
-            unpin_img,
-            timeout=10,
-            confidence=0.8,
-            description="Unpin Menu",
-        )
-        if not location:
-            raise Exception("Unpin menu button not found")
-        self.safe_click(location, "Unpin Menu")
-        stoppable_sleep(2)
-
-        # Step 3: Click Labs Group radiobutton (if visible)
-        logger.info("[JACKSON-BATCH-LAB] Step 3: Looking for 'Labs Group'...")
-        labs_group_img = config.get_rpa_setting("images.jackson_labs_group")
-        location = self.wait_for_element(
-            labs_group_img,
+            group_img,
             timeout=5,
             confidence=0.8,
-            description="Labs Group",
+            description="Group",
         )
         if location:
-            logger.info("[JACKSON-BATCH-LAB] Labs Group found - clicking...")
-            self.safe_click(location, "Labs Group")
+            logger.info("[BAPTIST-BATCH-LAB] Group found - clicking...")
+            self.safe_click(location, "Group")
             stoppable_sleep(2)
         else:
             logger.info(
-                "[JACKSON-BATCH-LAB] Labs Group not visible - already in correct view"
+                "[BAPTIST-BATCH-LAB] Group not visible - already in correct view"
             )
 
-        # Step 4: Click Print button
-        logger.info("[JACKSON-BATCH-LAB] Step 4: Clicking Print button...")
-        print_img = config.get_rpa_setting("images.jackson_print")
+        # Step 3: Click Print button (shared with report/insurance)
+        logger.info("[BAPTIST-BATCH-LAB] Step 3: Clicking Print button...")
+        print_img = config.get_rpa_setting("images.baptist_print_powerchart")
         location = self.wait_for_element(
             print_img,
             timeout=10,
@@ -353,70 +346,51 @@ class JacksonBatchLabFlow(BaseFlow):
         self.safe_click(location, "Print button")
         stoppable_sleep(2)
 
-        # Step 5: Press Enter, then click 'Lab Jackson'
-        logger.info("[JACKSON-BATCH-LAB] Step 5: Confirming print dialog...")
+        # Step 4: Press Enter to confirm print dialog
+        logger.info("[BAPTIST-BATCH-LAB] Step 4: Confirming print dialog...")
         pydirectinput.press("enter")
+        stoppable_sleep(3)
+
+        # Step 5: Ctrl+Alt to exit VDI focus (save dialog is on local machine)
+        logger.info("[BAPTIST-BATCH-LAB] Step 5: Exiting VDI focus...")
+        pydirectinput.keyDown("ctrl")
+        pydirectinput.keyDown("alt")
+        pydirectinput.keyUp("alt")
+        pydirectinput.keyUp("ctrl")
         stoppable_sleep(2)
 
-        logger.info("[JACKSON-BATCH-LAB] Step 5b: Clicking 'Lab Jackson' file...")
-        lab_jackson_img = config.get_rpa_setting("images.jackson_lab_jackson")
+        # Step 6: Click 'lab baptis' file
+        logger.info("[BAPTIST-BATCH-LAB] Step 6: Clicking 'lab baptis' file...")
+        lab_baptis_img = config.get_rpa_setting("images.baptist_lab_baptis")
         location = self.wait_for_element(
-            lab_jackson_img,
+            lab_baptis_img,
             timeout=10,
-            confidence=0.8,
-            description="Lab Jackson file",
+            confidence=0.95,
+            description="Lab Baptis file",
         )
-        if not location:
-            raise Exception("Lab Jackson file not found")
-        self.safe_click(location, "Lab Jackson file")
+        if location:
+            self.safe_click(location, "Lab Baptis file")
+        else:
+            logger.warning(
+                "[BAPTIST-BATCH-LAB] Lab Baptis file not found, continuing..."
+            )
         stoppable_sleep(2)
 
-        # Step 6: Enter → Left → Enter (confirm save/replace)
-        logger.info("[JACKSON-BATCH-LAB] Step 6: Confirming save...")
+        # Step 7: Enter, Left, Enter (confirm save/replace)
+        logger.info("[BAPTIST-BATCH-LAB] Step 7: Confirming save...")
         pydirectinput.press("enter")
-        stoppable_sleep(1)
+        stoppable_sleep(2)
         pydirectinput.press("left")
-        stoppable_sleep(1)
+        stoppable_sleep(2)
         pydirectinput.press("enter")
         stoppable_sleep(5)
 
-        # Step 7: Extract text from PDF
-        logger.info("[JACKSON-BATCH-LAB] Step 7: Extracting text from PDF...")
-        content = self._extract_pdf_content()
-
-        # Step 8: Re-open menu and pin it
-        logger.info("[JACKSON-BATCH-LAB] Step 8: Re-opening menu...")
-        open_menu_img = config.get_rpa_setting("images.jackson_open_menu")
-        location = self.wait_for_element(
-            open_menu_img,
-            timeout=10,
-            confidence=0.8,
-            description="Open Menu",
-        )
-        if not location:
-            logger.warning("[JACKSON-BATCH-LAB] Open Menu not found, continuing...")
-        else:
-            self.safe_click(location, "Open Menu")
-            stoppable_sleep(2)
-
-        logger.info("[JACKSON-BATCH-LAB] Step 8b: Pinning menu...")
-        pin_menu_img = config.get_rpa_setting("images.jackson_pin_menu")
-        location = self.wait_for_element(
-            pin_menu_img,
-            timeout=10,
-            confidence=0.8,
-            description="Pin Menu",
-        )
-        if not location:
-            logger.warning("[JACKSON-BATCH-LAB] Pin Menu not found, continuing...")
-        else:
-            self.safe_click(location, "Pin Menu")
-            stoppable_sleep(2)
-
-        return content or ""
+        # Step 8: Extract text from PDF
+        logger.info("[BAPTIST-BATCH-LAB] Step 8: Extracting text from PDF...")
+        return self._extract_pdf_content()
 
     def _extract_pdf_content(self) -> str:
-        """Extract text content from the saved PDF file with retry logic."""
+        """Extract text from saved PDF with retry logic."""
         try:
             import PyPDF2
 
@@ -424,47 +398,43 @@ class JacksonBatchLabFlow(BaseFlow):
             pdf_path = os.path.join(desktop_path, self.PDF_FILENAME)
 
             if not os.path.exists(pdf_path):
-                logger.error(f"[JACKSON-BATCH-LAB] PDF not found at: {pdf_path}")
-                return "[ERROR] PDF file not found on desktop"
+                logger.error(f"[BAPTIST-BATCH-LAB] PDF not found: {pdf_path}")
+                return "[ERROR] PDF file not found"
 
             max_attempts = 5
             for attempt in range(1, max_attempts + 1):
                 file_size = os.path.getsize(pdf_path)
                 if file_size > 0:
-                    logger.info(f"[JACKSON-BATCH-LAB] PDF ready ({file_size} bytes)")
+                    logger.info(f"[BAPTIST-BATCH-LAB] PDF ready ({file_size} bytes)")
                     break
                 logger.warning(
-                    f"[JACKSON-BATCH-LAB] PDF empty, waiting... (attempt {attempt}/{max_attempts})"
+                    f"[BAPTIST-BATCH-LAB] PDF empty, waiting... "
+                    f"(attempt {attempt}/{max_attempts})"
                 )
                 stoppable_sleep(1)
             else:
-                logger.error("[JACKSON-BATCH-LAB] PDF still empty after max attempts")
+                logger.error("[BAPTIST-BATCH-LAB] PDF still empty after max attempts")
                 return "[ERROR] PDF file is empty after waiting"
 
             with open(pdf_path, "rb") as pdf_file:
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                 text_content = []
 
-                for page_num, page in enumerate(pdf_reader.pages):
+                for page in pdf_reader.pages:
                     page_text = page.extract_text()
                     if page_text:
                         text_content.append(page_text)
 
                 content = "\n".join(text_content)
-
-            logger.info(
-                f"[JACKSON-BATCH-LAB] Extracted {len(content)} characters from PDF"
-            )
-            return content
+                logger.info(
+                    f"[BAPTIST-BATCH-LAB] Extracted {len(content)} characters"
+                )
+                return content
 
         except ImportError:
-            logger.error(
-                "[JACKSON-BATCH-LAB] PyPDF2 not installed - cannot extract PDF content"
-            )
-            return "[ERROR] PyPDF2 library not available"
+            return "[ERROR] PyPDF2 not installed"
         except Exception as e:
-            logger.error(f"[JACKSON-BATCH-LAB] Error extracting PDF content: {e}")
-            return f"[ERROR] Failed to extract PDF: {e}"
+            return f"[ERROR] PDF extraction failed: {e}"
 
     # ------------------------------------------------------------------
     # Return to Patient List
@@ -482,81 +452,103 @@ class JacksonBatchLabFlow(BaseFlow):
         stoppable_sleep(0.1)
         pydirectinput.keyUp("alt")
 
-        stoppable_sleep(15)
+        stoppable_sleep(5)
         self._patient_detail_open = False
-        logger.info("[JACKSON-BATCH-LAB] Patient detail closed")
+        logger.info("[BAPTIST-BATCH-LAB] Patient detail closed")
 
     def _return_to_patient_list(self):
         """
         Close current patient detail and return to patient list.
-        Uses Alt+F4 + conservative patience wait.
-        Does NOT retry Alt+F4 to avoid race conditions.
+        Uses Alt+F4 to close the patient detail view.
+        Uses visual validation to confirm we're back at the patient list.
         """
         self.set_step("RETURN_TO_PATIENT_LIST")
-        logger.info("[JACKSON-BATCH-LAB] Returning to patient list...")
+        logger.info("[BAPTIST-BATCH-LAB] Returning to patient list...")
 
+        # Click center to re-engage VDI focus (released by Ctrl+Alt during PDF save)
         screen_w, screen_h = pyautogui.size()
         pyautogui.click(screen_w // 2, screen_h // 2)
         stoppable_sleep(0.5)
 
-        logger.info("[JACKSON-BATCH-LAB] Sending Alt+F4 to close patient detail...")
+        # Close patient detail with Alt+F4
+        logger.info(
+            "[BAPTIST-BATCH-LAB] Sending Alt+F4 to close patient detail..."
+        )
         pydirectinput.keyDown("alt")
         stoppable_sleep(0.1)
         pydirectinput.press("f4")
         stoppable_sleep(0.1)
         pydirectinput.keyUp("alt")
 
-        logger.info("[JACKSON-BATCH-LAB] Waiting 15s for system to process close...")
-        stoppable_sleep(15)
-
-        patient_list_header_img = config.get_rpa_setting(
-            "images.jackson_patient_list_header"
+        # Wait for patient list header to be visible (visual validation)
+        logger.info(
+            "[BAPTIST-BATCH-LAB] Waiting for patient list header (max 30s)..."
         )
 
-        header_found = self._wait_for_patient_list_with_patience(
+        patient_list_header_img = config.get_rpa_setting(
+            "images.baptist_patient_list_header"
+        )
+
+        header_found = self.wait_for_element(
             patient_list_header_img,
-            max_attempts=3,
-            attempt_timeout=15,
+            timeout=30,
+            description="Patient List Header",
         )
 
         if header_found:
-            logger.info("[JACKSON-BATCH-LAB] OK - Patient list confirmed")
+            logger.info("[BAPTIST-BATCH-LAB] OK - Patient list header detected")
         else:
+            # Fallback: retry Alt+F4
             logger.warning(
-                "[JACKSON-BATCH-LAB] Patient list header not detected after patience wait. "
-                "Continuing anyway to avoid race condition."
+                "[BAPTIST-BATCH-LAB] Patient list header NOT detected — "
+                "retrying Alt+F4..."
+            )
+            pyautogui.click(screen_w // 2, screen_h // 2)
+            stoppable_sleep(0.5)
+
+            pydirectinput.keyDown("alt")
+            stoppable_sleep(0.1)
+            pydirectinput.press("f4")
+            stoppable_sleep(0.1)
+            pydirectinput.keyUp("alt")
+
+            header_found = self.wait_for_element(
+                patient_list_header_img,
+                timeout=30,
+                description="Patient List Header (retry)",
             )
 
+            if header_found:
+                logger.info(
+                    "[BAPTIST-BATCH-LAB] OK - Patient list header detected "
+                    "after retry"
+                )
+            else:
+                logger.error(
+                    "[BAPTIST-BATCH-LAB] FAIL - Patient list header still "
+                    "NOT detected"
+                )
+
         self._patient_detail_open = False
-        logger.info("[JACKSON-BATCH-LAB] Back at patient list")
+        logger.info("[BAPTIST-BATCH-LAB] Back at patient list")
 
     # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 
     def _cleanup(self):
-        """Close Jackson EMR session completely."""
+        """Close Baptist EMR session completely."""
         self.set_step("CLEANUP")
-        logger.info("[JACKSON-BATCH-LAB] Cleanup - closing EMR...")
+        logger.info("[BAPTIST-BATCH-LAB] Cleanup - closing session...")
 
-        screen_w, screen_h = pyautogui.size()
+        try:
+            self._baptist_flow.step_13_close_horizon()
+            self._baptist_flow.step_14_accept_alert()
+            self._baptist_flow.step_15_return_to_start()
+        except Exception as e:
+            logger.warning(f"[BAPTIST-BATCH-LAB] Cleanup error: {e}")
 
-        pyautogui.click(screen_w // 2, screen_h // 2)
-        stoppable_sleep(0.5)
-
-        pydirectinput.keyDown("alt")
-        stoppable_sleep(0.1)
-        pydirectinput.press("f4")
-        stoppable_sleep(0.1)
-        pydirectinput.keyUp("alt")
-
-        stoppable_sleep(3)
-
-        self._jackson_flow.step_11_vdi_tab()
-
-        self.verify_lobby()
-
-        logger.info("[JACKSON-BATCH-LAB] Cleanup complete")
+        logger.info("[BAPTIST-BATCH-LAB] Cleanup complete")
 
     # ------------------------------------------------------------------
     # Backend Notification

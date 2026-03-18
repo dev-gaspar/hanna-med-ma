@@ -30,7 +30,7 @@ from .base_flow import BaseFlow
 from .jackson import JacksonFlow
 from agentic.models import AgentStatus
 from agentic.omniparser_client import start_warmup_async
-from agentic.runners import JacksonSummaryRunner
+from agentic.runners import JacksonSummaryRunner, JacksonLabRunner
 
 
 class JacksonUnifiedBatchFlow(BaseFlow):
@@ -511,10 +511,13 @@ class JacksonUnifiedBatchFlow(BaseFlow):
 
     def _find_patient_and_report(self, patient_name: str, need_report: bool = True):
         """
-        Find patient in the list and navigate to their clinical report.
+        Find patient in the list and optionally navigate to their clinical report.
 
-        Uses JacksonSummaryRunner which chains:
+        When need_report=True, uses JacksonSummaryRunner which chains:
           PatientFinder → open patient + Notes → ReportFinder
+
+        When need_report=False, uses JacksonLabRunner which only:
+          PatientFinder → open patient detail
 
         Args:
             patient_name: Name of the patient to find.
@@ -524,16 +527,19 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         self.set_step(f"FIND_PATIENT_{patient_name}")
         logger.info(f"[JACKSON-UNIFIED] Finding patient: {patient_name}")
 
-        runner = JacksonSummaryRunner(
-            max_steps=30,
-            step_delay=1.0,
-            doctor_specialty=self.doctor_specialty,
-        )
+        if need_report:
+            runner = JacksonSummaryRunner(
+                max_steps=30,
+                step_delay=1.0,
+                doctor_specialty=self.doctor_specialty,
+            )
+        else:
+            runner = JacksonLabRunner(
+                max_steps=15,
+                step_delay=1.0,
+            )
 
-        result = runner.run(
-            patient_name=patient_name,
-            find_patient_only=not need_report,
-        )
+        result = runner.run(patient_name=patient_name)
         self._patient_detail_open = result.patient_detail_open
 
         if result.status == AgentStatus.PATIENT_NOT_FOUND:

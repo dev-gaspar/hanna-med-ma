@@ -1,15 +1,16 @@
 """
 Baptist Unified Batch Flow — Single-session extraction.
 
-ONE Cerner/PowerChart login performs ALL three tasks:
+ONE Cerner/PowerChart login performs ALL four tasks:
   1. Capture patient list census  (screenshot each hospital tab → OCR → send patient_list)
   2. For each patient, open detail ONCE and extract:
      - Clinical summary  (find report → print to PDF → extract text)
      - Insurance info    (Provider Face Sheet → print to PDF → extract text)
+     - Lab results       (Results Review → Group → Print to PDF → extract text)
   3. Close Horizon and return to VDI
 
-Sends THREE payloads to the backend (patient_list, patient_summary,
-patient_insurance) so the contract remains 100 % backward-compatible.
+Sends FOUR payloads to the backend (patient_list, patient_summary,
+patient_insurance, patient_lab) so the contract remains 100 % backward-compatible.
 """
 
 import os
@@ -28,7 +29,7 @@ from .base_flow import BaseFlow
 from .baptist import BaptistFlow
 from agentic.models import AgentStatus
 from agentic.omniparser_client import start_warmup_async
-from agentic.runners import BaptistSummaryRunner
+from agentic.runners import BaptistSummaryRunner, BaptistLabRunner
 
 
 class BaptistUnifiedBatchFlow(BaseFlow):
@@ -45,7 +46,8 @@ class BaptistUnifiedBatchFlow(BaseFlow):
          b. Extract summary content              (print to PDF → extract text)
          c. Navigate to Provider Face Sheet
          d. Extract insurance content            (print to PDF → extract text)
-         e. Close patient detail → return to list (Alt+F4)
+         e. Extract lab results                  (Results Review → Group → Print PDF → extract text)
+         f. Close patient detail → return to list (Alt+F4)
       6. Exit fullscreen
       7. Cleanup  (close Horizon, accept alert, return to VDI)
     """
@@ -56,6 +58,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
 
     PDF_SUMMARY_FILENAME = "baptis report.pdf"
     PDF_INSURANCE_FILENAME = "baptis insurance.pdf"
+    PDF_LAB_FILENAME = "lab baptis.pdf"
 
     def __init__(self):
         super().__init__()
@@ -67,6 +70,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         self.doctor_specialty: Optional[str] = None
         self.summary_results: List[dict] = []
         self.insurance_results: List[dict] = []
+        self.lab_results: List[dict] = []
         self.s3_client = get_s3_client()
 
     # ------------------------------------------------------------------
@@ -96,6 +100,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         self.doctor_specialty = doctor_specialty
         self.summary_results = []
         self.insurance_results = []
+        self.lab_results = []
 
         # Also setup the internal Baptist flow reference
         self._baptist_flow.setup(
@@ -112,11 +117,22 @@ class BaptistUnifiedBatchFlow(BaseFlow):
 
     def execute(self):
         """
-        Main execution — ONE login, patient list + summary + insurance.
+        Main execution — ONE login, patient list + summary + insurance + lab.
         """
         logger.info("=" * 70)
         logger.info(" BAPTIST UNIFIED BATCH - STARTING (single session)")
         logger.info("=" * 70)
+
+        # Read skip flags from config
+        skip_patient_list = config.get_rpa_setting("skip_patient_list", False)
+        skip_summaries = config.get_rpa_setting("skip_batch_summaries", False)
+        skip_insurance = config.get_rpa_setting("skip_batch_insurance", False)
+        skip_lab = config.get_rpa_setting("skip_batch_lab", False)
+
+        logger.info(
+            f"[BAPTIST-UNIFIED] Skip flags — list={skip_patient_list}, "
+            f"summaries={skip_summaries}, insurance={skip_insurance}, lab={skip_lab}"
+        )
 
         # Phase 1: Navigate to patient list (login once — steps 1-10 + click patient list)
         if not self._navigate_to_patient_list():
@@ -125,18 +141,29 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                 "structured_patients": [],
                 "summary_patients": [],
                 "insurance_patients": [],
+                "lab_patients": [],
                 "hospital": self.hospital_type,
                 "error": "Navigation failed",
             }
 
         # Phase 2: Capture patient list census
-        logger.info("[BAPTIST-UNIFIED] Phase 2 — Capturing patient list census...")
-        self.structured_patients = self._capture_patient_list()
-        patient_count = len(self.structured_patients)
-        logger.info(f"[BAPTIST-UNIFIED] Census captured: {patient_count} patient(s)")
+        if not skip_patient_list:
+            logger.info("[BAPTIST-UNIFIED] Phase 2 — Capturing patient list census...")
+            self.structured_patients = self._capture_patient_list()
+            patient_count = len(self.structured_patients)
+            logger.info(
+                f"[BAPTIST-UNIFIED] Census captured: {patient_count} patient(s)"
+            )
 
-        # Send patient_list payload to backend immediately
-        self._send_patient_list_to_backend(self.structured_patients)
+            # Send patient_list payload to backend immediately
+            self._send_patient_list_to_backend(self.structured_patients)
+        else:
+            logger.info("[BAPTIST-UNIFIED] Phase 2 — SKIPPED (skip_patient_list=true)")
+            patient_count = 0
+            # Enter fullscreen since _capture_patient_list would have done it
+            if not self._click_fullscreen():
+                raise Exception("Failed to enter fullscreen mode")
+            stoppable_sleep(3)
 
         # Derive patient names for batch processing
         if not self.patient_names:
@@ -150,8 +177,17 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                 "name(s) from census"
             )
 
-        if not self.patient_names:
-            logger.warning("[BAPTIST-UNIFIED] No patients to process — cleaning up")
+        # Check if there is any per-patient work to do
+        need_per_patient = not (skip_summaries and skip_insurance and skip_lab)
+
+        if not self.patient_names or not need_per_patient:
+            if not self.patient_names:
+                logger.warning("[BAPTIST-UNIFIED] No patients to process — cleaning up")
+            else:
+                logger.info(
+                    "[BAPTIST-UNIFIED] All per-patient tasks skipped "
+                    "(summaries, insurance, lab) — skipping patient loop"
+                )
             self._click_normalscreen()
             stoppable_sleep(3)
             self._cleanup()
@@ -159,17 +195,18 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                 "structured_patients": self.structured_patients,
                 "summary_patients": [],
                 "insurance_patients": [],
+                "lab_patients": [],
                 "hospital": self.hospital_type,
             }
 
         logger.info(
             f"[BAPTIST-UNIFIED] Phase 3 — Processing {len(self.patient_names)} "
-            "patient(s) for summary + insurance"
+            "patient(s) for summary + insurance + lab"
         )
 
         # Already in fullscreen from patient list capture — proceed directly
 
-        # Phase 3: Process each patient (summary + insurance)
+        # Phase 3: Process each patient (summary + insurance + lab)
         total = len(self.patient_names)
         for idx, patient in enumerate(self.patient_names, 1):
             is_last = idx == total
@@ -180,63 +217,110 @@ class BaptistUnifiedBatchFlow(BaseFlow):
 
             summary_content = None
             insurance_content = None
+            lab_content = None
             patient_found = False
 
             try:
                 # Step A: Find patient + navigate to report
-                runner_result = self._find_patient_and_report(patient)
+                # Only navigate to Notes/Report if summaries are needed
+                need_report = not skip_summaries
+                runner_result = self._find_patient_and_report(
+                    patient, need_report=need_report
+                )
 
                 if runner_result.status == AgentStatus.FINISHED:
-                    # Report found — extract summary then insurance
+                    # Report found — extract summary then insurance then lab
                     patient_found = True
                     self._patient_detail_open = True
 
                     # Step B: Extract summary via PDF
-                    summary_content = self._extract_summary()
-                    logger.info(f"[BAPTIST-UNIFIED] Summary extracted for {patient}")
+                    if not skip_summaries:
+                        summary_content = self._extract_summary()
+                        logger.info(
+                            f"[BAPTIST-UNIFIED] Summary extracted for {patient}"
+                        )
+                    else:
+                        logger.info(f"[BAPTIST-UNIFIED] Summary SKIPPED for {patient}")
 
                     # Step C: Navigate to Face Sheet and extract insurance
-                    try:
-                        self._navigate_to_face_sheet()
-                        insurance_content = self._extract_insurance()
+                    if not skip_insurance:
+                        try:
+                            self._navigate_to_face_sheet()
+                            insurance_content = self._extract_insurance()
+                            logger.info(
+                                f"[BAPTIST-UNIFIED] Insurance extracted for {patient}"
+                            )
+                        except Exception as ins_err:
+                            logger.error(
+                                f"[BAPTIST-UNIFIED] Insurance failed for {patient}: "
+                                f"{ins_err}"
+                            )
+                    else:
                         logger.info(
-                            f"[BAPTIST-UNIFIED] Insurance extracted for {patient}"
-                        )
-                    except Exception as ins_err:
-                        logger.error(
-                            f"[BAPTIST-UNIFIED] Insurance failed for {patient}: {ins_err}"
+                            f"[BAPTIST-UNIFIED] Insurance SKIPPED for {patient}"
                         )
 
-                    # Step D: Return to patient list
+                    # Step D: Extract lab results
+                    if not skip_lab:
+                        try:
+                            lab_content = self._extract_lab()
+                            logger.info(
+                                f"[BAPTIST-UNIFIED] Lab extracted for {patient}"
+                            )
+                        except Exception as lab_err:
+                            logger.error(
+                                f"[BAPTIST-UNIFIED] Lab failed for {patient}: "
+                                f"{lab_err}"
+                            )
+                    else:
+                        logger.info(f"[BAPTIST-UNIFIED] Lab SKIPPED for {patient}")
+
+                    # Step E: Return to patient list
                     if not is_last:
                         self._return_to_patient_list()
                     else:
                         self._patient_detail_open = True
                         logger.info(
-                            "[BAPTIST-UNIFIED] Last patient — detail stays open for cleanup"
+                            "[BAPTIST-UNIFIED] Last patient — detail stays open "
+                            "for cleanup"
                         )
 
                 elif runner_result.patient_detail_open:
-                    # Patient detail open but report not found — still try insurance
+                    # Patient detail open but report not found — still try
+                    # insurance + lab
                     patient_found = True
                     self._patient_detail_open = True
                     logger.warning(
                         f"[BAPTIST-UNIFIED] Report not found for {patient}, "
-                        "trying insurance anyway..."
+                        "trying insurance/lab anyway..."
                     )
 
-                    try:
-                        self._navigate_to_face_sheet()
-                        insurance_content = self._extract_insurance()
-                        logger.info(
-                            f"[BAPTIST-UNIFIED] Insurance extracted for {patient} "
-                            "(no summary)"
-                        )
-                    except Exception as ins_err:
-                        logger.error(
-                            f"[BAPTIST-UNIFIED] Insurance also failed for {patient}: "
-                            f"{ins_err}"
-                        )
+                    if not skip_insurance:
+                        try:
+                            self._navigate_to_face_sheet()
+                            insurance_content = self._extract_insurance()
+                            logger.info(
+                                f"[BAPTIST-UNIFIED] Insurance extracted for "
+                                f"{patient} (no summary)"
+                            )
+                        except Exception as ins_err:
+                            logger.error(
+                                f"[BAPTIST-UNIFIED] Insurance also failed for "
+                                f"{patient}: {ins_err}"
+                            )
+
+                    if not skip_lab:
+                        try:
+                            lab_content = self._extract_lab()
+                            logger.info(
+                                f"[BAPTIST-UNIFIED] Lab extracted for "
+                                f"{patient} (no summary)"
+                            )
+                        except Exception as lab_err:
+                            logger.error(
+                                f"[BAPTIST-UNIFIED] Lab also failed for "
+                                f"{patient}: {lab_err}"
+                            )
 
                     if not is_last:
                         self._return_to_patient_list()
@@ -267,6 +351,13 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                     "content": insurance_content,
                 }
             )
+            self.lab_results.append(
+                {
+                    "patient": patient,
+                    "found": patient_found,
+                    "content": lab_content,
+                }
+            )
 
         # Exit fullscreen before cleanup
         logger.info("[BAPTIST-UNIFIED] Exiting fullscreen mode...")
@@ -279,6 +370,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
 
         summary_ok = sum(1 for r in self.summary_results if r.get("content"))
         insurance_ok = sum(1 for r in self.insurance_results if r.get("content"))
+        lab_ok = sum(1 for r in self.lab_results if r.get("content"))
 
         logger.info("=" * 70)
         logger.info(" BAPTIST UNIFIED BATCH - COMPLETE")
@@ -286,12 +378,14 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         logger.info(f" Processed: {total} patient(s)")
         logger.info(f" Summaries extracted: {summary_ok}")
         logger.info(f" Insurance extracted: {insurance_ok}")
+        logger.info(f" Lab results extracted: {lab_ok}")
         logger.info("=" * 70)
 
         return {
             "structured_patients": self.structured_patients,
             "summary_patients": self.summary_results,
             "insurance_patients": self.insurance_results,
+            "lab_patients": self.lab_results,
             "hospital": self.hospital_type,
             "total": total,
             "summary_found_count": sum(
@@ -300,6 +394,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
             "insurance_found_count": sum(
                 1 for r in self.insurance_results if r.get("found")
             ),
+            "lab_found_count": sum(1 for r in self.lab_results if r.get("found")),
         }
 
     # ------------------------------------------------------------------
@@ -460,21 +555,36 @@ class BaptistUnifiedBatchFlow(BaseFlow):
     # Patient Finding  (uses BaptistSummaryRunner)
     # ------------------------------------------------------------------
 
-    def _find_patient_and_report(self, patient_name: str):
+    def _find_patient_and_report(self, patient_name: str, need_report: bool = True):
         """
-        Find patient in the list and navigate to their clinical report.
+        Find patient in the list and optionally navigate to their clinical report.
 
-        Uses BaptistSummaryRunner which chains:
+        When need_report=True, uses BaptistSummaryRunner which chains:
           PatientFinder (across 4 hospital tabs) → open patient + Notes → ReportFinder
+
+        When need_report=False, uses BaptistLabRunner which only:
+          PatientFinder (across 4 hospital tabs) → open patient detail
+
+        Args:
+            patient_name: Name of the patient to find.
+            need_report: If True, navigate all the way to the report (Notes + tree).
+                If False, only open the patient detail (for lab/insurance-only).
         """
         self.set_step(f"FIND_PATIENT_{patient_name}")
         logger.info(f"[BAPTIST-UNIFIED] Finding patient: {patient_name}")
 
-        runner = BaptistSummaryRunner(
-            max_steps=30,
-            step_delay=1.0,
-            doctor_specialty=self.doctor_specialty,
-        )
+        if need_report:
+            runner = BaptistSummaryRunner(
+                max_steps=30,
+                step_delay=1.0,
+                doctor_specialty=self.doctor_specialty,
+            )
+        else:
+            runner = BaptistLabRunner(
+                max_steps=15,
+                step_delay=1.0,
+                vdi_enhance=True,
+            )
 
         result = runner.run(patient_name=patient_name)
         self._patient_detail_open = result.patient_detail_open
@@ -694,6 +804,122 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         return self._extract_pdf_content(self.PDF_INSURANCE_FILENAME, "insurance")
 
     # ------------------------------------------------------------------
+    # Lab Extraction  (Results Review → Group → Print PDF → extract text)
+    # ------------------------------------------------------------------
+
+    def _extract_lab(self) -> str:
+        """
+        Extract lab results via Results Review → Group → Print to PDF → extract text.
+
+        Steps:
+          1. Click center to re-engage VDI focus (may have been released)
+          2. Click 'Results Review' tab
+          3. Click 'Group' radiobutton (if visible — already in view if not)
+          4. Click Print button
+          5. Press Enter (confirm print dialog)
+          6. Ctrl+Alt (exit VDI focus — save dialog is on local machine)
+          7. Click 'lab baptis' file
+          8. Enter, Left, Enter (save with overwrite)
+          9. Extract text from PDF
+        """
+        self.set_step("EXTRACT_LAB")
+        logger.info("[BAPTIST-UNIFIED] Extracting lab results...")
+
+        # Re-engage VDI focus (may have been released by insurance Ctrl+Alt)
+        screen_w, screen_h = pyautogui.size()
+        pyautogui.click(screen_w // 2, screen_h // 2)
+        stoppable_sleep(1)
+
+        # Step 1: Click Results Review
+        logger.info("[BAPTIST-UNIFIED] Clicking 'Results Review'...")
+        results_review_img = config.get_rpa_setting("images.baptist_results_review")
+        location = self.wait_for_element(
+            results_review_img,
+            timeout=10,
+            confidence=0.8,
+            description="Results Review",
+        )
+        if not location:
+            raise Exception("Results Review button not found")
+        self.safe_click(location, "Results Review")
+        stoppable_sleep(2)
+
+        # Step 2: Click Group radiobutton (if visible — already in view if not)
+        logger.info("[BAPTIST-UNIFIED] Looking for 'Group' radiobutton...")
+        group_img = config.get_rpa_setting("images.baptist_group")
+        location = self.wait_for_element(
+            group_img,
+            timeout=5,
+            confidence=0.8,
+            description="Group",
+        )
+        if location:
+            logger.info("[BAPTIST-UNIFIED] Group found - clicking...")
+            self.safe_click(location, "Group")
+            stoppable_sleep(2)
+        else:
+            logger.info("[BAPTIST-UNIFIED] Group not visible - already in correct view")
+
+        # Step 3: Click Print button (shared with report/insurance)
+        logger.info("[BAPTIST-UNIFIED] Clicking Print button...")
+        print_img = config.get_rpa_setting("images.baptist_print_powerchart")
+        location = self.wait_for_element(
+            print_img,
+            timeout=10,
+            confidence=0.8,
+            description="Print button",
+        )
+        if not location:
+            raise Exception("Print button not found")
+        self.safe_click(location, "Print button")
+        stoppable_sleep(2)
+
+        # Step 4: Press Enter to confirm print dialog
+        logger.info("[BAPTIST-UNIFIED] Confirming print dialog (Enter)...")
+        pydirectinput.press("enter")
+        stoppable_sleep(3)
+
+        # Step 5: Ctrl+Alt to exit VDI focus (save dialog is on local machine)
+        logger.info("[BAPTIST-UNIFIED] Exiting VDI focus (Ctrl+Alt)...")
+        pydirectinput.keyDown("ctrl")
+        pydirectinput.keyDown("alt")
+        pydirectinput.keyUp("alt")
+        pydirectinput.keyUp("ctrl")
+        stoppable_sleep(2)
+
+        # Step 6: Click 'lab baptis' file
+        logger.info("[BAPTIST-UNIFIED] Clicking 'lab baptis' file...")
+        lab_baptis_img = config.get_rpa_setting("images.baptist_lab_baptis")
+        location = self.wait_for_element(
+            lab_baptis_img,
+            timeout=10,
+            confidence=0.95,
+            description="Lab Baptis file",
+        )
+        if location:
+            self.safe_click(location, "Lab Baptis file")
+        else:
+            logger.warning("[BAPTIST-UNIFIED] Lab Baptis file not found, continuing...")
+        stoppable_sleep(2)
+
+        # Step 7: Enter to confirm file selection
+        pydirectinput.press("enter")
+        stoppable_sleep(2)
+
+        # Step 8: Left arrow to select Replace
+        pydirectinput.press("left")
+        stoppable_sleep(2)
+
+        # Step 9: Enter to confirm replacement
+        pydirectinput.press("enter")
+        stoppable_sleep(5)
+
+        # Step 10: Extract text from PDF
+        content = self._extract_pdf_content(self.PDF_LAB_FILENAME, "lab")
+        logger.info(f"[BAPTIST-UNIFIED] Lab: {len(content)} characters")
+        return content
+
+    # ------------------------------------------------------------------
     # PDF Extraction Helper
     # ------------------------------------------------------------------
 
@@ -751,15 +977,12 @@ class BaptistUnifiedBatchFlow(BaseFlow):
     def _return_to_patient_list(self):
         """
         Close patient detail and return to patient list.
-
-        After insurance PDF extraction, VDI keyboard focus was released.
-        Click center to re-engage, then Alt+F4 to close patient detail.
-        Uses visual validation with retry.
+        Uses Alt+F4 + conservative patience wait.
+        Does NOT retry Alt+F4 to avoid race conditions.
         """
         self.set_step("RETURN_TO_PATIENT_LIST")
         logger.info("[BAPTIST-UNIFIED] Returning to patient list...")
 
-        # Click center to re-engage VDI focus
         screen_w, screen_h = pyautogui.size()
         pyautogui.click(screen_w // 2, screen_h // 2)
         stoppable_sleep(0.5)
@@ -772,50 +995,26 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         stoppable_sleep(0.1)
         pydirectinput.keyUp("alt")
 
-        # Wait for patient list header to be visible (visual validation)
-        logger.info("[BAPTIST-UNIFIED] Waiting for patient list header (max 30s)...")
+        logger.info("[BAPTIST-UNIFIED] Waiting 15s for system to process close...")
+        stoppable_sleep(15)
 
         patient_list_header_img = config.get_rpa_setting(
             "images.baptist_patient_list_header"
         )
 
-        header_found = self.wait_for_element(
+        header_found = self._wait_for_patient_list_with_patience(
             patient_list_header_img,
-            timeout=30,
-            description="Patient List Header",
+            max_attempts=3,
+            attempt_timeout=15,
         )
 
         if header_found:
-            logger.info("[BAPTIST-UNIFIED] OK — Patient list header detected")
+            logger.info("[BAPTIST-UNIFIED] OK — Patient list confirmed")
         else:
-            # Fallback: retry Alt+F4
             logger.warning(
-                "[BAPTIST-UNIFIED] Patient list header NOT detected — retrying "
-                "Alt+F4..."
+                "[BAPTIST-UNIFIED] Patient list header not detected after patience "
+                "wait. Continuing anyway to avoid race condition."
             )
-            pyautogui.click(screen_w // 2, screen_h // 2)
-            stoppable_sleep(0.5)
-
-            pydirectinput.keyDown("alt")
-            stoppable_sleep(0.1)
-            pydirectinput.press("f4")
-            stoppable_sleep(0.1)
-            pydirectinput.keyUp("alt")
-
-            header_found = self.wait_for_element(
-                patient_list_header_img,
-                timeout=30,
-                description="Patient List Header (retry)",
-            )
-
-            if header_found:
-                logger.info(
-                    "[BAPTIST-UNIFIED] OK — Patient list header detected after retry"
-                )
-            else:
-                logger.error(
-                    "[BAPTIST-UNIFIED] FAIL — Patient list header still NOT detected"
-                )
 
         self._patient_detail_open = False
         logger.info("[BAPTIST-UNIFIED] Back at patient list")
@@ -832,7 +1031,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         stoppable_sleep(0.1)
         pydirectinput.keyUp("alt")
 
-        stoppable_sleep(5)
+        stoppable_sleep(15)
         self._patient_detail_open = False
         logger.info("[BAPTIST-UNIFIED] Patient detail closed")
 
@@ -868,47 +1067,84 @@ class BaptistUnifiedBatchFlow(BaseFlow):
 
     def notify_completion(self, result):
         """
-        Send summary + insurance payloads to the backend.
+        Send summary + insurance + lab payloads to the backend.
 
         patient_list was already sent during execute() right after capture,
         so we only send the batch results here.
+
+        Respects skip flags: if a task was skipped, its payload is NOT sent
+        to avoid overwriting real data with empty lists.
         """
+        skip_summaries = config.get_rpa_setting("skip_batch_summaries", False)
+        skip_insurance = config.get_rpa_setting("skip_batch_insurance", False)
+        skip_lab = config.get_rpa_setting("skip_batch_lab", False)
+
         # 1. Summary payload
-        summary_payload = {
-            "status": "completed",
-            "type": f"batch_{self.hospital_type.lower()}_summary",
-            "doctor_name": self.doctor_name,
-            "doctor_specialty": self.doctor_specialty,
-            "hospital": self.hospital_type,
-            "patients": result.get("summary_patients", []),
-            "total": result.get("total", 0),
-            "found_count": result.get("summary_found_count", 0),
-        }
-        logger.info("[BAPTIST-UNIFIED] Sending summary results to backend...")
-        resp = self._send_to_summary_webhook_n8n(summary_payload)
-        if resp:
-            logger.info(
-                f"[BAPTIST-UNIFIED] Summary backend response: {resp.status_code}"
-            )
+        if not skip_summaries:
+            summary_payload = {
+                "status": "completed",
+                "type": f"batch_{self.hospital_type.lower()}_summary",
+                "doctor_name": self.doctor_name,
+                "doctor_specialty": self.doctor_specialty,
+                "hospital": self.hospital_type,
+                "patients": result.get("summary_patients", []),
+                "total": result.get("total", 0),
+                "found_count": result.get("summary_found_count", 0),
+            }
+            logger.info("[BAPTIST-UNIFIED] Sending summary results to backend...")
+            resp = self._send_to_summary_webhook_n8n(summary_payload)
+            if resp:
+                logger.info(
+                    f"[BAPTIST-UNIFIED] Summary backend response: {resp.status_code}"
+                )
+            else:
+                logger.error("[BAPTIST-UNIFIED] Failed to send summary to backend")
         else:
-            logger.error("[BAPTIST-UNIFIED] Failed to send summary to backend")
+            logger.info("[BAPTIST-UNIFIED] Summary SKIPPED — not sending to backend")
 
         # 2. Insurance payload
-        insurance_payload = {
-            "status": "completed",
-            "type": "baptist_batch_insurance",
-            "doctor_name": self.doctor_name,
-            "hospital": self.hospital_type,
-            "patients": result.get("insurance_patients", []),
-            "total": result.get("total", 0),
-            "found_count": result.get("insurance_found_count", 0),
-            "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
-        }
-        logger.info("[BAPTIST-UNIFIED] Sending insurance results to backend...")
-        resp = self._send_to_batch_insurance_webhook_n8n(insurance_payload)
-        if resp:
-            logger.info(
-                f"[BAPTIST-UNIFIED] Insurance backend response: {resp.status_code}"
-            )
+        if not skip_insurance:
+            insurance_payload = {
+                "status": "completed",
+                "type": "baptist_batch_insurance",
+                "doctor_name": self.doctor_name,
+                "hospital": self.hospital_type,
+                "patients": result.get("insurance_patients", []),
+                "total": result.get("total", 0),
+                "found_count": result.get("insurance_found_count", 0),
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            }
+            logger.info("[BAPTIST-UNIFIED] Sending insurance results to backend...")
+            resp = self._send_to_batch_insurance_webhook_n8n(insurance_payload)
+            if resp:
+                logger.info(
+                    f"[BAPTIST-UNIFIED] Insurance backend response: "
+                    f"{resp.status_code}"
+                )
+            else:
+                logger.error("[BAPTIST-UNIFIED] Failed to send insurance to backend")
         else:
-            logger.error("[BAPTIST-UNIFIED] Failed to send insurance to backend")
+            logger.info("[BAPTIST-UNIFIED] Insurance SKIPPED — not sending to backend")
+
+        # 3. Lab payload
+        if not skip_lab:
+            lab_payload = {
+                "status": "completed",
+                "type": "baptist_batch_lab",
+                "doctor_name": self.doctor_name,
+                "hospital": self.hospital_type,
+                "patients": result.get("lab_patients", []),
+                "total": result.get("total", 0),
+                "found_count": result.get("lab_found_count", 0),
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            }
+            logger.info("[BAPTIST-UNIFIED] Sending lab results to backend...")
+            resp = self._send_to_lab_webhook_n8n(lab_payload)
+            if resp:
+                logger.info(
+                    f"[BAPTIST-UNIFIED] Lab backend response: {resp.status_code}"
+                )
+            else:
+                logger.error("[BAPTIST-UNIFIED] Failed to send lab to backend")
+        else:
+            logger.info("[BAPTIST-UNIFIED] Lab SKIPPED — not sending to backend")

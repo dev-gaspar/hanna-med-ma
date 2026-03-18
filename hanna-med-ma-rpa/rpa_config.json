@@ -6,9 +6,14 @@
 	"skip_batch_insurance": false,
 	"skip_batch_lab": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": ["STEWARD", "BAPTIST"],
+	"disabled_emr_types": [
+		"STEWARD",
+		"JACKSON"
+	],
 	"screen_resolution": "1024x768",
-	"available_resolutions": ["1024x768"],
+	"available_resolutions": [
+		"1024x768"
+	],
 	"aws": {
 		"access_key_id": "${AWS_ACCESS_KEY_ID}",
 		"secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
@@ -87,6 +92,9 @@
 		"baptist_announcement_close": "images/{resolution}/baptist/announcement_close.png",
 		"baptist_ok_modal": "images/{resolution}/baptist/baptist_ok_modal.png",
 		"baptist_by_type": "images/{resolution}/baptist/by_type.png",
+		"baptist_group": "images/{resolution}/baptist/group.png",
+		"baptist_results_review": "images/{resolution}/baptist/result_review.png",
+		"baptist_lab_baptis": "images/{resolution}/baptist/lab_baptis.png",
 		"jackson_tab": "images/{resolution}/jackson/step1_tab_jackson.png",
 		"jackson_powered": "images/{resolution}/jackson/step2_powered_jackson.png",
 		"jackson_open_download": "images/{resolution}/jackson/step3_open_download_powered.png",
@@ -251,21 +259,39 @@
 	"roi_definitions": {
 		"jackson": {
 			"1024x768": {
-				"patient_finder": ["patient_list"],
-				"report_finder": ["notes_tree", "report_content"]
+				"patient_finder": [
+					"patient_list"
+				],
+				"report_finder": [
+					"notes_tree",
+					"report_content"
+				]
 			}
 		},
 		"baptist": {
 			"1024x768": {
-				"patient_finder": ["hospital_tabs", "patient_list"],
-				"report_finder": ["notes_tree", "report_content"]
+				"patient_finder": [
+					"hospital_tabs",
+					"patient_list"
+				],
+				"report_finder": [
+					"notes_tree",
+					"report_content"
+				]
 			}
 		},
 		"steward": {
 			"1024x768": {
-				"patient_finder": ["patient_list"],
-				"reason_finder": ["orders_list"],
-				"report_finder": ["document_list", "document_content"]
+				"patient_finder": [
+					"patient_list"
+				],
+				"reason_finder": [
+					"orders_list"
+				],
+				"report_finder": [
+					"document_list",
+					"document_content"
+				]
 			}
 		}
 	},
