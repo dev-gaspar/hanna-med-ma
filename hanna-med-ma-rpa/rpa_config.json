@@ -6,10 +6,7 @@
 	"skip_batch_insurance": false,
 	"skip_batch_lab": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": [
-		"STEWARD",
-		"JACKSON"
-	],
+	"disabled_emr_types": [],
 	"screen_resolution": "1024x768",
 	"available_resolutions": [
 		"1024x768"
@@ -185,7 +182,15 @@
 		"steward_insurance_general": "images/{resolution}/steward/insurance_general.png",
 		"steward_insurance_general_selected": "images/{resolution}/steward/insurance_general_selected.png",
 		"steward_message": "images/{resolution}/steward/message.png",
-		"steward_message_ok": "images/{resolution}/steward/message_ok.png"
+		"steward_message_ok": "images/{resolution}/steward/message_ok.png",
+		"steward_diagnostics": "images/{resolution}/steward/diagnostics.png",
+		"steward_diagnostics_print_btn": "images/{resolution}/steward/diagnostics_print_btn.png",
+		"steward_laboratory_results": "images/{resolution}/steward/laboratory_results.png",
+		"steward_ok_btn": "images/{resolution}/steward/ok_btn.png",
+		"steward_print_ico": "images/{resolution}/steward/print_ico.png",
+		"steward_save_btn": "images/{resolution}/steward/save_btn.png",
+		"steward_select_all": "images/{resolution}/steward/select_all.png",
+		"steward_lab_no_result": "images/{resolution}/steward/lab_no_result.png"
 	},
 	"timeouts": {
 		"default": 60,
@@ -291,6 +296,11 @@
 				"report_finder": [
 					"document_list",
 					"document_content"
+				],
+				"date_picker": [
+					"lab_date_selected",
+					"lab_month_header",
+					"lab_calendar_days"
 				]
 			}
 		}
@@ -371,6 +381,24 @@
 					"y": 366,
 					"w": 700,
 					"h": 330
+				},
+				"lab_date_selected": {
+					"x": 285,
+					"y": 301,
+					"w": 459,
+					"h": 43
+				},
+				"lab_month_header": {
+					"x": 433,
+					"y": 345,
+					"w": 154,
+					"h": 42
+				},
+				"lab_calendar_days": {
+					"x": 288,
+					"y": 388,
+					"w": 458,
+					"h": 211
 				}
 			}
 		}

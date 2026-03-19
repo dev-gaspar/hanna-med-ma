@@ -607,6 +607,7 @@ class RpaNode:
         batch_map = {
             "JACKSON": ("flows.jackson_batch_lab", "JacksonBatchLabFlow"),
             "BAPTIST": ("flows.baptist_batch_lab", "BaptistBatchLabFlow"),
+            "STEWARD": ("flows.steward_batch_lab", "StewardBatchLabFlow"),
         }
 
         mapping = batch_map.get(hospital_type)

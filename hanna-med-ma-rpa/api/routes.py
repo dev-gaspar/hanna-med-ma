@@ -21,6 +21,7 @@ from flows import (
     StewardFlow,
     StewardSummaryFlow,
     StewardInsuranceFlow,
+    StewardLabFlow,
 )
 from flows.baptist_batch_insurance import BaptistBatchInsuranceFlow
 from flows.jackson_batch_insurance import JacksonBatchInsuranceFlow
@@ -437,6 +438,50 @@ async def start_steward_insurance_flow(
     return {
         "success": True,
         "message": f"Steward insurance flow started for patient: {body.patient_name}",
+    }
+
+
+@router.post("/start-steward-lab-flow", response_model=StartRPAResponse)
+async def start_steward_lab_flow(
+    body: StartSummaryRequest, background_tasks: BackgroundTasks
+):
+    """
+    Start Steward Lab flow - extract patient lab results.
+
+    This flow:
+    1. Uses traditional RPA to navigate to the patient list (Rounds Patients)
+    2. Uses agentic PatientFinder to locate the patient
+    3. Navigates to Diagnostics, selects date range, copies lab results
+    4. Cleans up and returns to lobby
+    """
+    if rpa_state["status"] == "running":
+        return {
+            "success": False,
+            "message": f"RPA is already running with ID: {rpa_state['execution_id']}",
+        }
+
+    print(f"Execution ID: {body.execution_id}")
+    print(f"Sender: {body.sender}")
+    print(f"Instance: {body.instance}")
+    print(f"Trigger Type: {body.trigger_type} (Steward Lab)")
+    print(f"Doctor Name: {body.doctor_name}")
+    print(f"Patient Name: {body.patient_name}")
+
+    flow = StewardLabFlow()
+    background_tasks.add_task(
+        flow.run,
+        body.execution_id,
+        body.sender,
+        body.instance,
+        body.trigger_type,
+        body.doctor_name,
+        body.credentials,
+        patient_name=body.patient_name,
+    )
+
+    return {
+        "success": True,
+        "message": f"Steward lab flow started for patient: {body.patient_name}",
     }
 
 

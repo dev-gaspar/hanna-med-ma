@@ -10,6 +10,7 @@ from .baptist_insurance_runner import BaptistInsuranceRunner
 from .baptist_lab_runner import BaptistLabRunner
 from .steward_summary_runner import StewardSummaryRunner
 from .steward_insurance_runner import StewardInsuranceRunner
+from .steward_lab_runner import StewardLabRunner
 
 __all__ = [
     "JacksonSummaryRunner",
@@ -20,4 +21,5 @@ __all__ = [
     "BaptistLabRunner",
     "StewardSummaryRunner",
     "StewardInsuranceRunner",
+    "StewardLabRunner",
 ]

@@ -21,6 +21,8 @@ from .steward import StewardFlow
 from .steward_summary import StewardSummaryFlow
 from .steward_insurance import StewardInsuranceFlow
 from .steward_batch_insurance import StewardBatchInsuranceFlow
+from .steward_lab import StewardLabFlow
+from .steward_batch_lab import StewardBatchLabFlow
 
 # Batch summary flows
 from .base_batch_summary import BaseBatchSummaryFlow
@@ -58,6 +60,8 @@ FLOW_REGISTRY = {
     "jackson_unified_batch": JacksonUnifiedBatchFlow,
     "baptist_unified_batch": BaptistUnifiedBatchFlow,
     "steward_batch_insurance": StewardBatchInsuranceFlow,
+    "steward_lab": StewardLabFlow,
+    "steward_batch_lab": StewardBatchLabFlow,
     "baptist_batch_summary": BaptistBatchSummaryFlow,
     "steward_batch_summary": StewardBatchSummaryFlow,
 }
@@ -104,6 +108,8 @@ __all__ = [
     "StewardSummaryFlow",
     "StewardInsuranceFlow",
     "StewardBatchInsuranceFlow",
+    "StewardLabFlow",
+    "StewardBatchLabFlow",
     "BaseBatchSummaryFlow",
     "JacksonBatchSummaryFlow",
     "BaptistBatchSummaryFlow",
