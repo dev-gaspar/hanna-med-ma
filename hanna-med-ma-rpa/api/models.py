@@ -27,6 +27,7 @@ class CareTrackerRunResponse(BaseModel):
     success: bool
     message: str
     status: str | None = None
+    patient_emr_id: str | None = None
     include_insurance: bool | None = None
     insurance_period_count: int | None = None
     filled_fields: Dict[str, Any] | None = None

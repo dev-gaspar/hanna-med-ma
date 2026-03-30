@@ -121,3 +121,13 @@ export interface DoctorLoginResponse {
 	};
 }
 
+export type BillingEmrStatus = 'PENDING' | 'REGISTERED' | 'ALREADY_EXISTS' | 'FAILED';
+
+export interface PatientBillingInfo {
+	success?: boolean;
+	patientId: number;
+	isSeen: boolean;
+	billingEmrStatus: BillingEmrStatus;
+	billingEmrPatientId: string | null;
+}
+

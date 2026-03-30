@@ -171,6 +171,13 @@ enum EmrSystem {
   BAPTIST
 }
 
+enum BillingEmrStatus {
+  PENDING
+  REGISTERED
+  ALREADY_EXISTS
+  FAILED
+}
+
 model Patient {
   id             Int       @id @default(autoincrement())
   doctorId       Int
@@ -182,6 +189,9 @@ model Patient {
   reason         String?
   admittedDate   String?
   isActive       Boolean   @default(true)
+  isSeen         Boolean   @default(false)
+  billingEmrStatus BillingEmrStatus @default(PENDING)
+  billingEmrPatientId String?
   lastSeenAt     DateTime  @default(now())
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

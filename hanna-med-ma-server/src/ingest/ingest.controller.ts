@@ -83,4 +83,19 @@ export class IngestController {
   ) {
     return this.ingestService.getPatientRawData(patientId, dataType);
   }
+
+  @Get("patients/resolve")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth("JWT-auth")
+  @ApiOperation({ summary: "Resolve a patient by name" })
+  @ApiQuery({ name: "name", required: true })
+  @ApiQuery({ name: "emrSystem", required: false })
+  async resolvePatient(
+    @Request() req,
+    @Query("name") name: string,
+    @Query("emrSystem") emrSystem?: string,
+  ) {
+    const doctorId = req.user.userId;
+    return this.ingestService.resolvePatientByName(doctorId, name, emrSystem);
+  }
 }

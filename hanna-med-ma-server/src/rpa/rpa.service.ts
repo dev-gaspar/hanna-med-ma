@@ -5,6 +5,7 @@ import { PrismaService } from "../core/prisma.service";
 import { RegisterRpaDto } from "./dto/register-rpa.dto";
 import { CredentialsService } from "../credentials/credentials.service";
 import { SubAgentsService } from "../ai/agents/sub-agents.service";
+import { FcmService } from "../notifications/fcm.service";
 import { formatDateForDisplay } from "../core/date-format.util";
 
 const CARETRACKER_INSURANCE_COMPANIES: Record<string, string> = {
@@ -88,6 +89,7 @@ export class RpaService {
 		private prisma: PrismaService,
 		private credentialsService: CredentialsService,
 		private subAgentsService: SubAgentsService,
+		private fcmService: FcmService,
 	) {}
 
 	/**
@@ -341,8 +343,179 @@ export class RpaService {
 		};
 	}
 
+	/**
+	 * Marks a patient as seen, sets status to PENDING, and triggers async RPA flow.
+	 */
+	async markPatientAsSeen(patientId: number) {
+		const patient = await this.prisma.patient.findUnique({
+			where: { id: patientId },
+		});
+
+		if (!patient) {
+			throw new NotFoundException(`Patient ${patientId} not found`);
+		}
+
+		// 1. Immediately update local DB
+		const updated = await this.prisma.patient.update({
+			where: { id: patientId },
+			data: {
+				isSeen: true,
+				billingEmrStatus: "PENDING",
+			},
+		});
+
+		// 2. Trigger async RPA process in the background (Floating Promise)
+		this.processRpaRegistrationAsync(patient.id, patient.doctorId, patient.name).catch(err => {
+			this.logger.error(`Background RPA task failed for ${patientId}: ${err.message}`);
+		});
+
+		this.logger.log(`Patient ${patientId} marked as seen locally. RPA task running in background.`);
+
+		return {
+			success: true,
+			patientId: updated.id,
+			isSeen: updated.isSeen,
+			billingEmrStatus: updated.billingEmrStatus,
+			rpa_details: { status: "PROCESSING" },
+		};
+	}
+
+	/**
+	 * Background execution of the CareTracker RPA Registration
+	 */
+	private async processRpaRegistrationAsync(patientId: number, doctorId: number | null, patientName: string) {
+		this.logger.log(`[Background RPA] Starting for patient ${patientId} (${patientName})`);
+		
+		const patient = await this.prisma.patient.findUnique({
+			where: { id: patientId },
+			include: {
+				rawData: {
+					where: { dataType: "INSURANCE" },
+					orderBy: { extractedAt: "desc" },
+					take: 1,
+				},
+			},
+		});
+
+		if (!patient) return;
+
+		let emrId: string | null = null;
+		let emrStatus = "PENDING";
+		let rpaDetails = null;
+
+		if (patient.rawData.length > 0) {
+			const latestInsuranceRaw = patient.rawData[0];
+			try {
+				this.logger.log(`[Background RPA] Formatting payload for ${patientName}...`);
+				const aiOutput =
+					await this.subAgentsService.formatCareTrackerInsurancePayload(
+						latestInsuranceRaw.rawContent,
+						{ extractedAt: formatDateForDisplay(latestInsuranceRaw.extractedAt) },
+					);
+
+				const payload = this.normalizeCareTrackerPayload(
+					this.parseCareTrackerJson(aiOutput),
+				);
+
+				const rpaUrl =
+					process.env.SERVER_CARETRACKER_RPA_URL ||
+					"http://127.0.0.1:8000/caretracker/run";
+
+				this.logger.log(`[Background RPA] Calling CareTracker for ${patientName}...`);
+				const rpaResponse = await axios.post(
+					rpaUrl,
+					{ payload, headless: false },
+					{ headers: { "Content-Type": "application/json" } },
+				);
+
+				const data = rpaResponse.data;
+				rpaDetails = data;
+				
+				if (data.success) {
+					if (data.status === "NOT_FOUND") {
+						emrId = `DUMMY-${patientId}-${Date.now()}`;
+						emrStatus = "REGISTERED";
+					} else if (
+						data.status === "FOUND_SINGLE" ||
+						data.status === "FOUND_MULTIPLE"
+					) {
+						emrId = data.patient_emr_id || null;
+						emrStatus = "ALREADY_EXISTS";
+					} else {
+						// Fallback if status is unusual
+						emrId = `DUMMY-${patientId}-${Date.now()}`;
+						emrStatus = "REGISTERED";
+					}
+				} else {
+					emrStatus = "FAILED";
+				}
+			} catch (err: any) {
+				this.logger.error(`[Background RPA] Call Failed: ${err.message}`);
+				emrStatus = "FAILED";
+			}
+		} else {
+			this.logger.warn(`[Background RPA] Patient ${patientId} has no INSURANCE raw data. Generating dummy without RPA.`);
+			emrId = `DUMMY-${patientId}-${Date.now()}`;
+			emrStatus = "REGISTERED";
+		}
+
+		await this.prisma.patient.update({
+			where: { id: patientId },
+			data: {
+				billingEmrStatus: emrStatus as any,
+				billingEmrPatientId: emrId,
+			},
+		});
+
+		this.logger.log(`[Background RPA] Completed for ${patientName} (Status=${emrStatus}, ID=${emrId})`);
+		
+		// 3. Send Push Notification to Doctor
+		if (doctorId) {
+			const title = "CareTracker Integration";
+			let body = "";
+			if (emrStatus === "ALREADY_EXISTS") {
+				body = `Patient ${patientName} was found in CareTracker (ID: ${emrId}). Link established.`;
+			} else if (emrStatus === "REGISTERED") {
+				body = `Patient ${patientName} has been successfully registered in CareTracker (ID: ${emrId}).`;
+			} else {
+				body = `Action required: Failed to process CareTracker registration for ${patientName}.`;
+			}
+			
+			await this.fcmService.sendPushNotification(doctorId, title, body);
+		}
+	}
+
+	/**
+	 * Resolves a patient by display name (direct DB lookup) and marks as seen.
+	 * No multi-system search — just a simple prisma query.
+	 */
+	async markPatientAsSeenByName(patientName: string) {
+		const patient = await this.prisma.patient.findFirst({
+			where: {
+				name: {
+					equals: patientName,
+					mode: "insensitive",
+				},
+			},
+			orderBy: { id: "desc" },
+		});
+
+		if (!patient) {
+			throw new NotFoundException(
+				`Patient with name "${patientName}" not found in database`,
+			);
+		}
+
+		this.logger.log(
+			`Resolved "${patientName}" to patient ID ${patient.id}. Proceeding to mark as seen.`,
+		);
+
+		return this.markPatientAsSeen(patient.id);
+	}
+
 	private parseCareTrackerJson(raw: string): unknown {
 		const trimmed = raw.trim();
+
 
 		try {
 			return JSON.parse(trimmed);

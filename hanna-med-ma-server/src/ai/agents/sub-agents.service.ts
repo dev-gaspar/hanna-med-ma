@@ -4,6 +4,7 @@ import {
   getInsurancePrompt,
   getSummaryPrompt,
   getListPrompt,
+  getSeenListPrompt,
   getLabPrompt,
   getConversationalPrompt,
   getCareTrackerInsurancePayloadPrompt,
@@ -75,6 +76,26 @@ export class SubAgentsService {
           specificQuestion,
         })
       : getListPrompt(context);
+
+    return this.invokeModel(
+      prompt,
+      `List Data Context:\n${patientsJson}`,
+      onStreaming,
+    );
+  }
+
+  async formatSeenPatientList(
+    patientsJson: string,
+    context: { hospitalType?: string; lastUpdated: string },
+    specificQuestion?: string,
+    onStreaming?: (chunk: string) => void,
+  ): Promise<string> {
+    const prompt = specificQuestion
+      ? getConversationalPrompt({
+          hospitalType: context.hospitalType || "all systems",
+          specificQuestion,
+        })
+      : getSeenListPrompt(context);
 
     return this.invokeModel(
       prompt,

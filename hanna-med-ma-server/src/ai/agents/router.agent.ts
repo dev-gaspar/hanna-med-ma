@@ -26,6 +26,7 @@ import {
   PatientLabTool,
   BatchPatientLabTool,
 } from "../tools/patient-lab.tools";
+import { PatientSeenTool } from "../tools/patient-seen.tools";
 
 interface DoctorContext {
   doctorId: number;
@@ -48,6 +49,7 @@ export class RouterAgent {
     private patientLabTool: PatientLabTool,
     private batchPatientLabTool: BatchPatientLabTool,
     private findPatientContextTool: FindPatientContextTool,
+    private patientSeenTool: PatientSeenTool,
   ) {}
 
   async processMessage(
@@ -158,6 +160,7 @@ export class RouterAgent {
                 "query_batch_patient_list",
                 "query_patient_lab",
                 "query_batch_patient_lab",
+                "query_patient_seen",
               ].includes(toolName)
             ) {
               isMuted = true;
@@ -493,6 +496,31 @@ export class RouterAgent {
             patient_names: z
               .array(z.string())
               .describe("Patient names to locate, or ['ALL_PATIENTS'] for all"),
+          }),
+        },
+      ),
+      tool(
+        async ({ hospital_types, specific_question }) => {
+          callbacks?.onToolCall?.("query_patient_seen");
+          return this.patientSeenTool.execute(
+            { hospital_types: hospital_types?.map((h) => h.toUpperCase()), specific_question },
+            { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
+            callbacks,
+          );
+        },
+        {
+          name: "query_patient_seen",
+          description:
+            "Find patients that the doctor has ALREADY MARKED AS SEEN. Use when asked 'which patients have I seen?', 'did I see anyone from Jackson?', etc.",
+          schema: z.object({
+            hospital_types: z
+              .array(hospitalEnum)
+              .optional()
+              .describe("Optional array of hospital systems to filter by"),
+            specific_question: z
+              .string()
+              .optional()
+              .describe("Specific question about the seen patients"),
           }),
         },
       ),

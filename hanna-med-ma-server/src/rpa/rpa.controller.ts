@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Body,
+  Patch,
   Param,
   ParseIntPipe,
   UseGuards,
@@ -101,5 +102,40 @@ export class RpaController {
     @Param("patientId", ParseIntPipe) patientId: number,
   ) {
     return this.rpaService.dispatchCareTrackerForPatientId(patientId);
+  }
+
+  @Patch("patients/seen-by-name")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth("JWT-auth")
+  @ApiOperation({
+    summary: "Mark patient as seen by name (direct DB lookup)",
+    description:
+      "Resolves the patient by display name in the local database and triggers the mark-as-seen + billing EMR flow. No multi-system search needed.",
+  })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: { patientName: { type: "string" } },
+      required: ["patientName"],
+    },
+  })
+  @ApiResponse({ status: 200, description: "Patient marked as seen" })
+  @ApiResponse({ status: 404, description: "Patient not found" })
+  async markPatientAsSeenByName(@Body("patientName") patientName: string) {
+    return this.rpaService.markPatientAsSeenByName(patientName);
+  }
+
+  @Patch("patients/:patientId/seen")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth("JWT-auth")
+  @ApiOperation({
+    summary: "Mark patient as seen by ID and trigger billing EMR registration",
+    description:
+      "Toggles isSeen to true and handles billing EMR logic.",
+  })
+  @ApiParam({ name: "patientId", type: "number" })
+  @ApiResponse({ status: 200, description: "Patient marked as seen" })
+  async markPatientAsSeen(@Param("patientId", ParseIntPipe) patientId: number) {
+    return this.rpaService.markPatientAsSeen(patientId);
   }
 }

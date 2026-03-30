@@ -1,5 +1,5 @@
 import { parseInlineFormatting } from "../../lib/chatUtils";
-import { FileText, Landmark, FlaskConical } from "lucide-react";
+import { FileText, Landmark, FlaskConical, CheckCircle2, Loader2 } from "lucide-react";
 import type { SelectedItem } from "./DoctorChat";
 
 interface PatientCardProps {
@@ -13,6 +13,9 @@ interface PatientCardProps {
 		action: "summary" | "insurance" | "lab",
 		patientName: string,
 	) => void;
+	onMarkSeen?: (patientName: string) => void;
+	isMarkedSeen?: boolean;
+	isMarkingLoading?: boolean;
 }
 
 export const PatientCard = ({
@@ -20,6 +23,9 @@ export const PatientCard = ({
 	index,
 	selection,
 	onAction,
+	onMarkSeen,
+	isMarkedSeen,
+	isMarkingLoading,
 }: PatientCardProps) => {
 	const lines = content.split("\n").filter((l: string) => l.trim());
 	const firstLine = lines[0] || "";
@@ -88,6 +94,31 @@ export const PatientCard = ({
 					>
 						<FlaskConical className="w-4 h-4" />
 						<span className="text-[10px] font-medium">Lab</span>
+					</button>
+
+					<div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
+					<button
+						onClick={(e) => {
+							e.stopPropagation();
+							onMarkSeen?.(patientName);
+						}}
+						disabled={isMarkedSeen || isMarkingLoading}
+						className={`${actionBtnClass} ${
+							isMarkedSeen
+								? "text-green-500 dark:text-green-400 cursor-default"
+								: "text-slate-500 dark:text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+						}`}
+						title="Seen"
+					>
+						{isMarkingLoading ? (
+							<Loader2 className="w-4 h-4 animate-spin" />
+						) : (
+							<CheckCircle2 className="w-4 h-4" />
+						)}
+						<span className="text-[10px] font-medium">
+							Seen
+						</span>
 					</button>
 				</div>
 			</div>

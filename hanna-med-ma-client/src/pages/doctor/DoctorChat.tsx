@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { doctorAuthService } from "../../services/doctorAuthService";
 import { chatService } from "../../services/chatService";
 import { socketService } from "../../services/socketService";
+import { patientService } from "../../services/patientService";
 import type { Message } from "../../types/chat";
 import {
 	Send,
@@ -25,6 +26,7 @@ import {
 	Landmark,
 	FlaskConical,
 	Check,
+	CheckCircle2,
 } from "lucide-react";
 import ThemeToggle from "../../components/ThemeToggle";
 import { MessageItem } from "./MessageItem";
@@ -51,6 +53,10 @@ export default function DoctorChat() {
 	// Selection State
 	const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
 	const [isCopied, setIsCopied] = useState(false);
+
+	// Mark Seen State
+	const [seenPatients, setSeenPatients] = useState<Set<string>>(new Set());
+	const [markingLoading, setMarkingLoading] = useState<Set<string>>(new Set());
 
 	// UI States
 	const [isReady, setIsReady] = useState(false);
@@ -131,6 +137,26 @@ export default function DoctorChat() {
 			setSelectedItem(null);
 		}, 1000);
 	}, [selectedItem, copyToClipboard]);
+
+	const handleMarkSeen = async (patientName: string) => {
+		try {
+			setMarkingLoading((prev) => new Set(prev).add(patientName));
+
+			const result = await patientService.markAsSeenByName(patientName);
+			if (result.success || result.isSeen) {
+				setSeenPatients((prev) => new Set(prev).add(patientName));
+			}
+		} catch (error) {
+			console.error("Failed to mark patient as seen:", error);
+			alert("Failed to mark patient as seen. Please try again.");
+		} finally {
+			setMarkingLoading((prev) => {
+				const next = new Set(prev);
+				next.delete(patientName);
+				return next;
+			});
+		}
+	};
 
 	// --- Effects ---
 	// Initial history load
@@ -509,6 +535,36 @@ export default function DoctorChat() {
 										Lab
 									</span>
 								</button>
+
+								{/* Mark Seen Button */}
+								<button
+									onClick={() => handleMarkSeen(selectedItem?.patientName!)}
+									disabled={
+										seenPatients.has(selectedItem?.patientName!) ||
+										markingLoading.has(selectedItem?.patientName!)
+									}
+									className={`flex items-center gap-2 p-2 sm:px-3 rounded-xl transition-all group ${
+										seenPatients.has(selectedItem?.patientName!)
+											? "text-green-500 cursor-default"
+											: "text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+									}`}
+									title="Seen"
+								>
+									{markingLoading.has(selectedItem?.patientName!) ? (
+										<Loader2 className="w-5 h-5 animate-spin text-amber-500" />
+									) : (
+										<CheckCircle2
+											className={`w-5 h-5 ${
+												seenPatients.has(selectedItem?.patientName!)
+													? "text-green-500"
+													: "text-amber-500"
+											}`}
+										/>
+									)}
+									<span className="text-xs font-semibold hidden sm:inline">
+										Seen
+									</span>
+								</button>
 							</>
 						)}
 
@@ -609,6 +665,9 @@ export default function DoctorChat() {
 								selectedId={selectedItem?.id}
 								onSelect={handleSelect}
 								onAction={handlePatientAction}
+								onMarkSeen={handleMarkSeen}
+								seenPatients={seenPatients}
+								markingLoading={markingLoading}
 								isLastAssistant={message.id === lastAssistantId}
 								onRegenerate={handleRegenerate}
 								isLastUser={message.id === lastUserId}

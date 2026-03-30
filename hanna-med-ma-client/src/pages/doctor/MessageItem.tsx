@@ -13,6 +13,9 @@ interface MessageItemProps {
 		action: "summary" | "insurance" | "lab",
 		patientName: string,
 	) => void;
+	onMarkSeen?: (patientName: string) => void;
+	seenPatients?: Set<string>;
+	markingLoading?: Set<string>;
 	isLastAssistant?: boolean;
 	onRegenerate?: () => void;
 	isLastUser?: boolean;
@@ -25,6 +28,9 @@ export const MessageItem = memo(
 		selectedId,
 		onSelect,
 		onAction,
+		onMarkSeen,
+		seenPatients,
+		markingLoading,
 		isLastAssistant,
 		onRegenerate,
 		isLastUser,
@@ -41,6 +47,9 @@ export const MessageItem = memo(
 						content={message.content}
 						selection={{ selectedId, onSelect }}
 						onAction={onAction}
+						onMarkSeen={onMarkSeen}
+						seenPatients={seenPatients}
+						markingLoading={markingLoading}
 					/>
 				);
 			}
@@ -52,6 +61,9 @@ export const MessageItem = memo(
 			selectedId,
 			onSelect,
 			onAction,
+			onMarkSeen,
+			seenPatients,
+			markingLoading,
 		]);
 
 		const startLongPress = useCallback(

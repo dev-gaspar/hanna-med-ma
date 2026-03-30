@@ -220,4 +220,33 @@ export class IngestService {
       orderBy: { extractedAt: "desc" },
     });
   }
+
+  /**
+   * Resolve patient by name across one or multiple EMR systems.
+   */
+  async resolvePatientByName(
+    doctorId: number,
+    name: string,
+    emrSystem?: string,
+  ) {
+    if (emrSystem) {
+      const patient = await this.patientSync.resolvePatient(
+        doctorId,
+        emrSystem,
+        name,
+      );
+      return patient || null;
+    }
+    // Try all EMR systems
+    const systems = ["JACKSON", "STEWARD", "BAPTIST"];
+    for (const system of systems) {
+      const patient = await this.patientSync.resolvePatient(
+        doctorId,
+        system,
+        name,
+      );
+      if (patient) return patient;
+    }
+    return null;
+  }
 }

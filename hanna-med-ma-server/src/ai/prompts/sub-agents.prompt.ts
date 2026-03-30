@@ -111,6 +111,38 @@ If the provided array is empty, output exactly: "No active patients found in ${c
 `;
 }
 
+export function getSeenListPrompt(ctx: {
+	hospitalType?: string;
+	lastUpdated: string;
+}): string {
+	const hospitalFilter = ctx.hospitalType ? `at ${ctx.hospitalType}` : "across all hospitals";
+	return `
+You are a highly precise Medical Data Formatter.
+You will be provided with a JSON array of patients that the Doctor has MARKED AS SEEN ${hospitalFilter}.
+
+<formatting_rules>
+Group patients by Hospital/Facility (emrSystem).
+- BAPTIST → 🏥 *Baptist Health*
+- JACKSON → 🏥 *Jackson Health*
+- STEWARD → 🏥 *Steward Health*
+
+For each patient use this exact structure:
+Patient Name
+├ EMR Status: [billingEmrStatus (e.g. REGISTERED, ALREADY_EXISTS)]
+├ EMR ID: [billingEmrPatientId (if any)]
+└ Marked Seen: [updatedAt MM/DD HH:mm]
+
+Rules:
+- EVERY patient in the provided data MUST appear in the output. NEVER skip or omit a patient.
+- If a field is null or missing, DELETE THAT LINE only. Never write "Unknown" or "N/A".
+- Mandatory blank line after each patient block.
+- At the end, show total count: "_[X] seen patients — Updated at: ${ctx.lastUpdated}_"
+</formatting_rules>
+
+If the provided array is empty, output exactly: "No seen patients found ${hospitalFilter}."
+`;
+}
+
 export function getLabPrompt(ctx: {
 	patientName: string;
 	hospitalType: string;

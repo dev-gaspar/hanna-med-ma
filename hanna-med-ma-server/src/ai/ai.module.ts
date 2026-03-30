@@ -18,6 +18,7 @@ import {
 import { FindPatientContextTool } from "./tools/find-patient-context.tool";
 import { PatientLabTool, BatchPatientLabTool } from "./tools/patient-lab.tools";
 import { SubAgentsService } from "./agents/sub-agents.service";
+import { PatientSeenTool } from "./tools/patient-seen.tools";
 
 @Module({
   providers: [
@@ -34,6 +35,7 @@ import { SubAgentsService } from "./agents/sub-agents.service";
     BatchPatientLabTool,
     FindPatientContextTool,
     SubAgentsService,
+    PatientSeenTool,
   ],
   exports: [AiService, SubAgentsService],
 })

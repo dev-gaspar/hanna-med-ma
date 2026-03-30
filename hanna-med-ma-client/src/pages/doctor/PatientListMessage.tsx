@@ -12,6 +12,9 @@ interface PatientListMessageProps {
 		action: "summary" | "insurance" | "lab",
 		patientName: string,
 	) => void;
+	onMarkSeen?: (patientName: string) => void;
+	seenPatients?: Set<string>;
+	markingLoading?: Set<string>;
 }
 
 type ListItem =
@@ -23,6 +26,9 @@ export const PatientListMessage = ({
 	content,
 	selection,
 	onAction,
+	onMarkSeen,
+	seenPatients,
+	markingLoading,
 }: PatientListMessageProps) => {
 	const lines = content.split("\n").filter((l) => l.trim() !== "");
 
@@ -44,7 +50,7 @@ export const PatientListMessage = ({
 		if (t.startsWith("🏥")) {
 			flushPatient();
 			items.push({ kind: "header", text: line });
-		} else if (/active patients/i.test(t) || /^\d+ patients?$/i.test(t)) {
+		} else if (/active patients/i.test(t) || /^\d+ patients?$/i.test(t) || /seen patients/i.test(t)) {
 			flushPatient();
 			items.push({ kind: "footer", text: line });
 		} else if (isDetail) {
@@ -82,6 +88,9 @@ export const PatientListMessage = ({
 					);
 				}
 				const idx = patientIdx++;
+				const firstLine = item.text.split("\n").filter((l) => l.trim() !== "")[0] || "";
+				const patientName = firstLine.trim();
+
 				return (
 					<PatientCard
 						key={`p-${idx}`}
@@ -89,6 +98,9 @@ export const PatientListMessage = ({
 						selection={selection}
 						index={idx}
 						onAction={onAction}
+						onMarkSeen={onMarkSeen}
+						isMarkedSeen={seenPatients?.has(patientName)}
+						isMarkingLoading={markingLoading?.has(patientName)}
 					/>
 				);
 			})}

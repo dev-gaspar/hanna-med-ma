@@ -60,11 +60,14 @@ def _execute_registration_on_open_page(
             "search_result": search_result,
         }
     if search_result.get("status") != "NOT_FOUND":
+        matches = search_result.get("matches", [])
+        patient_emr_id = matches[0].get("entity_id") if matches else None
         return {
             "success": True,
             "message": "Paciente encontrado, se omite registro.",
             "status": search_result.get("status"),
             "search_result": search_result,
+            "patient_emr_id": patient_emr_id,
             "saved": False,
         }
 
