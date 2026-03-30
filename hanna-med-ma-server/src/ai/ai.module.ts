@@ -35,6 +35,6 @@ import { SubAgentsService } from "./agents/sub-agents.service";
     FindPatientContextTool,
     SubAgentsService,
   ],
-  exports: [AiService],
+  exports: [AiService, SubAgentsService],
 })
 export class AiModule {}

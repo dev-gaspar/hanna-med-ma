@@ -84,4 +84,22 @@ export class RpaController {
   async findAll() {
     return this.rpaService.findAll();
   }
+
+  @Post("caretracker/test/:patientId")
+  @ApiOperation({
+    summary: "Test CareTracker dispatch for any patient",
+    description:
+      "Loads INSURANCE raw data from the given patientId, formats payload with AI, and dispatches to RPA asynchronously.",
+  })
+  @ApiParam({ name: "patientId", type: "number" })
+  @ApiResponse({ status: 201, description: "Dispatch accepted" })
+  @ApiResponse({
+    status: 404,
+    description: "Patient or insurance raw data not found",
+  })
+  async testCareTrackerByPatientId(
+    @Param("patientId", ParseIntPipe) patientId: number,
+  ) {
+    return this.rpaService.dispatchCareTrackerForPatientId(patientId);
+  }
 }

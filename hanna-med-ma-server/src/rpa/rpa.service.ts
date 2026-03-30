@@ -1,184 +1,459 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import axios from "axios";
+import { RawDataType } from "@prisma/client";
 import { PrismaService } from "../core/prisma.service";
 import { RegisterRpaDto } from "./dto/register-rpa.dto";
 import { CredentialsService } from "../credentials/credentials.service";
+import { SubAgentsService } from "../ai/agents/sub-agents.service";
+import { formatDateForDisplay } from "../core/date-format.util";
+
+const CARETRACKER_INSURANCE_COMPANIES: Record<string, string> = {
+	"0": "SELECT",
+	"358321": "AETNA BETTER HEALTH OF FLORIDA",
+	"116500": "AETNA U S HEALTHCARE MASTER",
+	"242514": "AMERICAN ELDERCARE INS",
+	"201793": "AMERICAN PIONEER LIFE INSURANCE",
+	"225665": "AMERIGROUP",
+	"365770": "AMERIHEALTH CARITAS NEXT FLORIDA",
+	"116111": "AVMED",
+	"349403": "BAPTIST HEALTH SOUTH FLORIDA",
+	"65529": "BLUE SHIELD OF FLORIDA",
+	"364910": "BRIGHT HEALTHCARE",
+	"267465": "CARE IMPROVEMENTS PLUS",
+	"263615": "CAREPLUS HEALTH PLAN INC",
+	"340224": "CENTENE CORPORATION",
+	"360527": "CENTURION OF FLORIDA LLC",
+	"31215": "CHRISTIAN BROTHERS SERVICES",
+	"33021": "CIGNA HEALTHCARE",
+	"224514": "COVENTRY HEALTH CARE",
+	"362985": "DEVOTED HEALTH INC",
+	"365312": "DIVISION OF IMMIGRATION HEALTH SERVICES",
+	"211095": "DMERC MEDICARE REGIONS",
+	"362988": "DOCTORS HEALTHCARE PLANS INC",
+	"324673": "FEDERAL CORRECTIONAL INSTITUTE",
+	"363139": "FEDERAL DETENTION CENTER",
+	"340564": "FLORIDA COMFORT CHOICE",
+	"362959": "FLORIDA COMMUNITY CARE",
+	"364975": "FLORIDA COMPLETE CARE",
+	"211134": "FLORIDA HEALTH PLAN",
+	"339904": "FLORIDA PACE CENTER",
+	"257364": "FREEDOM HEALTH",
+	"20637": "GEHA",
+	"365748": "HCA AVENTURA HOSPITAL CHARITY",
+	"339769": "HEALTH NETWORK ONE",
+	"306422": "HEALTHSUN",
+	"29667": "HUMANA",
+	"345505": "ICARE HEALTH OPTIONS TPA",
+	"340406": "LHANC",
+	"202853": "MAGELLAN HEALTH SERVICES",
+	"116425": "MAIL HANDLERS INSURANCE",
+	"66303": "MEDICAID OF FLORIDA",
+	"66561": "MEDICARE OF FLORIDA",
+	"116433": "MERITAIN HEALTH",
+	"215264": "MOLINA HEALTHCARE",
+	"116560": "MONUMENTAL LIFE INS CO",
+	"116558": "MUTUAL OF OMAHA",
+	"295719": "NAPHCARE INC",
+	"362837": "OPUSCARE OF SOUTH FLORIDA",
+	"356915": "OSCAR HEALTH",
+	"201188": "PODICARE MANAGED CARE POD",
+	"260464": "POSITIVE HEALTH CARE",
+	"309619": "PRESTIGE HEALTH CHOICE",
+	"338288": "PROVIDER NETWORK SOLUTIONS",
+	"116156": "RAILROAD MEDICARE",
+	"258414": "SELF PAY",
+	"358583": "SFETC",
+	"362973": "SIMPLY HEALTH",
+	"314119": "SUNSHINE STATE HEALTH PLAN",
+	"362604": "TRICARE EAST",
+	"352412": "TRICARE FOR LIFE",
+	"116657": "UNITED AMERICAN INSURANCE CO",
+	"96489": "UNITED HEALTHCARE",
+	"116098": "UNITED HEALTHCARE AARP",
+	"339903": "UNITED HOMECARE",
+	"289516": "UNITED MEDICAL RESOURCES INSURANCE",
+	"220364": "UNITED TEACHERS ASSOCIATES INSURANCE CO",
+	"44889": "USAA",
+	"365721": "VALENZ INSURANCE",
+	"228769": "WELLCARE",
+	"308870": "WELLMED",
+	"319920": "WEXFORD HEALTH SOURCES",
+};
 
 @Injectable()
 export class RpaService {
-  private readonly logger = new Logger(RpaService.name);
+	private readonly logger = new Logger(RpaService.name);
 
-  constructor(
-    private prisma: PrismaService,
-    private credentialsService: CredentialsService,
-  ) {}
+	constructor(
+		private prisma: PrismaService,
+		private credentialsService: CredentialsService,
+		private subAgentsService: SubAgentsService,
+	) {}
 
-  /**
-   * Register a new RPA node or return existing one.
-   */
-  async register(dto: RegisterRpaDto) {
-    const existing = await this.prisma.rpaNode.findUnique({
-      where: { uuid: dto.uuid },
-    });
+	/**
+	 * Register a new RPA node or return existing one.
+	 */
+	async register(dto: RegisterRpaDto) {
+		const existing = await this.prisma.rpaNode.findUnique({
+			where: { uuid: dto.uuid },
+		});
 
-    if (existing) {
-      // Update hostname and lastSeen
-      const updated = await this.prisma.rpaNode.update({
-        where: { uuid: dto.uuid },
-        data: {
-          hostname: dto.hostname || existing.hostname,
-          lastSeen: new Date(),
-        },
-        include: { doctor: { select: { id: true, name: true } } },
-      });
+		if (existing) {
+			// Update hostname and lastSeen
+			const updated = await this.prisma.rpaNode.update({
+				where: { uuid: dto.uuid },
+				data: {
+					hostname: dto.hostname || existing.hostname,
+					lastSeen: new Date(),
+				},
+				include: { doctor: { select: { id: true, name: true } } },
+			});
 
-      this.logger.log(`RPA node re-registered: ${dto.uuid}`);
-      return {
-        uuid: updated.uuid,
-        status: updated.status,
-        doctorId: updated.doctorId,
-        doctorName: updated.doctor?.name || null,
-      };
-    }
+			this.logger.log(`RPA node re-registered: ${dto.uuid}`);
+			return {
+				uuid: updated.uuid,
+				status: updated.status,
+				doctorId: updated.doctorId,
+				doctorName: updated.doctor?.name || null,
+			};
+		}
 
-    // Create new node
-    const node = await this.prisma.rpaNode.create({
-      data: {
-        uuid: dto.uuid,
-        hostname: dto.hostname,
-      },
-    });
+		// Create new node
+		const node = await this.prisma.rpaNode.create({
+			data: {
+				uuid: dto.uuid,
+				hostname: dto.hostname,
+			},
+		});
 
-    this.logger.log(`New RPA node registered: ${dto.uuid} (${dto.hostname})`);
-    return {
-      uuid: node.uuid,
-      status: node.status,
-      doctorId: null,
-      doctorName: null,
-    };
-  }
+		this.logger.log(`New RPA node registered: ${dto.uuid} (${dto.hostname})`);
+		return {
+			uuid: node.uuid,
+			status: node.status,
+			doctorId: null,
+			doctorName: null,
+		};
+	}
 
-  /**
-   * Get configuration for an RPA node (credentials, hospitals, etc.)
-   */
-  async getConfig(uuid: string) {
-    const node = await this.prisma.rpaNode.findUnique({
-      where: { uuid },
-      include: {
-        doctor: {
-          include: {
-            credentials: true,
-          },
-        },
-      },
-    });
+	/**
+	 * Get configuration for an RPA node (credentials, hospitals, etc.)
+	 */
+	async getConfig(uuid: string) {
+		const node = await this.prisma.rpaNode.findUnique({
+			where: { uuid },
+			include: {
+				doctor: {
+					include: {
+						credentials: true,
+					},
+				},
+			},
+		});
 
-    if (!node) {
-      throw new NotFoundException(`RPA node ${uuid} not found`);
-    }
+		if (!node) {
+			throw new NotFoundException(`RPA node ${uuid} not found`);
+		}
 
-    if (!node.doctorId || !node.doctor) {
-      return {
-        uuid: node.uuid,
-        status: node.status,
-        doctorId: null,
-        credentials: [],
-        hospitals: [],
-      };
-    }
+		if (!node.doctorId || !node.doctor) {
+			return {
+				uuid: node.uuid,
+				status: node.status,
+				doctorId: null,
+				credentials: [],
+				hospitals: [],
+			};
+		}
 
-    // Decrypt credentials before sending to RPA
-    const decryptedCredentials = await this.credentialsService.findByDoctor(
-      node.doctorId,
-    );
+		// Decrypt credentials before sending to RPA
+		const decryptedCredentials = await this.credentialsService.findByDoctor(
+			node.doctorId,
+		);
 
-    // Build hospital list from doctor.emrSystems (source of truth for access)
-    // Attach credentials only for systems that have them
-    const credsBySystem = new Map<string, Record<string, string>>(
-      decryptedCredentials.map((c) => [
-        c.systemKey as string,
-        c.fields as Record<string, string>,
-      ]),
-    );
+		// Build hospital list from doctor.emrSystems (source of truth for access)
+		// Attach credentials only for systems that have them
+		const credsBySystem = new Map<string, Record<string, string>>(
+			decryptedCredentials.map((c) => [
+				c.systemKey as string,
+				c.fields as Record<string, string>,
+			]),
+		);
 
-    const hospitals = (node.doctor.emrSystems || []).map((system: string) => ({
-      type: system,
-      credentials: credsBySystem.get(system) || {},
-    }));
+		const hospitals = (node.doctor.emrSystems || []).map((system: string) => ({
+			type: system,
+			credentials: credsBySystem.get(system) || {},
+		}));
 
-    return {
-      uuid: node.uuid,
-      status: node.status,
-      doctorId: node.doctorId,
-      doctorName: node.doctor.name,
-      doctorSpecialty: node.doctor.specialty,
-      credentials: decryptedCredentials,
-      hospitals,
-    };
-  }
+		return {
+			uuid: node.uuid,
+			status: node.status,
+			doctorId: node.doctorId,
+			doctorName: node.doctor.name,
+			doctorSpecialty: node.doctor.specialty,
+			credentials: decryptedCredentials,
+			hospitals,
+		};
+	}
 
-  /**
-   * Update heartbeat timestamp for an RPA node.
-   */
-  async heartbeat(uuid: string) {
-    const node = await this.prisma.rpaNode.findUnique({
-      where: { uuid },
-    });
+	/**
+	 * Update heartbeat timestamp for an RPA node.
+	 */
+	async heartbeat(uuid: string) {
+		const node = await this.prisma.rpaNode.findUnique({
+			where: { uuid },
+		});
 
-    if (!node) {
-      throw new NotFoundException(`RPA node ${uuid} not found`);
-    }
+		if (!node) {
+			throw new NotFoundException(`RPA node ${uuid} not found`);
+		}
 
-    await this.prisma.rpaNode.update({
-      where: { uuid },
-      data: {
-        lastSeen: new Date(),
-        status: node.doctorId ? "ACTIVE" : node.status,
-      },
-    });
+		await this.prisma.rpaNode.update({
+			where: { uuid },
+			data: {
+				lastSeen: new Date(),
+				status: node.doctorId ? "ACTIVE" : node.status,
+			},
+		});
 
-    return { success: true };
-  }
+		return { success: true };
+	}
 
-  /**
-   * Assign an RPA node to a doctor (admin action).
-   */
-  async assignToDoctor(uuid: string, doctorId: number) {
-    const node = await this.prisma.rpaNode.findUnique({
-      where: { uuid },
-    });
+	/**
+	 * Assign an RPA node to a doctor (admin action).
+	 */
+	async assignToDoctor(uuid: string, doctorId: number) {
+		const node = await this.prisma.rpaNode.findUnique({
+			where: { uuid },
+		});
 
-    if (!node) {
-      throw new NotFoundException(`RPA node ${uuid} not found`);
-    }
+		if (!node) {
+			throw new NotFoundException(`RPA node ${uuid} not found`);
+		}
 
-    const doctor = await this.prisma.doctor.findFirst({
-      where: { id: doctorId, deleted: false },
-    });
+		const doctor = await this.prisma.doctor.findFirst({
+			where: { id: doctorId, deleted: false },
+		});
 
-    if (!doctor) {
-      throw new NotFoundException(`Doctor ${doctorId} not found`);
-    }
+		if (!doctor) {
+			throw new NotFoundException(`Doctor ${doctorId} not found`);
+		}
 
-    const updated = await this.prisma.rpaNode.update({
-      where: { uuid },
-      data: {
-        doctorId,
-        status: "ACTIVE",
-      },
-      include: { doctor: { select: { id: true, name: true } } },
-    });
+		const updated = await this.prisma.rpaNode.update({
+			where: { uuid },
+			data: {
+				doctorId,
+				status: "ACTIVE",
+			},
+			include: { doctor: { select: { id: true, name: true } } },
+		});
 
-    this.logger.log(`RPA node ${uuid} assigned to Doctor ${doctor.name}`);
-    return updated;
-  }
+		this.logger.log(`RPA node ${uuid} assigned to Doctor ${doctor.name}`);
+		return updated;
+	}
 
-  /**
-   * List all RPA nodes (admin).
-   */
-  async findAll() {
-    return this.prisma.rpaNode.findMany({
-      include: { doctor: { select: { id: true, name: true } } },
-      orderBy: { createdAt: "desc" },
-    });
-  }
+	/**
+	 * List all RPA nodes (admin).
+	 */
+	async findAll() {
+		return this.prisma.rpaNode.findMany({
+			include: { doctor: { select: { id: true, name: true } } },
+			orderBy: { createdAt: "desc" },
+		});
+	}
+
+	async dispatchCareTrackerForPatientId(patientId: number) {
+		const patient = await this.prisma.patient.findUnique({
+			where: { id: patientId },
+			include: {
+				rawData: {
+					where: { dataType: RawDataType.INSURANCE },
+					orderBy: { extractedAt: "desc" },
+					take: 1,
+				},
+			},
+		});
+
+		if (!patient) {
+			throw new NotFoundException(`Patient ${patientId} not found`);
+		}
+
+		const latestInsuranceRaw = patient.rawData[0];
+		if (!latestInsuranceRaw) {
+			throw new NotFoundException(
+				`Patient ${patientId} has no INSURANCE raw data available`,
+			);
+		}
+
+		const aiOutput =
+			await this.subAgentsService.formatCareTrackerInsurancePayload(
+				latestInsuranceRaw.rawContent,
+				{ extractedAt: formatDateForDisplay(latestInsuranceRaw.extractedAt) },
+			);
+
+		const payload = this.normalizeCareTrackerPayload(
+			this.parseCareTrackerJson(aiOutput),
+		);
+		this.logger.log(
+			`CareTracker payload for patientId=${patientId}:\n${JSON.stringify(payload, null, 2)}`,
+		);
+
+		const rpaUrl =
+			process.env.SERVER_CARETRACKER_RPA_URL ||
+			"http://127.0.0.1:8000/caretracker/run";
+
+		// Fire-and-forget dispatch: do not await the remote RPA response.
+		void axios
+			.post(
+				rpaUrl,
+				{
+					payload,
+					headless: false,
+				},
+				{
+					headers: { "Content-Type": "application/json" },
+				},
+			)
+			.then((response) => {
+				this.logger.log(
+					`CareTracker dispatch completed (patientId=${patientId}, status=${response.status})`,
+				);
+			})
+			.catch((error: unknown) => {
+				const err = error as {
+					message?: string;
+					response?: { status?: number; data?: unknown };
+				};
+				this.logger.error(
+					`CareTracker dispatch failed for patientId=${patientId}: ${err.message || "unknown error"}`,
+					err.response
+						? JSON.stringify({
+								status: err.response.status,
+								data: err.response.data,
+							})
+						: undefined,
+				);
+			});
+
+		return {
+			accepted: true,
+			patientId,
+			rpaUrl,
+			dispatchedAt: new Date().toISOString(),
+		};
+	}
+
+	private parseCareTrackerJson(raw: string): unknown {
+		const trimmed = raw.trim();
+
+		try {
+			return JSON.parse(trimmed);
+		} catch {
+			const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+			if (fenced?.[1]) {
+				try {
+					return JSON.parse(fenced[1]);
+				} catch {
+					// fall through to final error
+				}
+			}
+		}
+
+		this.logger.error("AI output was not valid JSON for CareTracker payload");
+		throw new Error("Invalid JSON returned by AI for CareTracker payload");
+	}
+
+	private normalizeCareTrackerPayload(payload: unknown): unknown {
+		if (!payload || typeof payload !== "object") {
+			throw new Error("CareTracker payload must be an object");
+		}
+
+		const body = payload as {
+			insurance_periods?: Array<{
+				payer_code?: string;
+				ins_company_text?: string;
+			}>;
+		};
+
+		if (!Array.isArray(body.insurance_periods)) {
+			return payload;
+		}
+
+		body.insurance_periods = body.insurance_periods.map((period) => {
+			const rawCode = String(period?.payer_code || "0").trim();
+			if (CARETRACKER_INSURANCE_COMPANIES[rawCode]) {
+				return { ...period, payer_code: rawCode };
+			}
+
+			const resolvedCode = this.resolveInsuranceCodeByText(
+				String(period?.ins_company_text || ""),
+			);
+
+			if (resolvedCode !== "0") {
+				this.logger.warn(
+					`Normalized payer_code from invalid '${rawCode}' to '${resolvedCode}' using ins_company_text='${period?.ins_company_text || ""}'`,
+				);
+			}
+
+			return {
+				...period,
+				payer_code: resolvedCode,
+			};
+		});
+
+		return body;
+	}
+
+	private resolveInsuranceCodeByText(insCompanyText: string): string {
+		const normalized = this.normalizeToken(insCompanyText);
+		if (!normalized) {
+			return "0";
+		}
+
+		const entries = Object.entries(CARETRACKER_INSURANCE_COMPANIES);
+		let bestCode = "0";
+		let bestScore = 0;
+
+		for (const [code, label] of entries) {
+			if (code === "0") {
+				continue;
+			}
+			const normalizedLabel = this.normalizeToken(label);
+			if (!normalizedLabel) {
+				continue;
+			}
+
+			let score = 0;
+			if (normalized === normalizedLabel) {
+				score = 100;
+			} else if (normalizedLabel.includes(normalized)) {
+				score = 80;
+			} else if (normalized.includes(normalizedLabel)) {
+				score = 70;
+			} else {
+				const tokens = normalized.split(" ").filter(Boolean);
+				const labelTokens = new Set(normalizedLabel.split(" ").filter(Boolean));
+				const overlap = tokens.filter((t) => labelTokens.has(t)).length;
+				if (overlap > 0) {
+					score = overlap * 10;
+				}
+			}
+
+			if (score > bestScore) {
+				bestScore = score;
+				bestCode = code;
+			}
+		}
+
+		if (bestScore >= 20) {
+			return bestCode;
+		}
+
+		return "0";
+	}
+
+	private normalizeToken(value: string): string {
+		return (value || "")
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, " ")
+			.trim();
+	}
 }

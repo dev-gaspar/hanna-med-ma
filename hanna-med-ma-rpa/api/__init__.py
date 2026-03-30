@@ -18,6 +18,9 @@ def create_app() -> FastAPI:
         title="Hanna-Med RPA Agent",
         description="RPA Agent for medical patient list capture",
         version="1.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
     # Register middleware

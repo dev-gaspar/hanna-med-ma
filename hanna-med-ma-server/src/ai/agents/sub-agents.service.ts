@@ -6,6 +6,7 @@ import {
   getListPrompt,
   getLabPrompt,
   getConversationalPrompt,
+  getCareTrackerInsurancePayloadPrompt,
 } from "../prompts/sub-agents.prompt";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
@@ -106,6 +107,17 @@ export class SubAgentsService {
       `Raw Lab Data Context:\n${rawContent}`,
       onStreaming,
     );
+  }
+
+  async formatCareTrackerInsurancePayload(
+    rawContent: string,
+    ctx: { extractedAt: string },
+  ): Promise<string> {
+    const prompt = getCareTrackerInsurancePayloadPrompt({
+      extractedAt: ctx.extractedAt,
+    });
+
+    return this.invokeModel(prompt, `Raw Data Context:\n${rawContent}`);
   }
 
   private async invokeModel(
