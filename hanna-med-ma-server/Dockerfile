@@ -13,9 +13,7 @@ RUN npm install
 COPY . .
 
 # Generar Prisma Client y compilar
-# SERVER_DATABASE_URL is only needed at runtime; use a dummy for generate
-RUN SERVER_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" \
-    npm run prisma:generate && npm run build
+RUN npm run prisma:generate && npm run build
 
 # Exponer puerto
 EXPOSE 3001
