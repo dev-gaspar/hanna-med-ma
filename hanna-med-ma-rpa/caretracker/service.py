@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+from config import config
 from logger import logger
 
 from .browser import CareTrackerBrowser
@@ -28,7 +29,7 @@ from .types import (
     StateOption,
 )
 
-ARTIFACTS_DIR = Path("artifacts") / "caretracker"
+ARTIFACTS_DIR = config.get_logs_dir() / "caretracker"
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 REGISTRATION_REVIEW_WAIT_MS = 10000
 
