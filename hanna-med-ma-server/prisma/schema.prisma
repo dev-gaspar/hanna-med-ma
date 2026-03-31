@@ -36,8 +36,11 @@ model Doctor {
   // RPA Nodes assigned to this doctor
   rpaNodes RpaNode[]
 
-  // Patients from EMR
-  patients Patient[]
+  // Patient census links (many-to-many)
+  patientLinks DoctorPatient[]
+
+  // Encounters (doctor saw patient)
+  encounters Encounter[]
 
   @@map("doctors")
 }
@@ -179,30 +182,81 @@ enum BillingEmrStatus {
 }
 
 model Patient {
-  id             Int       @id @default(autoincrement())
-  doctorId       Int
-  emrSystem      EmrSystem
-  name           String
-  normalizedName String
-  location       String?
-  facility       String?   // Sub-hospital for multi-facility EMRs (e.g., Baptist sub-hospitals)
-  reason         String?
-  admittedDate   String?
-  isActive       Boolean   @default(true)
-  isSeen         Boolean   @default(false)
-  billingEmrStatus BillingEmrStatus @default(PENDING)
+  id                  Int              @id @default(autoincrement())
+  emrSystem           EmrSystem
+  name                String
+  normalizedName      String
+  location            String?
+  facility            String?          // Sub-hospital for multi-facility EMRs (e.g., Baptist sub-hospitals)
+  reason              String?
+  admittedDate        String?
+  billingEmrStatus    BillingEmrStatus @default(PENDING)
   billingEmrPatientId String?
-  lastSeenAt     DateTime  @default(now())
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
-  doctor  Doctor          @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  rawData PatientRawData[]
+  rawData     PatientRawData[]
+  doctorLinks DoctorPatient[]
+  encounters  Encounter[]
 
-  @@unique([doctorId, emrSystem, normalizedName])
-  @@index([doctorId, emrSystem])
-  @@index([doctorId, isActive])
+  @@unique([emrSystem, normalizedName])
+  @@index([emrSystem])
   @@map("patients")
+}
+
+// ─── Doctor–Patient Census Link (many-to-many) ─────────────
+
+model DoctorPatient {
+  id         Int      @id @default(autoincrement())
+  doctorId   Int
+  patientId  Int
+  isActive   Boolean  @default(true)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, patientId])
+  @@index([doctorId, isActive])
+  @@map("doctor_patients")
+}
+
+// ─── Encounters (Doctor saw Patient) ────────────────────────
+
+enum EncounterStatus {
+  PENDING
+  REGISTERED
+  ALREADY_EXISTS
+  FAILED
+}
+
+enum EncounterType {
+  CONSULT   // First visit during admission — Consult Note
+  PROGRESS  // Follow-up visits — Progress Note
+}
+
+model Encounter {
+  id              Int             @id @default(autoincrement())
+  patientId       Int
+  doctorId        Int
+  type            EncounterType   @default(CONSULT)
+  dateOfService   DateTime        @default(now())
+  status          EncounterStatus @default(PENDING)
+  deadline        DateTime?       // 24h window for clinical note collection
+  faceSheetUrl    String?
+  providerNoteUrl String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@index([patientId])
+  @@index([doctorId, status])
+  @@map("encounters")
 }
 
 // ─── Patient Raw Data (Summaries, Insurance, Lab Results) ───

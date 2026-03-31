@@ -1,4 +1,4 @@
-name: Build and Release RPA Installer
+name: Build and Release RPA Executable
 
 on:
   push:
@@ -17,20 +17,21 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install dependencies
         working-directory: ./hanna-med-ma-rpa
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          playwright install chromium
 
       - name: Create .env file from secrets
         working-directory: ./hanna-med-ma-rpa
         run: |
           @"
           BACKEND_URL=${{ secrets.BACKEND_URL }}
+          REDIS_URL=${{ secrets.REDIS_URL }}
           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
           REPLICATE_API_KEY=${{ secrets.REPLICATE_API_KEY }}
@@ -41,14 +42,6 @@ jobs:
       - name: Build executable with PyInstaller
         working-directory: ./hanna-med-ma-rpa
         run: pyinstaller hannamed-rpa.spec
-
-      - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Build installer with NSIS
-        working-directory: ./hanna-med-ma-rpa
-        run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer\installer.nsi
 
       - name: Get version from version.py
         id: version
@@ -67,10 +60,11 @@ jobs:
           body: |
             ## Hanna-Med MA RPA ${{ steps.version.outputs.VERSION }}
 
-            Automatic installer generated from commit `${{ github.sha }}`
+            Portable executable — no installer needed.
+            Download `HannamedRPA.exe` and run directly.
 
             **Changes:** ${{ github.event.head_commit.message }}
-          files: hanna-med-ma-rpa/installer/HannaMed-RPA-Setup.exe
+          files: hanna-med-ma-rpa/dist/HannamedRPA.exe
           draft: false
           prerelease: false
         env:

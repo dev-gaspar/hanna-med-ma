@@ -10,9 +10,13 @@ async function run() {
 	const rpa = app.get(RpaService);
 
 	try {
-		// We'll find a patient that has insurance data.
+		// We'll find a patient that has insurance data and a doctor link.
 		const patients = await prisma.patient.findMany({
-			where: { rawData: { some: { dataType: "INSURANCE" } } },
+			where: {
+				rawData: { some: { dataType: "INSURANCE" } },
+				doctorLinks: { some: {} },
+			},
+			include: { doctorLinks: { take: 1 } },
 			take: 2,
 			orderBy: { id: "desc" }
 		});
@@ -26,7 +30,7 @@ async function run() {
 		console.log(`\n======================================================`);
 		console.log(`--- Test 1: Using Patient ID: ${patients[0].id} (${patients[0].name})`);
 		console.log(`======================================================`);
-		const result1 = await rpa.markPatientAsSeen(patients[0].id);
+		const result1 = await rpa.markPatientAsSeen(patients[0].id, patients[0].doctorLinks[0].doctorId);
 		console.log("\n-> Result 1 Output:");
 		console.log(JSON.stringify(result1, null, 2));
 
@@ -34,7 +38,7 @@ async function run() {
 			console.log(`\n======================================================`);
 			console.log(`--- Test 2: Using Patient ID: ${patients[1].id} (${patients[1].name})`);
 			console.log(`======================================================`);
-			const result2 = await rpa.markPatientAsSeen(patients[1].id);
+			const result2 = await rpa.markPatientAsSeen(patients[1].id, patients[1].doctorLinks[0].doctorId);
 			console.log("\n-> Result 2 Output:");
 			console.log(JSON.stringify(result2, null, 2));
 		}

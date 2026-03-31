@@ -1,7 +1,7 @@
 import type { Message } from "../../types/chat";
 import { Bot, Copy, Check, RotateCcw, Pencil } from "lucide-react";
 import { memo, useMemo, useRef, useCallback, useState } from "react";
-import { PatientListMessage } from "./PatientListMessage";
+import { PatientListMessage, formatFullListText } from "./PatientListMessage";
 import { parseWhatsAppFormat } from "../../lib/chatUtils";
 import type { SelectedItem } from "./DoctorChat";
 
@@ -13,9 +13,9 @@ interface MessageItemProps {
 		action: "summary" | "insurance" | "lab",
 		patientName: string,
 	) => void;
-	onMarkSeen?: (patientName: string) => void;
-	seenPatients?: Set<string>;
-	markingLoading?: Set<string>;
+	onMarkSeen?: (patientId: number, encounterType: "CONSULT" | "PROGRESS") => void;
+	seenPatients?: Set<number>;
+	markingLoading?: Set<number>;
 	isLastAssistant?: boolean;
 	onRegenerate?: () => void;
 	isLastUser?: boolean;
@@ -95,7 +95,18 @@ export const MessageItem = memo(
 		const handleCopy = useCallback(
 			(e: React.MouseEvent) => {
 				e.stopPropagation();
-				const text = message.content;
+				let text = message.content;
+				// For PATIENT_LIST JSON messages, generate the formatted text for copy
+				if (message.type === "PATIENT_LIST" && text.trimStart().startsWith("{")) {
+					try {
+						const parsed = JSON.parse(text.trim());
+						if (parsed.sections) {
+							text = formatFullListText(parsed);
+						}
+					} catch {
+						// fallback to raw content
+					}
+				}
 				const fallback = () => {
 					const ta = document.createElement("textarea");
 					ta.value = text;

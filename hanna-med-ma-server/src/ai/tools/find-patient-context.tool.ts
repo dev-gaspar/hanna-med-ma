@@ -28,7 +28,7 @@ export class FindPatientContextTool {
 
   private async discoverAll(doctorId: number): Promise<string> {
     const patients = await this.prisma.patient.findMany({
-      where: { doctorId, isActive: true },
+      where: { doctorLinks: { some: { doctorId, isActive: true } } },
       orderBy: [{ emrSystem: "asc" }, { name: "asc" }],
     });
 
@@ -53,8 +53,7 @@ export class FindPatientContextTool {
 
       const matches = await this.prisma.patient.findMany({
         where: {
-          doctorId,
-          isActive: true,
+          doctorLinks: { some: { doctorId, isActive: true } },
           normalizedName: { contains: lastName },
         },
       });

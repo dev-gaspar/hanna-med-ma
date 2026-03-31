@@ -29,10 +29,9 @@ export class PatientLabTool {
 
     const patients = await this.prisma.patient.findMany({
       where: {
-        doctorId: doctorContext.doctorId,
+        doctorLinks: { some: { doctorId: doctorContext.doctorId, isActive: true } },
         emrSystem: hospital_type as any,
         normalizedName: { contains: lastName },
-        isActive: true,
       },
       include: {
         rawData: {
@@ -41,7 +40,7 @@ export class PatientLabTool {
           take: 1,
         },
       },
-      orderBy: { lastSeenAt: "desc" },
+      orderBy: { updatedAt: "desc" },
     });
 
     if (patients.length === 0) {
@@ -55,7 +54,7 @@ export class PatientLabTool {
       const patientList = patients
         .map(
           (p) =>
-            `- ${p.name} (Active: ${p.isActive ? "Yes" : "No"}, Admitted: ${p.admittedDate || "Unknown"})`,
+            `- ${p.name} (Admitted: ${p.admittedDate || "Unknown"})`,
         )
         .join("\n");
       return `Multiple patients found matching "${patient_name}" in ${hospital_type}. Please ask the doctor to clarify which one they mean:\n${patientList}`;

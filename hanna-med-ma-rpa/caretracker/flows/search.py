@@ -46,6 +46,7 @@ def _open_search_modal(page: Page) -> Page:
         return page
 
     for attempt in range(1, SEARCH_MODAL_OPEN_ATTEMPTS + 1):
+        logger.info("[CARETRACKER] Attempting to find search trigger (%s/%s)...", attempt, SEARCH_MODAL_OPEN_ATTEMPTS)
         _wait_dashboard_search_trigger(page)
 
         owner = CareTrackerBrowser.first_frame_with_selector(
@@ -60,6 +61,8 @@ def _open_search_modal(page: Page) -> Page:
                 continue
             raise RuntimeError("No se encontro Advanced Search")
 
+        logger.info("[CARETRACKER] Found search trigger. Clicking...")
+
         before = len([f for f in page.frames if f.name == "searchtop"])
         try:
             with page.expect_popup(timeout=6000) as popup:
@@ -67,6 +70,7 @@ def _open_search_modal(page: Page) -> Page:
                     "img[alt='Advanced Search'], img.icon-adsear"
                 ).first.click(force=True, timeout=4000)
             p = popup.value
+            logger.info("[CARETRACKER] Search popup opened.")
             return p
         except PlaywrightTimeoutError:
             after = len([f for f in page.frames if f.name == "searchtop"])
@@ -97,6 +101,7 @@ def _set_search_inputs(host: Page, query: PatientSearchQuery) -> bool:
         timeout_ms=SEARCH_MODAL_WAIT_MS,
         require_enabled=True,
     )
+    logger.info("[CARETRACKER] Search inputs detected. Filling name...")
     top = CareTrackerBrowser.latest_named_frame(host, "searchtop")
     frames = [top] if top else []
     frames.extend(f for f in host.frames if f not in frames)
@@ -137,7 +142,9 @@ def _submit_search(host: Page) -> bool:
         for sel in ["input[name='CTSearch']", "input[value='Search']"]:
             try:
                 if frame.locator(sel).count() > 0:
-                    frame.locator(sel).first.click()
+                    logger.info("[CARETRACKER] Clicking search button...")
+                    frame.locator(sel).first.click(no_wait_after=True, force=True)
+                    logger.info("[CARETRACKER] Search button clicked.")
                     return True
             except Exception:
                 continue
@@ -185,13 +192,25 @@ def _extract_results(host: Page) -> Tuple[str, int, List[Dict[str, str]], str]:
     matches: Dict[str, Dict[str, str]] = {}
     records = -1
     url = host.url
-    # Avoid false NOT_FOUND by waiting briefly for search frame to render results.
+    logger.info("[CARETRACKER] Extracting search results from frames...")
+
+    # Wait for searchmiddle frame to appear before polling for content.
+    # This avoids up to 5s of wasted polling when the frame hasn't loaded yet.
     for _ in range(20):
+        if CareTrackerBrowser.latest_named_frame(host, "searchmiddle") is not None:
+            break
+        try:
+            host.wait_for_timeout(150)
+        except Exception:
+            break
+
+    for i in range(15):
         matches, records, url, has_marker = _collect_once()
+        logger.debug(f"[CARETRACKER] Result check {i+1}/15: records={records}, marker={has_marker}")
         if has_marker:
             break
         try:
-            host.wait_for_timeout(250)
+            host.wait_for_timeout(200)
         except Exception:
             break
 

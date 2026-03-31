@@ -11,6 +11,7 @@ pydantic==2.10.4
 replicate==1.0.4
 PyPDF2==3.0.1
 playwright
+redis>=5.0.0
 # LangChain packages required for agentic screen navigation
 langchain==1.2.0
 langchain-core==1.2.5

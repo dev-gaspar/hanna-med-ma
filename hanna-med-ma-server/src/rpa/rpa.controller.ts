@@ -7,6 +7,7 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
+  Request,
 } from "@nestjs/common";
 import {
   ApiTags,
@@ -18,6 +19,7 @@ import {
 } from "@nestjs/swagger";
 import { RpaService } from "./rpa.service";
 import { RegisterRpaDto } from "./dto/register-rpa.dto";
+import { CaretrackerResultDto } from "./dto/caretracker-result.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 
 @ApiTags("RPA")
@@ -104,38 +106,57 @@ export class RpaController {
     return this.rpaService.dispatchCareTrackerForPatientId(patientId);
   }
 
-  @Patch("patients/seen-by-name")
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth("JWT-auth")
+  @Post("caretracker/result")
   @ApiOperation({
-    summary: "Mark patient as seen by name (direct DB lookup)",
+    summary: "Receive CareTracker result from RPA Node",
     description:
-      "Resolves the patient by display name in the local database and triggers the mark-as-seen + billing EMR flow. No multi-system search needed.",
+      "Called by the headless RPA node after finishing the CareTracker flow to report the outcome.",
   })
-  @ApiBody({
-    schema: {
-      type: "object",
-      properties: { patientName: { type: "string" } },
-      required: ["patientName"],
-    },
-  })
-  @ApiResponse({ status: 200, description: "Patient marked as seen" })
-  @ApiResponse({ status: 404, description: "Patient not found" })
-  async markPatientAsSeenByName(@Body("patientName") patientName: string) {
-    return this.rpaService.markPatientAsSeenByName(patientName);
+  @ApiBody({ type: CaretrackerResultDto })
+  @ApiResponse({ status: 201, description: "Result processed" })
+  async handleCareTrackerResult(@Body() dto: CaretrackerResultDto) {
+    return this.rpaService.handleCareTrackerResult(dto);
   }
 
   @Patch("patients/:patientId/seen")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth("JWT-auth")
   @ApiOperation({
-    summary: "Mark patient as seen by ID and trigger billing EMR registration",
+    summary: "Mark patient as seen — creates an Encounter and triggers billing EMR registration",
     description:
-      "Toggles isSeen to true and handles billing EMR logic.",
+      "Creates an Encounter linking the doctor (from JWT) and patient. Send encounterType: CONSULT (first visit) or PROGRESS (follow-up).",
   })
   @ApiParam({ name: "patientId", type: "number" })
-  @ApiResponse({ status: 200, description: "Patient marked as seen" })
-  async markPatientAsSeen(@Param("patientId", ParseIntPipe) patientId: number) {
-    return this.rpaService.markPatientAsSeen(patientId);
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        encounterType: {
+          type: "string",
+          enum: ["CONSULT", "PROGRESS"],
+          default: "CONSULT",
+        },
+      },
+    },
+    required: false,
+  })
+  @ApiResponse({ status: 200, description: "Encounter created" })
+  async markPatientAsSeen(
+    @Param("patientId", ParseIntPipe) patientId: number,
+    @Body() body: { encounterType?: "CONSULT" | "PROGRESS" },
+    @Request() req,
+  ) {
+    const doctorId = req.user.userId;
+    const encounterType = body?.encounterType || "CONSULT";
+    return this.rpaService.markPatientAsSeen(patientId, doctorId, encounterType);
+  }
+  @Get("patients/seen")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth("JWT-auth")
+  @ApiOperation({ summary: "Get IDs of all patients seen by the current doctor" })
+  @ApiResponse({ status: 200, description: "List of seen patient IDs", type: [Number] })
+  async getSeenPatients(@Request() req) {
+    const doctorId = req.user.userId;
+    return this.rpaService.getSeenPatientIds(doctorId);
   }
 }

@@ -11,8 +11,9 @@ export class PatientSyncService {
   /**
    * Sync a patient list from the EMR with the database.
    *
-   * - UPSERT: Create or update patients found in the census.
-   * - DEACTIVATE: Mark patients NOT in the census as inactive.
+   * - UPSERT Patient globally (shared across doctors).
+   * - UPSERT DoctorPatient link (per-doctor census membership).
+   * - DEACTIVATE DoctorPatient links NOT in the current census.
    */
   async syncPatientList(
     doctorId: number,
@@ -29,23 +30,20 @@ export class PatientSyncService {
     let upserted = 0;
     let deactivated = 0;
 
-    // Step 1: UPSERT each patient from the census
-    const activeNormalizedNames: string[] = [];
+    const activePatientIds: number[] = [];
 
     for (const p of patients) {
       const normalizedName = normalizeName(p.name);
-      activeNormalizedNames.push(normalizedName);
 
-      await this.prisma.patient.upsert({
+      // Step 1: Upsert the global Patient record
+      const patient = await this.prisma.patient.upsert({
         where: {
-          doctorId_emrSystem_normalizedName: {
-            doctorId,
+          emrSystem_normalizedName: {
             emrSystem: emrSystem as any,
             normalizedName,
           },
         },
         create: {
-          doctorId,
           emrSystem: emrSystem as any,
           name: p.name,
           normalizedName,
@@ -53,8 +51,6 @@ export class PatientSyncService {
           facility: p.facility || null,
           reason: p.reason || null,
           admittedDate: p.admittedDate || null,
-          isActive: true,
-          lastSeenAt: now,
         },
         update: {
           name: p.name,
@@ -62,6 +58,23 @@ export class PatientSyncService {
           facility: p.facility || null,
           reason: p.reason || null,
           admittedDate: p.admittedDate || null,
+        },
+      });
+
+      activePatientIds.push(patient.id);
+
+      // Step 2: Upsert the DoctorPatient link for this doctor
+      await this.prisma.doctorPatient.upsert({
+        where: {
+          doctorId_patientId: { doctorId, patientId: patient.id },
+        },
+        create: {
+          doctorId,
+          patientId: patient.id,
+          isActive: true,
+          lastSeenAt: now,
+        },
+        update: {
           isActive: true,
           lastSeenAt: now,
         },
@@ -70,26 +83,23 @@ export class PatientSyncService {
       upserted++;
     }
 
-    // Step 2: DEACTIVATE patients not in the current census
-    const deactivateResult = await this.prisma.patient.updateMany({
+    // Step 3: Deactivate DoctorPatient links not in the current census
+    // (only for this doctor + emrSystem combination)
+    const deactivateResult = await this.prisma.doctorPatient.updateMany({
       where: {
         doctorId,
-        emrSystem: emrSystem as any,
         isActive: true,
-        normalizedName: {
-          notIn: activeNormalizedNames,
-        },
+        patientId: { notIn: activePatientIds.length > 0 ? activePatientIds : [0] },
+        patient: { emrSystem: emrSystem as any },
       },
-      data: {
-        isActive: false,
-      },
+      data: { isActive: false },
     });
 
     deactivated = deactivateResult.count;
 
     if (deactivated > 0) {
       this.logger.log(
-        `Deactivated ${deactivated} ghost patients from ${emrSystem} for doctor ${doctorId}`,
+        `Deactivated ${deactivated} ghost doctor-patient links from ${emrSystem} for doctor ${doctorId}`,
       );
     }
 
@@ -97,7 +107,7 @@ export class PatientSyncService {
   }
 
   /**
-   * Find a patient by name (fuzzy matching).
+   * Find a patient by name (fuzzy matching) within a doctor's census.
    */
   async resolvePatient(
     doctorId: number,
@@ -109,10 +119,9 @@ export class PatientSyncService {
     // Strategy 1: Exact match
     const exactMatch = await this.prisma.patient.findFirst({
       where: {
-        doctorId,
         emrSystem: hospitalType as any,
         normalizedName: normalizedInput,
-        isActive: true,
+        doctorLinks: { some: { doctorId, isActive: true } },
       },
     });
 
@@ -122,10 +131,9 @@ export class PatientSyncService {
     const lastName = normalizedInput.split(" ")[0];
     const partialMatch = await this.prisma.patient.findFirst({
       where: {
-        doctorId,
         emrSystem: hospitalType as any,
         normalizedName: { startsWith: lastName },
-        isActive: true,
+        doctorLinks: { some: { doctorId, isActive: true } },
       },
     });
 
@@ -139,10 +147,9 @@ export class PatientSyncService {
     // Strategy 3: Contains match
     const containsMatch = await this.prisma.patient.findFirst({
       where: {
-        doctorId,
         emrSystem: hospitalType as any,
         normalizedName: { contains: lastName },
-        isActive: true,
+        doctorLinks: { some: { doctorId, isActive: true } },
       },
     });
 

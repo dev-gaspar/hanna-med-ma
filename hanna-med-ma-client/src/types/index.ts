@@ -122,12 +122,12 @@ export interface DoctorLoginResponse {
 }
 
 export type BillingEmrStatus = 'PENDING' | 'REGISTERED' | 'ALREADY_EXISTS' | 'FAILED';
+export type EncounterType = 'CONSULT' | 'PROGRESS';
 
 export interface PatientBillingInfo {
 	success?: boolean;
 	patientId: number;
-	isSeen: boolean;
+	encounterId: number;
 	billingEmrStatus: BillingEmrStatus;
-	billingEmrPatientId: string | null;
 }
 

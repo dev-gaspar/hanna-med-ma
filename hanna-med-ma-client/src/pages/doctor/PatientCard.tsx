@@ -1,9 +1,12 @@
 import { parseInlineFormatting } from "../../lib/chatUtils";
-import { FileText, Landmark, FlaskConical, CheckCircle2, Loader2 } from "lucide-react";
+import { FileText, Landmark, FlaskConical, CheckCircle2, Loader2, ClipboardPlus, ClipboardList } from "lucide-react";
 import type { SelectedItem } from "./DoctorChat";
+import type { PatientItem } from "./PatientListMessage";
+import { formatPatientText } from "./PatientListMessage";
 
 interface PatientCardProps {
-	content: string;
+	patient: PatientItem;
+	isSeen: boolean;
 	index: number;
 	selection: {
 		selectedId?: string | number;
@@ -13,13 +16,14 @@ interface PatientCardProps {
 		action: "summary" | "insurance" | "lab",
 		patientName: string,
 	) => void;
-	onMarkSeen?: (patientName: string) => void;
+	onMarkSeen?: (patientId: number, encounterType: "CONSULT" | "PROGRESS") => void;
 	isMarkedSeen?: boolean;
 	isMarkingLoading?: boolean;
 }
 
 export const PatientCard = ({
-	content,
+	patient,
+	isSeen,
 	index,
 	selection,
 	onAction,
@@ -27,12 +31,27 @@ export const PatientCard = ({
 	isMarkedSeen,
 	isMarkingLoading,
 }: PatientCardProps) => {
-	const lines = content.split("\n").filter((l: string) => l.trim());
-	const firstLine = lines[0] || "";
-	const remainingLines = lines.slice(1);
-	const patientName = firstLine.trim();
-	const selectionId = `patient-${patientName}-${index}`;
+	const nameDisplay = patient.isNew ? `*${patient.name} (NEW)*` : patient.name;
+	const selectionId = `patient-${patient.id}-${index}`;
 	const isSelected = selection.selectedId === selectionId;
+
+	// Build detail lines from structured data
+	const detailLines: string[] = [];
+	if (isSeen) {
+		if (patient.billingEmrStatus) detailLines.push(`├ EMR Status: ${patient.billingEmrStatus}`);
+		if (patient.billingEmrPatientId) detailLines.push(`├ EMR ID: ${patient.billingEmrPatientId}`);
+		if (patient.seenAt) detailLines.push(`├ Marked Seen: ${patient.seenAt}`);
+	} else {
+		if (patient.reason) detailLines.push(`├ Reason: ${patient.reason}`);
+		if (patient.location) detailLines.push(`├ Location: ${patient.location}`);
+		if (patient.admittedDate) detailLines.push(`├ Admitted: ${patient.admittedDate}`);
+	}
+	// Replace last ├ with └
+	if (detailLines.length > 0) {
+		detailLines[detailLines.length - 1] = detailLines[detailLines.length - 1].replace("├", "└");
+	}
+
+	const copyText = formatPatientText(patient, isSeen);
 
 	const handleClick = (e: React.MouseEvent) => {
 		if (window.innerWidth < 768) {
@@ -40,8 +59,9 @@ export const PatientCard = ({
 			selection.onSelect({
 				type: "patient",
 				id: selectionId,
-				content: content,
-				patientName: patientName,
+				content: copyText,
+				patientName: patient.name,
+				patientId: patient.id,
 			});
 			if ("vibrate" in navigator) navigator.vibrate(20);
 		}
@@ -61,14 +81,14 @@ export const PatientCard = ({
 		>
 			<div className="flex items-center gap-1.5 mb-1">
 				<span className="text-xs font-bold text-slate-800 dark:text-white truncate flex-1 min-w-0">
-					{parseInlineFormatting(firstLine)}
+					{parseInlineFormatting(nameDisplay)}
 				</span>
 
 				<div className="shrink-0 hidden md:flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity duration-150">
 					<button
 						onClick={(e) => {
 							e.stopPropagation();
-							onAction?.("summary", patientName);
+							onAction?.("summary", patient.name);
 						}}
 						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30`}
 					>
@@ -78,7 +98,7 @@ export const PatientCard = ({
 					<button
 						onClick={(e) => {
 							e.stopPropagation();
-							onAction?.("insurance", patientName);
+							onAction?.("insurance", patient.name);
 						}}
 						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/30`}
 					>
@@ -88,7 +108,7 @@ export const PatientCard = ({
 					<button
 						onClick={(e) => {
 							e.stopPropagation();
-							onAction?.("lab", patientName);
+							onAction?.("lab", patient.name);
 						}}
 						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30`}
 					>
@@ -98,32 +118,45 @@ export const PatientCard = ({
 
 					<div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" />
 
-					<button
-						onClick={(e) => {
-							e.stopPropagation();
-							onMarkSeen?.(patientName);
-						}}
-						disabled={isMarkedSeen || isMarkingLoading}
-						className={`${actionBtnClass} ${
-							isMarkedSeen
-								? "text-green-500 dark:text-green-400 cursor-default"
-								: "text-slate-500 dark:text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"
-						}`}
-						title="Seen"
-					>
-						{isMarkingLoading ? (
-							<Loader2 className="w-4 h-4 animate-spin" />
-						) : (
+					{isMarkedSeen ? (
+						<div className={`${actionBtnClass} text-green-500 dark:text-green-400 cursor-default`}>
 							<CheckCircle2 className="w-4 h-4" />
-						)}
-						<span className="text-[10px] font-medium">
-							Seen
-						</span>
-					</button>
+							<span className="text-[10px] font-medium">Seen</span>
+						</div>
+					) : isMarkingLoading ? (
+						<div className={`${actionBtnClass} text-amber-500`}>
+							<Loader2 className="w-4 h-4 animate-spin" />
+						</div>
+					) : (
+						<>
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									onMarkSeen?.(patient.id, "CONSULT");
+								}}
+								className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30`}
+								title="Consult (first visit)"
+							>
+								<ClipboardPlus className="w-4 h-4" />
+								<span className="text-[10px] font-medium">Consult</span>
+							</button>
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									onMarkSeen?.(patient.id, "PROGRESS");
+								}}
+								className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/30`}
+								title="Progress (follow-up)"
+							>
+								<ClipboardList className="w-4 h-4" />
+								<span className="text-[10px] font-medium">F/Up</span>
+							</button>
+						</>
+					)}
 				</div>
 			</div>
 
-			{remainingLines.map((line, i) => (
+			{detailLines.map((line, i) => (
 				<div
 					key={i}
 					className="text-[11px] text-slate-600 dark:text-slate-400 font-mono leading-snug"

@@ -301,6 +301,10 @@ So enum fields MUST always contain valid fallback values.
 <output_contract>
 Return EXACTLY this shape and keys (no extra keys, no omitted keys):
 {
+  "search_query": {
+    "first_name": "",
+    "last_name": ""
+  },
   "patient_details": {
     "first_name": "",
     "last_name": "",
@@ -337,19 +341,31 @@ Return EXACTLY this shape and keys (no extra keys, no omitted keys):
 </output_contract>
 
 <field_meaning_and_types>
-- search in CareTracker is derived from patient_details.first_name + patient_details.last_name.
-- There is NO top-level search_query key in this contract.
+- search_query (TOP-LEVEL KEY)
+  Meaning: simplified name tokens used ONLY for patient search in CareTracker.
+  Purpose: reduces search misses caused by multi-word names.
+  Type: object with two string fields.
+  CRITICAL RULES:
+  - search_query.first_name MUST contain ONLY the first given name token, in LOWERCASE.
+  - search_query.last_name MUST contain ONLY the first surname token, in LOWERCASE.
+  - Never include second names, middle names, or second surnames.
+  - Example: raw "JUAN CARLOS" → search_query.first_name = "juan"
+  - Example: raw "PEREZ GOMEZ" → search_query.last_name = "perez"
+  - If names come concatenated (e.g. "JUANCARLOS"), split intelligently: search_query.first_name = "juan"
+  - All values MUST be lowercase.
 
 - patient_details.first_name, patient_details.last_name
-  Meaning: patient legal/display name.
+  Meaning: patient FULL legal name for registration form.
   Type: string.
   CRITICAL RULE:
-  - first_name MUST contain ONLY the first given name token.
-  - last_name MUST contain ONLY the first surname token.
-  - Never include second names or second surnames in these fields.
-  - If raw text comes like "JUAN CARLOS" for given names, use first_name="JUAN".
-  - If raw text comes like "PEREZ GOMEZ" for surnames, use last_name="PEREZ".
-  - If value includes punctuation or extra labels, keep only the first valid name token.
+  - first_name MUST contain ALL given names (first + middle names) properly formatted in Title Case.
+  - last_name MUST contain ALL surnames properly formatted in Title Case.
+  - Example: raw "JUAN CARLOS" → first_name = "Juan Carlos"
+  - Example: raw "PEREZ GOMEZ" → last_name = "Perez Gomez"
+  - If names come concatenated (e.g. "JUANCARLOS PEREZGOMEZ"), split them intelligently:
+    first_name = "Juan Carlos", last_name = "Perez Gomez"
+  - Common concatenation patterns: two capitalized words stuck together, recognizable Spanish/English names.
+  - If unsure whether concatenated text is one name or two, keep it as-is in Title Case.
 
 - patient_details.street, zip_code, city, state_text
   Meaning: patient address text fields.
@@ -484,8 +500,8 @@ Insurance may be absent, single, or multiple in raw text.
 </insurance_optionality_rules>
 
 <normalization_rules>
-- Never omit keys.
-- Never add extra keys.
+- Never omit keys (including search_query).
+- Never add extra keys beyond those in the output_contract.
 - Unknown TEXT fields => "".
 - ENUM fields must NEVER be empty string; always use allowed fallback.
 - Keep policy/group/member/auth in separate fields.

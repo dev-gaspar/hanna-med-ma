@@ -11,6 +11,7 @@ import { NotificationsModule } from "./notifications/notifications.module";
 import { RpaModule } from "./rpa/rpa.module";
 import { IngestModule } from "./ingest/ingest.module";
 import { AiModule } from "./ai/ai.module";
+import { RedisModule } from "./core/redis.module";
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { AiModule } from "./ai/ai.module";
     RpaModule,
     IngestModule,
     AiModule,
+    RedisModule,
   ],
   controllers: [],
   providers: [],

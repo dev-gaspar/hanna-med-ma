@@ -13,9 +13,13 @@ import socket
 import uuid
 import json
 import logging
+import threading
 from pathlib import Path
 
 import requests
+
+from core.redis_consumer import RedisConsumer
+from caretracker.worker import handle_caretracker_task
 
 from config import config
 
@@ -55,6 +59,8 @@ class RpaNode:
         self.doctor_specialty = None
         self.credentials = []
         self.hospital_configs = []
+        self._redis_consumer = None
+        self._redis_thread = None
         # Stores patient names per hospital after patient_list extraction
         # Used to pass to batch summary/insurance flows
         self._last_patient_names: dict[str, list[str]] = {}
@@ -154,6 +160,18 @@ class RpaNode:
             )
         except Exception as e:
             logger.warning(f"Heartbeat failed: {e}")
+
+    def start_redis_listener(self):
+        """Start the Redis listener in a background thread."""
+        logger.info("Initializing Redis Consumer...")
+        self._redis_consumer = RedisConsumer()
+        
+        def run_listener():
+            self._redis_consumer.listen("caretracker:tasks", handle_caretracker_task)
+            
+        self._redis_thread = threading.Thread(target=run_listener, daemon=True, name="RedisListener")
+        self._redis_thread.start()
+        logger.info("Redis listener thread started.")
 
     def run_extraction_loop(self):
         """

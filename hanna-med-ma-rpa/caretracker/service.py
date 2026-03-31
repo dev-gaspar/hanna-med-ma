@@ -177,15 +177,29 @@ def parse_registration_payload(
 
 def run_registration(
     payload: CareTrackerRegistrationPayload,
+    search_query_data: Dict[str, Any] | None = None,
     headless: bool = False,
 ) -> Dict[str, Any]:
     """
     Ejecuta el flujo completo usando entrada tipada.
+    search_query_data contains simplified first/last name (lowercase, first token only)
+    for searching, while patient_details has the full names for registration.
     """
-    query = PatientSearchQuery(
-        first_name=payload.patient_details.first_name,
-        last_name=payload.patient_details.last_name,
-    )
+    if search_query_data and search_query_data.get("first_name") and search_query_data.get("last_name"):
+        query = PatientSearchQuery(
+            first_name=str(search_query_data["first_name"]).strip(),
+            last_name=str(search_query_data["last_name"]).strip(),
+        )
+        logger.info(f"[CARETRACKER] Using search_query for search: '{query.first_name} {query.last_name}' "
+                     f"(full name: '{payload.patient_details.first_name} {payload.patient_details.last_name}')")
+    else:
+        query = PatientSearchQuery(
+            first_name=payload.patient_details.first_name,
+            last_name=payload.patient_details.last_name,
+        )
+        logger.info(f"[CARETRACKER] No search_query provided, using patient_details for search: "
+                     f"'{query.first_name} {query.last_name}'")
+
     return _run_registration_with_payload(
         query=query,
         payload=payload,

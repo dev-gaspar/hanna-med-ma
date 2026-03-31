@@ -186,7 +186,7 @@ export class IngestService {
   }
 
   /**
-   * Get all active patients for a doctor.
+   * Get all active patients for a doctor (via DoctorPatient join).
    */
   async getPatients(
     doctorId: number,
@@ -195,9 +195,13 @@ export class IngestService {
   ) {
     return this.prisma.patient.findMany({
       where: {
-        doctorId,
         ...(emrSystem ? { emrSystem: emrSystem as any } : {}),
-        ...(activeOnly ? { isActive: true } : {}),
+        doctorLinks: {
+          some: {
+            doctorId,
+            ...(activeOnly ? { isActive: true } : {}),
+          },
+        },
       },
       include: {
         rawData: {

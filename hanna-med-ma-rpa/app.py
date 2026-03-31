@@ -50,7 +50,10 @@ def main():
     else:
         logger.info("Node is PENDING assignment. Will keep checking automatically.")
 
-    # Step 3: Start the extraction loop
+    # Step 3: Start the Redis listener (background thread)
+    node.start_redis_listener()
+
+    # Step 4: Start the extraction loop (main thread)
     node.run_extraction_loop()
 
 

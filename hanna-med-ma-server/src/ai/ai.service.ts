@@ -67,6 +67,18 @@ export class AiService {
     if (text.includes("LAB RESULTS")) {
       return text.includes("---") ? "BATCH_PATIENT_LAB" : "PATIENT_LAB";
     }
+    // Structured JSON patient list (new format with sections array)
+    if (text.trimStart().startsWith("{")) {
+      try {
+        const parsed = JSON.parse(text.trim());
+        if (parsed.sections && Array.isArray(parsed.sections)) {
+          return "PATIENT_LIST";
+        }
+      } catch {
+        // Not valid JSON, fall through
+      }
+    }
+    // Legacy text format (box-drawing characters)
     if (text.includes("├") || text.includes("└")) {
       return "PATIENT_LIST";
     }

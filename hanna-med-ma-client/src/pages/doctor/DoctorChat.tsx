@@ -27,6 +27,8 @@ import {
 	FlaskConical,
 	Check,
 	CheckCircle2,
+	ClipboardPlus,
+	ClipboardList,
 } from "lucide-react";
 import ThemeToggle from "../../components/ThemeToggle";
 import { MessageItem } from "./MessageItem";
@@ -38,6 +40,7 @@ export type SelectedItem = {
 	id: string | number;
 	content: string;
 	patientName?: string;
+	patientId?: number;
 };
 
 export default function DoctorChat() {
@@ -54,9 +57,9 @@ export default function DoctorChat() {
 	const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
 	const [isCopied, setIsCopied] = useState(false);
 
-	// Mark Seen State
-	const [seenPatients, setSeenPatients] = useState<Set<string>>(new Set());
-	const [markingLoading, setMarkingLoading] = useState<Set<string>>(new Set());
+	// Mark Seen State (tracked by patient DB id)
+	const [seenPatients, setSeenPatients] = useState<Set<number>>(new Set());
+	const [markingLoading, setMarkingLoading] = useState<Set<number>>(new Set());
 
 	// UI States
 	const [isReady, setIsReady] = useState(false);
@@ -138,13 +141,13 @@ export default function DoctorChat() {
 		}, 1000);
 	}, [selectedItem, copyToClipboard]);
 
-	const handleMarkSeen = async (patientName: string) => {
+	const handleMarkSeen = async (patientId: number, encounterType: "CONSULT" | "PROGRESS" = "CONSULT") => {
 		try {
-			setMarkingLoading((prev) => new Set(prev).add(patientName));
+			setMarkingLoading((prev) => new Set(prev).add(patientId));
 
-			const result = await patientService.markAsSeenByName(patientName);
-			if (result.success || result.isSeen) {
-				setSeenPatients((prev) => new Set(prev).add(patientName));
+			const result = await patientService.markAsSeen(patientId, encounterType);
+			if (result.success) {
+				setSeenPatients((prev) => new Set(prev).add(patientId));
 			}
 		} catch (error) {
 			console.error("Failed to mark patient as seen:", error);
@@ -152,7 +155,7 @@ export default function DoctorChat() {
 		} finally {
 			setMarkingLoading((prev) => {
 				const next = new Set(prev);
-				next.delete(patientName);
+				next.delete(patientId);
 				return next;
 			});
 		}
@@ -163,11 +166,15 @@ export default function DoctorChat() {
 	useEffect(() => {
 		const init = async () => {
 			try {
-				const session = await chatService.getHistory(20);
+				const [session, seenIds] = await Promise.all([
+					chatService.getHistory(20),
+					patientService.getSeenPatientIds(),
+				]);
 				setMessages(session.messages);
 				setNextCursor(session.nextCursor);
+				setSeenPatients(new Set(seenIds));
 			} catch (error) {
-				console.error("Failed to load chat history", error);
+				console.error("Failed to load chat history or seen patients", error);
 			} finally {
 				setIsReady(true);
 			}
@@ -536,35 +543,38 @@ export default function DoctorChat() {
 									</span>
 								</button>
 
-								{/* Mark Seen Button */}
-								<button
-									onClick={() => handleMarkSeen(selectedItem?.patientName!)}
-									disabled={
-										seenPatients.has(selectedItem?.patientName!) ||
-										markingLoading.has(selectedItem?.patientName!)
-									}
-									className={`flex items-center gap-2 p-2 sm:px-3 rounded-xl transition-all group ${
-										seenPatients.has(selectedItem?.patientName!)
-											? "text-green-500 cursor-default"
-											: "text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-									}`}
-									title="Seen"
-								>
-									{markingLoading.has(selectedItem?.patientName!) ? (
+								{/* Mark Seen Buttons (Consult / Follow-Up) */}
+								{selectedItem?.patientId && markingLoading.has(selectedItem.patientId) ? (
+									<div className="flex items-center gap-2 p-2 sm:px-3">
 										<Loader2 className="w-5 h-5 animate-spin text-amber-500" />
-									) : (
-										<CheckCircle2
-											className={`w-5 h-5 ${
-												seenPatients.has(selectedItem?.patientName!)
-													? "text-green-500"
-													: "text-amber-500"
-											}`}
-										/>
-									)}
-									<span className="text-xs font-semibold hidden sm:inline">
-										Seen
-									</span>
-								</button>
+									</div>
+								) : selectedItem?.patientId && seenPatients.has(selectedItem.patientId) ? (
+									<div className="flex items-center gap-2 p-2 sm:px-3 text-green-500 cursor-default">
+										<CheckCircle2 className="w-5 h-5" />
+										<span className="text-xs font-semibold hidden sm:inline">Seen</span>
+									</div>
+								) : (
+									<>
+										<button
+											onClick={() => handleMarkSeen(selectedItem?.patientId!, "CONSULT")}
+											disabled={!selectedItem?.patientId}
+											className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
+											title="Consult (first visit)"
+										>
+											<ClipboardPlus className="w-5 h-5 text-amber-500" />
+											<span className="text-xs font-semibold hidden sm:inline">Consult</span>
+										</button>
+										<button
+											onClick={() => handleMarkSeen(selectedItem?.patientId!, "PROGRESS")}
+											disabled={!selectedItem?.patientId}
+											className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:text-violet-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
+											title="Progress (follow-up)"
+										>
+											<ClipboardList className="w-5 h-5 text-violet-500" />
+											<span className="text-xs font-semibold hidden sm:inline">F/Up</span>
+										</button>
+									</>
+								)}
 							</>
 						)}
 
@@ -693,7 +703,7 @@ export default function DoctorChat() {
 											</span>
 										</div>
 									)}
-									{streamingText ? (
+									{streamingText && !(streamingText.trimStart().startsWith("{") || streamingText.trimStart().startsWith("[")) ? (
 										<div className="pt-0.5 pb-1 text-slate-800 dark:text-slate-100">
 											<div className="text-[13px] leading-relaxed tracking-wide">
 												{parseWhatsAppFormat(streamingText)}

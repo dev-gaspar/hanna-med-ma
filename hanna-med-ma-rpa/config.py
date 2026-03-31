@@ -39,6 +39,7 @@ class Config:
     """Application configuration with environment variables support"""
 
     BACKEND_URL = os.getenv("BACKEND_URL")
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
     APP_NAME = "HannaMedRPA"
 
     # Load RPA configuration from JSON

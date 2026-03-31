@@ -1,9 +1,10 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
-import axios from "axios";
 import { RawDataType } from "@prisma/client";
 import { PrismaService } from "../core/prisma.service";
 import { RegisterRpaDto } from "./dto/register-rpa.dto";
+import { CaretrackerResultDto } from "./dto/caretracker-result.dto";
 import { CredentialsService } from "../credentials/credentials.service";
+import { RedisService } from "../core/redis.service";
 import { SubAgentsService } from "../ai/agents/sub-agents.service";
 import { FcmService } from "../notifications/fcm.service";
 import { formatDateForDisplay } from "../core/date-format.util";
@@ -90,6 +91,7 @@ export class RpaService {
 		private credentialsService: CredentialsService,
 		private subAgentsService: SubAgentsService,
 		private fcmService: FcmService,
+		private redisService: RedisService,
 	) {}
 
 	/**
@@ -298,55 +300,27 @@ export class RpaService {
 			`CareTracker payload for patientId=${patientId}:\n${JSON.stringify(payload, null, 2)}`,
 		);
 
-		const rpaUrl =
-			process.env.SERVER_CARETRACKER_RPA_URL ||
-			"http://127.0.0.1:8000/caretracker/run";
+		await this.redisService.pushTask("caretracker:tasks", {
+			patientId,
+			payload,
+		});
 
-		// Fire-and-forget dispatch: do not await the remote RPA response.
-		void axios
-			.post(
-				rpaUrl,
-				{
-					payload,
-					headless: false,
-				},
-				{
-					headers: { "Content-Type": "application/json" },
-				},
-			)
-			.then((response) => {
-				this.logger.log(
-					`CareTracker dispatch completed (patientId=${patientId}, status=${response.status})`,
-				);
-			})
-			.catch((error: unknown) => {
-				const err = error as {
-					message?: string;
-					response?: { status?: number; data?: unknown };
-				};
-				this.logger.error(
-					`CareTracker dispatch failed for patientId=${patientId}: ${err.message || "unknown error"}`,
-					err.response
-						? JSON.stringify({
-								status: err.response.status,
-								data: err.response.data,
-							})
-						: undefined,
-				);
-			});
+		this.logger.log(
+			`CareTracker dispatch to Redis completed (patientId=${patientId})`,
+		);
 
 		return {
 			accepted: true,
 			patientId,
-			rpaUrl,
 			dispatchedAt: new Date().toISOString(),
 		};
 	}
 
 	/**
-	 * Marks a patient as seen, sets status to PENDING, and triggers async RPA flow.
+	 * Marks a patient as seen by creating an Encounter, and triggers async RPA flow
+	 * if the patient hasn't been registered in the billing EMR yet.
 	 */
-	async markPatientAsSeen(patientId: number) {
+	async markPatientAsSeen(patientId: number, doctorId: number, encounterType: "CONSULT" | "PROGRESS" = "CONSULT") {
 		const patient = await this.prisma.patient.findUnique({
 			where: { id: patientId },
 		});
@@ -355,37 +329,53 @@ export class RpaService {
 			throw new NotFoundException(`Patient ${patientId} not found`);
 		}
 
-		// 1. Immediately update local DB
-		const updated = await this.prisma.patient.update({
-			where: { id: patientId },
+		// 1. Create the Encounter
+		const encounter = await this.prisma.encounter.create({
 			data: {
-				isSeen: true,
-				billingEmrStatus: "PENDING",
+				patientId,
+				doctorId,
+				type: encounterType,
+				dateOfService: new Date(),
+				status: "PENDING",
+				deadline: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h from now
 			},
 		});
 
-		// 2. Trigger async RPA process in the background (Floating Promise)
-		this.processRpaRegistrationAsync(patient.id, patient.doctorId, patient.name).catch(err => {
-			this.logger.error(`Background RPA task failed for ${patientId}: ${err.message}`);
-		});
+		// 2. If patient not yet registered in billing EMR, set to PENDING and trigger RPA
+		const needsRegistration = patient.billingEmrStatus === "PENDING" || patient.billingEmrStatus === "FAILED";
+		if (needsRegistration) {
+			await this.prisma.patient.update({
+				where: { id: patientId },
+				data: { billingEmrStatus: "PENDING" },
+			});
 
-		this.logger.log(`Patient ${patientId} marked as seen locally. RPA task running in background.`);
+			this.processRpaRegistrationAsync(patient.id, doctorId, patient.name, encounter.id).catch(err => {
+				this.logger.error(`Background RPA task failed for ${patientId}: ${err.message}`);
+			});
+		} else {
+			// Patient already registered — mirror status to encounter
+			await this.prisma.encounter.update({
+				where: { id: encounter.id },
+				data: { status: patient.billingEmrStatus as any },
+			});
+		}
+
+		this.logger.log(`Encounter ${encounter.id} created for patient ${patientId} by doctor ${doctorId}.`);
 
 		return {
 			success: true,
-			patientId: updated.id,
-			isSeen: updated.isSeen,
-			billingEmrStatus: updated.billingEmrStatus,
-			rpa_details: { status: "PROCESSING" },
+			patientId: patient.id,
+			encounterId: encounter.id,
+			billingEmrStatus: patient.billingEmrStatus,
 		};
 	}
 
 	/**
 	 * Background execution of the CareTracker RPA Registration
 	 */
-	private async processRpaRegistrationAsync(patientId: number, doctorId: number | null, patientName: string) {
-		this.logger.log(`[Background RPA] Starting for patient ${patientId} (${patientName})`);
-		
+	private async processRpaRegistrationAsync(patientId: number, doctorId: number, patientName: string, encounterId: number) {
+		this.logger.log(`[Background RPA] Starting for patient ${patientId} (${patientName}), encounter ${encounterId}`);
+
 		const patient = await this.prisma.patient.findUnique({
 			where: { id: patientId },
 			include: {
@@ -398,10 +388,6 @@ export class RpaService {
 		});
 
 		if (!patient) return;
-
-		let emrId: string | null = null;
-		let emrStatus = "PENDING";
-		let rpaDetails = null;
 
 		if (patient.rawData.length > 0) {
 			const latestInsuranceRaw = patient.rawData[0];
@@ -417,46 +403,87 @@ export class RpaService {
 					this.parseCareTrackerJson(aiOutput),
 				);
 
-				const rpaUrl =
-					process.env.SERVER_CARETRACKER_RPA_URL ||
-					"http://127.0.0.1:8000/caretracker/run";
+				this.logger.log(`[Background RPA] Pushing CareTracker task for ${patientName} to Redis...`);
 
-				this.logger.log(`[Background RPA] Calling CareTracker for ${patientName}...`);
-				const rpaResponse = await axios.post(
-					rpaUrl,
-					{ payload, headless: false },
-					{ headers: { "Content-Type": "application/json" } },
-				);
+				await this.redisService.pushTask("caretracker:tasks", {
+					patientId,
+					doctorId,
+					patientName,
+					encounterId,
+					payload,
+				});
 
-				const data = rpaResponse.data;
-				rpaDetails = data;
-				
-				if (data.success) {
-					if (data.status === "NOT_FOUND") {
-						emrId = `DUMMY-${patientId}-${Date.now()}`;
-						emrStatus = "REGISTERED";
-					} else if (
-						data.status === "FOUND_SINGLE" ||
-						data.status === "FOUND_MULTIPLE"
-					) {
-						emrId = data.patient_emr_id || null;
-						emrStatus = "ALREADY_EXISTS";
-					} else {
-						// Fallback if status is unusual
-						emrId = `DUMMY-${patientId}-${Date.now()}`;
-						emrStatus = "REGISTERED";
-					}
-				} else {
-					emrStatus = "FAILED";
-				}
 			} catch (err: any) {
-				this.logger.error(`[Background RPA] Call Failed: ${err.message}`);
-				emrStatus = "FAILED";
+				this.logger.error(`[Background RPA] Payload Prep Failed: ${err.message}`);
+				await this.prisma.patient.update({
+					where: { id: patientId },
+					data: { billingEmrStatus: "FAILED" },
+				});
+				await this.prisma.encounter.update({
+					where: { id: encounterId },
+					data: { status: "FAILED" },
+				});
+
+				await this.fcmService.sendPushNotification(
+					doctorId,
+					"CareTracker Integration",
+					`Action required: Failed to prepare data for CareTracker registration for ${patientName}.`
+				);
 			}
 		} else {
 			this.logger.warn(`[Background RPA] Patient ${patientId} has no INSURANCE raw data. Generating dummy without RPA.`);
-			emrId = `DUMMY-${patientId}-${Date.now()}`;
-			emrStatus = "REGISTERED";
+			const emrId = `DUMMY-${patientId}-${Date.now()}`;
+
+			await this.prisma.patient.update({
+				where: { id: patientId },
+				data: {
+					billingEmrStatus: "REGISTERED",
+					billingEmrPatientId: emrId,
+				},
+			});
+			await this.prisma.encounter.update({
+				where: { id: encounterId },
+				data: { status: "REGISTERED" },
+			});
+
+			await this.fcmService.sendPushNotification(
+				doctorId,
+				"CareTracker Integration",
+				`Patient ${patientName} has been successfully registered in CareTracker (Dummy ID: ${emrId}).`
+			);
+		}
+	}
+
+	/**
+	 * Received from the RPA after asynchronous worker execution via Redis.
+	 */
+	async handleCareTrackerResult(dto: CaretrackerResultDto) {
+		const { patientId, success, status, patient_emr_id, message } = dto;
+
+		this.logger.log(`Received RPA result for patient ${patientId}: success=${success}, status=${status}`);
+
+		const patient = await this.prisma.patient.findUnique({
+			where: { id: patientId },
+		});
+
+		if (!patient) {
+			throw new NotFoundException(`Patient ${patientId} not found`);
+		}
+
+		let emrStatus = "FAILED";
+		let emrId: string | null = null;
+
+		if (success) {
+			if (status === "NOT_FOUND") {
+				emrId = `DRAFT-${patientId}-${Date.now()}`;
+				emrStatus = "REGISTERED";
+			} else if (status === "FOUND_SINGLE" || status === "FOUND_MULTIPLE") {
+				emrId = patient_emr_id || null;
+				emrStatus = "ALREADY_EXISTS";
+			} else {
+				emrId = `DRAFT-${patientId}-${Date.now()}`;
+				emrStatus = "REGISTERED";
+			}
 		}
 
 		await this.prisma.patient.update({
@@ -467,50 +494,46 @@ export class RpaService {
 			},
 		});
 
-		this.logger.log(`[Background RPA] Completed for ${patientName} (Status=${emrStatus}, ID=${emrId})`);
-		
-		// 3. Send Push Notification to Doctor
-		if (doctorId) {
-			const title = "CareTracker Integration";
-			let body = "";
-			if (emrStatus === "ALREADY_EXISTS") {
-				body = `Patient ${patientName} was found in CareTracker (ID: ${emrId}). Link established.`;
-			} else if (emrStatus === "REGISTERED") {
-				body = `Patient ${patientName} has been successfully registered in CareTracker (ID: ${emrId}).`;
-			} else {
-				body = `Action required: Failed to process CareTracker registration for ${patientName}.`;
-			}
-			
+		// Update all PENDING encounters for this patient to the resolved status
+		await this.prisma.encounter.updateMany({
+			where: { patientId, status: "PENDING" },
+			data: { status: emrStatus as any },
+		});
+
+		// Notify all doctors who have pending encounters with this patient
+		const affectedEncounters = await this.prisma.encounter.findMany({
+			where: { patientId },
+			select: { doctorId: true },
+			distinct: ["doctorId"],
+		});
+
+		const title = "CareTracker Integration";
+		let body = "";
+		if (emrStatus === "ALREADY_EXISTS") {
+			body = `Patient ${patient.name} was found in CareTracker (ID: ${emrId}). Link established.`;
+		} else if (emrStatus === "REGISTERED") {
+			body = `Patient ${patient.name}'s data has been prepared in CareTracker.`;
+		} else {
+			body = `Action required: Failed to process CareTracker registration for ${patient.name}. Reason: ${message || "Unknown error"}`;
+		}
+
+		for (const { doctorId } of affectedEncounters) {
 			await this.fcmService.sendPushNotification(doctorId, title, body);
 		}
+
+		return { processed: true, patientId, emrStatus };
 	}
 
 	/**
-	 * Resolves a patient by display name (direct DB lookup) and marks as seen.
-	 * No multi-system search — just a simple prisma query.
+	 * Returns the IDs of all patients that have encounters with the given doctor.
 	 */
-	async markPatientAsSeenByName(patientName: string) {
-		const patient = await this.prisma.patient.findFirst({
-			where: {
-				name: {
-					equals: patientName,
-					mode: "insensitive",
-				},
-			},
-			orderBy: { id: "desc" },
+	async getSeenPatientIds(doctorId: number): Promise<number[]> {
+		const encounters = await this.prisma.encounter.findMany({
+			where: { doctorId },
+			select: { patientId: true },
+			distinct: ["patientId"],
 		});
-
-		if (!patient) {
-			throw new NotFoundException(
-				`Patient with name "${patientName}" not found in database`,
-			);
-		}
-
-		this.logger.log(
-			`Resolved "${patientName}" to patient ID ${patient.id}. Proceeding to mark as seen.`,
-		);
-
-		return this.markPatientAsSeen(patient.id);
+		return encounters.map((e) => e.patientId);
 	}
 
 	private parseCareTrackerJson(raw: string): unknown {
@@ -540,11 +563,18 @@ export class RpaService {
 		}
 
 		const body = payload as {
+			search_query?: { first_name?: string; last_name?: string };
 			insurance_periods?: Array<{
 				payer_code?: string;
 				ins_company_text?: string;
 			}>;
 		};
+
+		// Ensure search_query exists with lowercase values
+		if (body.search_query) {
+			body.search_query.first_name = (body.search_query.first_name || "").toLowerCase().trim();
+			body.search_query.last_name = (body.search_query.last_name || "").toLowerCase().trim();
+		}
 
 		if (!Array.isArray(body.insurance_periods)) {
 			return payload;

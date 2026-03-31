@@ -75,6 +75,7 @@ a = Analysis(
         'agentic.runners.baptist_lab_runner',
         'agentic.runners.steward_summary_runner',
         'agentic.runners.steward_insurance_runner',
+        'agentic.runners.steward_lab_runner',
         'agentic.models',
         'agentic.omniparser_client',
         'agentic.screen_capturer',
@@ -87,6 +88,7 @@ a = Analysis(
         'core.s3_client',
         'core.system_utils',
         'core.vdi_input',
+        'core.redis_consumer',
         # Services
         'services',
         'services.modal_watcher_service',
@@ -94,6 +96,19 @@ a = Analysis(
         'config',
         'config_manager',
         'rpa_node',
+        # CareTracker
+        'caretracker',
+        'caretracker.worker',
+        'caretracker.service',
+        'caretracker.runner',
+        'caretracker.browser',
+        'caretracker.types',
+        'caretracker.fixtures',
+        'caretracker.form_enums',
+        'caretracker.flows',
+        'caretracker.flows.login',
+        'caretracker.flows.search',
+        'caretracker.flows.registration',
         # Runtime libs that may be missed
         'httpx',
         'httpcore',
@@ -103,6 +118,11 @@ a = Analysis(
         'pkg_resources',
         'pkg_resources._vendor',
         'importlib.metadata',
+        # Playwright (used by CareTracker headless browser)
+        'playwright',
+        'playwright.sync_api',
+        # Redis
+        'redis',
     ],
     hookspath=[],
     hooksconfig={},

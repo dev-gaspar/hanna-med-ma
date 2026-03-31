@@ -24,8 +24,10 @@ def main() -> None:
 
     data = json.loads(args.input_file.read_text(encoding="utf-8"))
     payload = parse_registration_payload(data)
+    search_query_data = data.get("search_query")
     result = run_registration(
         payload=payload,
+        search_query_data=search_query_data,
         headless=not args.headed,
     )
 

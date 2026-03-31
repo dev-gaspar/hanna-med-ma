@@ -3,6 +3,13 @@ import { PrismaService } from "../../core/prisma.service";
 import { formatDateForDisplay } from "../../core/date-format.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
 
+/** Hospital display labels */
+const HOSPITAL_LABELS: Record<string, string> = {
+	JACKSON: "Jackson Health",
+	STEWARD: "Steward Health",
+	BAPTIST: "Baptist Health",
+};
+
 @Injectable()
 export class PatientSeenTool {
 	private readonly logger = new Logger(PatientSeenTool.name);
@@ -19,17 +26,18 @@ export class PatientSeenTool {
 	): Promise<string> {
 		const { hospital_types, specific_question } = args;
 
+		// Query encounters for this doctor, including patient data
 		const whereClause: any = {
 			doctorId: doctorContext.doctorId,
-			isSeen: true,
 		};
 
 		if (hospital_types && hospital_types.length > 0) {
-			whereClause.emrSystem = { in: hospital_types };
+			whereClause.patient = { emrSystem: { in: hospital_types } };
 		}
 
-		const patients = await this.prisma.patient.findMany({
+		const encounters = await this.prisma.encounter.findMany({
 			where: whereClause,
+			include: { patient: true },
 			orderBy: { updatedAt: "desc" },
 		});
 
@@ -38,7 +46,7 @@ export class PatientSeenTool {
 				? hospital_types.join(", ")
 				: "all systems";
 
-		if (patients.length === 0) {
+		if (encounters.length === 0) {
 			const emptyMsg = `No seen patients found in ${filterText} for Dr. ${doctorContext.doctorName}.`;
 			return JSON.stringify({
 				count: 0,
@@ -47,28 +55,60 @@ export class PatientSeenTool {
 			});
 		}
 
-		const mostRecentUpdate = patients.reduce((latest, p) => {
-			return p.updatedAt > latest ? p.updatedAt : latest;
-		}, patients[0].updatedAt);
+		const mostRecentUpdate = encounters.reduce((latest, e) => {
+			return e.updatedAt > latest ? e.updatedAt : latest;
+		}, encounters[0].updatedAt);
 
-		const patientsJson = JSON.stringify(
-			patients.map((p) => ({
-				name: p.name,
-				emrSystem: p.emrSystem,
-				billingEmrStatus: p.billingEmrStatus || null,
-				billingEmrPatientId: p.billingEmrPatientId || null,
-				updatedAt: formatDateForDisplay(p.updatedAt),
+		const lastUpdated = formatDateForDisplay(mostRecentUpdate);
+
+		// If the doctor asks a specific question, delegate to conversational sub-agent
+		if (specific_question) {
+			const patientsJson = JSON.stringify(
+				encounters.map((e) => ({
+					name: e.patient.name,
+					emrSystem: e.patient.emrSystem,
+					encounterStatus: e.status,
+					billingEmrStatus: e.patient.billingEmrStatus || null,
+					billingEmrPatientId: e.patient.billingEmrPatientId || null,
+					dateOfService: formatDateForDisplay(e.dateOfService),
+					updatedAt: formatDateForDisplay(e.updatedAt),
+				})),
+			);
+			return this.subAgents.formatSeenPatientList(
+				patientsJson,
+				{ hospitalType: filterText, lastUpdated },
+				specific_question,
+				callbacks?.onStreaming,
+			);
+		}
+
+		// Build structured JSON grouped by emrSystem
+		const grouped = new Map<string, typeof encounters>();
+		for (const e of encounters) {
+			const key = e.patient.emrSystem || "OTHER";
+			if (!grouped.has(key)) grouped.set(key, []);
+			grouped.get(key)!.push(e);
+		}
+
+		const sections = Array.from(grouped.entries()).map(([system, group]) => ({
+			header: `🏥 ${HOSPITAL_LABELS[system] || system}`,
+			patients: group.map((e) => ({
+				id: e.patient.id,
+				name: e.patient.name,
+				billingEmrStatus: e.patient.billingEmrStatus || null,
+				billingEmrPatientId: e.patient.billingEmrPatientId || null,
+				seenAt: formatDateForDisplay(e.dateOfService),
 			})),
-		);
+		}));
 
-		return this.subAgents.formatSeenPatientList(
-			patientsJson,
-			{
-				hospitalType: filterText,
-				lastUpdated: formatDateForDisplay(mostRecentUpdate),
-			},
-			specific_question,
-			callbacks?.onStreaming,
-		);
+		const result = JSON.stringify({
+			sections,
+			count: encounters.length,
+			lastUpdated,
+			isSeen: true,
+		});
+
+		callbacks?.onStreaming?.(result);
+		return result;
 	}
 }
