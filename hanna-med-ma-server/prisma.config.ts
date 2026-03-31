@@ -8,6 +8,7 @@ export default defineConfig({
     seed: "ts-node prisma/seed.ts",
   },
   datasource: {
+    // Uses process.env so prisma generate works without a live DB connection
     url: process.env.SERVER_DATABASE_URL ?? "",
   },
 });
