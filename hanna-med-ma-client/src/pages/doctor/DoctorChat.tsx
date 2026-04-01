@@ -12,6 +12,7 @@ import { doctorAuthService } from "../../services/doctorAuthService";
 import { chatService } from "../../services/chatService";
 import { socketService } from "../../services/socketService";
 import { patientService } from "../../services/patientService";
+import { toast } from "sonner";
 import type { Message } from "../../types/chat";
 import {
 	Send,
@@ -150,13 +151,15 @@ export default function DoctorChat() {
 		setEncounterModalPatientId(null);
 		if (!patientId) return;
 
+		const label = encounterType === "CONSULT" ? "Consult" : "Follow-Up";
+
 		try {
 			setMarkingLoading((prev) => new Set(prev).add(patientId));
-
 			await patientService.markAsSeen(patientId, encounterType);
+			toast.success(`${label} encounter created`);
 		} catch (error) {
 			console.error("Failed to mark patient as seen:", error);
-			alert("Failed to mark patient as seen. Please try again.");
+			toast.error("Failed to create encounter. Please try again.");
 		} finally {
 			setMarkingLoading((prev) => {
 				const next = new Set(prev);

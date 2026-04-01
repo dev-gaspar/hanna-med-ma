@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 
 // Public Pages
 import LandingPage from "./pages/LandingPage";
@@ -25,6 +26,7 @@ import DoctorProtectedRoute from "./components/doctor/DoctorProtectedRoute";
 function App() {
 	return (
 		<BrowserRouter>
+			<Toaster position="top-center" richColors closeButton duration={3000} />
 			<Routes>
 				{/* Public Routes */}
 				<Route path="/" element={<LandingPage />} />
