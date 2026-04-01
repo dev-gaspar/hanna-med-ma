@@ -336,12 +336,11 @@ export class RpaService {
 				doctorId,
 				type: encounterType,
 				dateOfService: new Date(),
-				status: "PENDING",
 				deadline: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h from now
 			},
 		});
 
-		// 2. If patient not yet registered in billing EMR, set to PENDING and trigger RPA
+		// 2. If patient not yet registered in billing EMR, trigger RPA
 		const needsRegistration = patient.billingEmrStatus === "PENDING" || patient.billingEmrStatus === "FAILED";
 		if (needsRegistration) {
 			await this.prisma.patient.update({
@@ -349,14 +348,8 @@ export class RpaService {
 				data: { billingEmrStatus: "PENDING" },
 			});
 
-			this.processRpaRegistrationAsync(patient.id, doctorId, patient.name, encounter.id).catch(err => {
+			this.processRpaRegistrationAsync(patient.id, doctorId, patient.name).catch(err => {
 				this.logger.error(`Background RPA task failed for ${patientId}: ${err.message}`);
-			});
-		} else {
-			// Patient already registered — mirror status to encounter
-			await this.prisma.encounter.update({
-				where: { id: encounter.id },
-				data: { status: patient.billingEmrStatus as any },
 			});
 		}
 
@@ -373,8 +366,8 @@ export class RpaService {
 	/**
 	 * Background execution of the CareTracker RPA Registration
 	 */
-	private async processRpaRegistrationAsync(patientId: number, doctorId: number, patientName: string, encounterId: number) {
-		this.logger.log(`[Background RPA] Starting for patient ${patientId} (${patientName}), encounter ${encounterId}`);
+	private async processRpaRegistrationAsync(patientId: number, doctorId: number, patientName: string) {
+		this.logger.log(`[Background RPA] Starting for patient ${patientId} (${patientName})`);
 
 		const patient = await this.prisma.patient.findUnique({
 			where: { id: patientId },
@@ -409,7 +402,6 @@ export class RpaService {
 					patientId,
 					doctorId,
 					patientName,
-					encounterId,
 					payload,
 				});
 
@@ -418,10 +410,6 @@ export class RpaService {
 				await this.prisma.patient.update({
 					where: { id: patientId },
 					data: { billingEmrStatus: "FAILED" },
-				});
-				await this.prisma.encounter.update({
-					where: { id: encounterId },
-					data: { status: "FAILED" },
 				});
 
 				await this.fcmService.sendPushNotification(
@@ -440,10 +428,6 @@ export class RpaService {
 					billingEmrStatus: "REGISTERED",
 					billingEmrPatientId: emrId,
 				},
-			});
-			await this.prisma.encounter.update({
-				where: { id: encounterId },
-				data: { status: "REGISTERED" },
 			});
 
 			await this.fcmService.sendPushNotification(
@@ -494,13 +478,7 @@ export class RpaService {
 			},
 		});
 
-		// Update all PENDING encounters for this patient to the resolved status
-		await this.prisma.encounter.updateMany({
-			where: { patientId, status: "PENDING" },
-			data: { status: emrStatus as any },
-		});
-
-		// Notify all doctors who have pending encounters with this patient
+		// Notify all doctors who have encounters with this patient
 		const affectedEncounters = await this.prisma.encounter.findMany({
 			where: { patientId },
 			select: { doctorId: true },

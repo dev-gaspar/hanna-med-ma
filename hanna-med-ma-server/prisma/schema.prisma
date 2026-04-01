@@ -225,37 +225,28 @@ model DoctorPatient {
 
 // ─── Encounters (Doctor saw Patient) ────────────────────────
 
-enum EncounterStatus {
-  PENDING
-  REGISTERED
-  ALREADY_EXISTS
-  FAILED
-}
-
 enum EncounterType {
   CONSULT   // First visit during admission — Consult Note
   PROGRESS  // Follow-up visits — Progress Note
 }
 
 model Encounter {
-  id              Int             @id @default(autoincrement())
+  id              Int           @id @default(autoincrement())
   patientId       Int
   doctorId        Int
-  type            EncounterType   @default(CONSULT)
-  dateOfService   DateTime        @default(now())
-  status          EncounterStatus @default(PENDING)
-  deadline        DateTime?       // 24h window for clinical note collection
+  type            EncounterType @default(CONSULT)
+  dateOfService   DateTime      @default(now())
+  deadline        DateTime?     // 24h window for clinical note collection
   faceSheetUrl    String?
   providerNoteUrl String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@index([doctorId])
   @@index([patientId])
-  @@index([doctorId, status])
   @@map("encounters")
 }
 

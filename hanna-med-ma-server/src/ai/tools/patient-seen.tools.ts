@@ -67,7 +67,7 @@ export class PatientSeenTool {
 				encounters.map((e) => ({
 					name: e.patient.name,
 					emrSystem: e.patient.emrSystem,
-					encounterStatus: e.status,
+					encounterType: e.type,
 					billingEmrStatus: e.patient.billingEmrStatus || null,
 					billingEmrPatientId: e.patient.billingEmrPatientId || null,
 					dateOfService: formatDateForDisplay(e.dateOfService),
