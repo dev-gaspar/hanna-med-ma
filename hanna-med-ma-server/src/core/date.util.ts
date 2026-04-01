@@ -5,10 +5,9 @@
  * Conversion to display timezone only happens in `formatForDisplay()`.
  */
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-const dayjs = require("dayjs");
-const utc = require("dayjs/plugin/utc");
-const timezone = require("dayjs/plugin/timezone");
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
