@@ -14,7 +14,6 @@ interface MessageItemProps {
 		patientName: string,
 	) => void;
 	onMarkSeen?: (patientId: number) => void;
-	seenPatients?: Set<number>;
 	markingLoading?: Set<number>;
 	isLastAssistant?: boolean;
 	onRegenerate?: () => void;
@@ -29,7 +28,6 @@ export const MessageItem = memo(
 		onSelect,
 		onAction,
 		onMarkSeen,
-		seenPatients,
 		markingLoading,
 		isLastAssistant,
 		onRegenerate,
@@ -48,7 +46,6 @@ export const MessageItem = memo(
 						selection={{ selectedId, onSelect }}
 						onAction={onAction}
 						onMarkSeen={onMarkSeen}
-						seenPatients={seenPatients}
 						markingLoading={markingLoading}
 					/>
 				);
@@ -62,7 +59,6 @@ export const MessageItem = memo(
 			onSelect,
 			onAction,
 			onMarkSeen,
-			seenPatients,
 			markingLoading,
 		]);
 

@@ -17,7 +17,6 @@ interface PatientCardProps {
 		patientName: string,
 	) => void;
 	onMarkSeen?: (patientId: number) => void;
-	isMarkedSeen?: boolean;
 	isMarkingLoading?: boolean;
 }
 
@@ -28,7 +27,6 @@ export const PatientCard = ({
 	selection,
 	onAction,
 	onMarkSeen,
-	isMarkedSeen,
 	isMarkingLoading,
 }: PatientCardProps) => {
 	const nameDisplay = patient.isNew ? `*${patient.name} (NEW)*` : patient.name;
@@ -123,12 +121,8 @@ export const PatientCard = ({
 							e.stopPropagation();
 							onMarkSeen?.(patient.id);
 						}}
-						disabled={isMarkedSeen || isMarkingLoading}
-						className={`${actionBtnClass} ${
-							isMarkedSeen
-								? "text-green-500 dark:text-green-400 cursor-default"
-								: "text-slate-500 dark:text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"
-						}`}
+						disabled={isMarkingLoading}
+						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30`}
 						title="Seen"
 					>
 						{isMarkingLoading ? (

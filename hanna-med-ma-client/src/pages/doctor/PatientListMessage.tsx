@@ -39,7 +39,6 @@ interface PatientListMessageProps {
 		patientName: string,
 	) => void;
 	onMarkSeen?: (patientId: number) => void;
-	seenPatients?: Set<number>;
 	markingLoading?: Set<number>;
 }
 
@@ -112,7 +111,6 @@ export const PatientListMessage = ({
 	selection,
 	onAction,
 	onMarkSeen,
-	seenPatients,
 	markingLoading,
 }: PatientListMessageProps) => {
 	const data = useMemo(() => parseContent(content), [content]);
@@ -146,7 +144,6 @@ export const PatientListMessage = ({
 								index={idx}
 								onAction={onAction}
 								onMarkSeen={onMarkSeen}
-								isMarkedSeen={seenPatients?.has(patient.id)}
 								isMarkingLoading={markingLoading?.has(patient.id)}
 							/>
 						);

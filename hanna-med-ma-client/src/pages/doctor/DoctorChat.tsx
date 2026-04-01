@@ -55,8 +55,7 @@ export default function DoctorChat() {
 	const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
 	const [isCopied, setIsCopied] = useState(false);
 
-	// Mark Seen State (tracked by patient DB id)
-	const [seenPatients, setSeenPatients] = useState<Set<number>>(new Set());
+	// Mark Seen State
 	const [markingLoading, setMarkingLoading] = useState<Set<number>>(new Set());
 
 	// Encounter Type Modal
@@ -154,10 +153,7 @@ export default function DoctorChat() {
 		try {
 			setMarkingLoading((prev) => new Set(prev).add(patientId));
 
-			const result = await patientService.markAsSeen(patientId, encounterType);
-			if (result.success) {
-				setSeenPatients((prev) => new Set(prev).add(patientId));
-			}
+			await patientService.markAsSeen(patientId, encounterType);
 		} catch (error) {
 			console.error("Failed to mark patient as seen:", error);
 			alert("Failed to mark patient as seen. Please try again.");
@@ -175,13 +171,9 @@ export default function DoctorChat() {
 	useEffect(() => {
 		const init = async () => {
 			try {
-				const [session, seenIds] = await Promise.all([
-					chatService.getHistory(20),
-					patientService.getSeenPatientIds(),
-				]);
+				const session = await chatService.getHistory(20);
 				setMessages(session.messages);
 				setNextCursor(session.nextCursor);
-				setSeenPatients(new Set(seenIds));
 			} catch (error) {
 				console.error("Failed to load chat history or seen patients", error);
 			} finally {
@@ -557,26 +549,15 @@ export default function DoctorChat() {
 									onClick={() => handleMarkSeen(selectedItem?.patientId!)}
 									disabled={
 										!selectedItem?.patientId ||
-										seenPatients.has(selectedItem?.patientId!) ||
 										markingLoading.has(selectedItem?.patientId!)
 									}
-									className={`flex items-center gap-2 p-2 sm:px-3 rounded-xl transition-all group ${
-										selectedItem?.patientId && seenPatients.has(selectedItem.patientId)
-											? "text-green-500 cursor-default"
-											: "text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-									}`}
+									className="flex items-center gap-2 p-2 sm:px-3 rounded-xl transition-all group text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
 									title="Seen"
 								>
 									{selectedItem?.patientId && markingLoading.has(selectedItem.patientId) ? (
 										<Loader2 className="w-5 h-5 animate-spin text-amber-500" />
 									) : (
-										<CheckCircle2
-											className={`w-5 h-5 ${
-												selectedItem?.patientId && seenPatients.has(selectedItem.patientId)
-													? "text-green-500"
-													: "text-amber-500"
-											}`}
-										/>
+										<CheckCircle2 className="w-5 h-5 text-amber-500" />
 									)}
 									<span className="text-xs font-semibold hidden sm:inline">
 										Seen
@@ -683,7 +664,6 @@ export default function DoctorChat() {
 								onSelect={handleSelect}
 								onAction={handlePatientAction}
 								onMarkSeen={handleMarkSeen}
-								seenPatients={seenPatients}
 								markingLoading={markingLoading}
 								isLastAssistant={message.id === lastAssistantId}
 								onRegenerate={handleRegenerate}
