@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
+import { useTheme } from "./contexts/ThemeContext";
 
 // Public Pages
 import LandingPage from "./pages/LandingPage";
@@ -24,9 +25,11 @@ import DoctorChat from "./pages/doctor/DoctorChat";
 import DoctorProtectedRoute from "./components/doctor/DoctorProtectedRoute";
 
 function App() {
+	const { theme } = useTheme();
+
 	return (
 		<BrowserRouter>
-			<Toaster position="top-center" richColors closeButton duration={3000} />
+			<Toaster position="top-center" theme={theme} richColors closeButton duration={3000} />
 			<Routes>
 				{/* Public Routes */}
 				<Route path="/" element={<LandingPage />} />
