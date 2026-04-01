@@ -784,32 +784,43 @@ export default function DoctorChat() {
 					onClick={() => setEncounterModalPatientId(null)}
 				>
 					<div
-						className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 mx-4 w-full max-w-xs animate-in zoom-in-95 duration-200"
+						className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 mx-4 w-full max-w-[280px] animate-in zoom-in-95 duration-200"
 						onClick={(e) => e.stopPropagation()}
 					>
-						<h3 className="text-sm font-bold text-slate-800 dark:text-white text-center mb-1">
-							Visit Type
-						</h3>
-						<p className="text-xs text-slate-500 dark:text-slate-400 text-center mb-5">
-							Is this the first visit or a follow-up?
-						</p>
-						<div className="flex flex-col gap-2.5">
+						<div className="flex items-center justify-center gap-2 mb-4">
+							<Stethoscope className="w-5 h-5 text-blue-500" />
+							<h3 className="text-sm font-bold text-slate-800 dark:text-white">
+								Encounter Type
+							</h3>
+						</div>
+
+						<div className="grid grid-cols-2 gap-3">
 							<button
 								onClick={() => handleEncounterTypeSelected("CONSULT")}
-								className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-md shadow-amber-500/20 hover:from-amber-600 hover:to-orange-600 active:scale-[0.98] transition-all"
+								className="flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 hover:border-amber-400 dark:hover:border-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/40 active:scale-[0.97] transition-all"
 							>
-								Initial Consult
+								<div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center shadow-md shadow-amber-500/30">
+									<span className="text-white text-lg font-bold">C</span>
+								</div>
+								<span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Consult</span>
+								<span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight text-center">First visit</span>
 							</button>
+
 							<button
 								onClick={() => handleEncounterTypeSelected("PROGRESS")}
-								className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-semibold text-sm shadow-md shadow-violet-500/20 hover:from-violet-600 hover:to-purple-600 active:scale-[0.98] transition-all"
+								className="flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-900/20 hover:border-violet-400 dark:hover:border-violet-600 hover:bg-violet-100 dark:hover:bg-violet-900/40 active:scale-[0.97] transition-all"
 							>
-								Follow-Up
+								<div className="w-10 h-10 rounded-full bg-violet-500 flex items-center justify-center shadow-md shadow-violet-500/30">
+									<span className="text-white text-lg font-bold">F</span>
+								</div>
+								<span className="text-xs font-semibold text-violet-700 dark:text-violet-300">Follow-Up</span>
+								<span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight text-center">Daily visit</span>
 							</button>
 						</div>
+
 						<button
 							onClick={() => setEncounterModalPatientId(null)}
-							className="w-full mt-3 py-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+							className="w-full mt-4 py-2 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
 						>
 							Cancel
 						</button>
