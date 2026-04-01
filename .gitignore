@@ -16,4 +16,13 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Claude Code
+.claude/
+
+# Playwright MCP
+.playwright-mcp/
+
+# RPA local state
+hanna-med-ma-rpa/rpa_uuid.json
+
 # Ignorar las carpetas locales de git si se usan submódulos (opcional)
