@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { RawDataType } from "@prisma/client";
 import { PrismaService } from "../core/prisma.service";
+import { nowDate, parseToDate } from "../core/date.util";
 import { PatientSyncService } from "./patient-sync.service";
 import {
   IngestDataDto,
@@ -94,7 +95,7 @@ export class IngestService {
           itemsToProcess.push({
             patientName: p.patient,
             rawText: p.content,
-            extractedAt: new Date(),
+            extractedAt: nowDate(),
           });
         }
       }
@@ -107,8 +108,8 @@ export class IngestService {
           patientName: name,
           rawText: text,
           extractedAt: payload.extractedAt
-            ? new Date(payload.extractedAt)
-            : new Date(),
+            ? parseToDate(payload.extractedAt)
+            : nowDate(),
         });
       } else {
         this.logger.warn(

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { RawDataType } from "@prisma/client";
 import { PrismaService } from "../../core/prisma.service";
-import { formatDateForDisplay } from "../../core/date-format.util";
+import { formatForDisplay } from "../../core/date.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
 import { normalizeName } from "../../core/patient-name.util";
 
@@ -71,7 +71,7 @@ export class PatientLabTool {
       {
         patientName: patient.name,
         hospitalType: hospital_type,
-        extractedAt: formatDateForDisplay(rawData.extractedAt),
+        extractedAt: formatForDisplay(rawData.extractedAt),
         doctorSpecialty: doctorContext.doctorSpecialty,
       },
       specific_question,

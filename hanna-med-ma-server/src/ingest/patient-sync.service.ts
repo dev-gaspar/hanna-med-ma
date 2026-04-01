@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../core/prisma.service";
 import { normalizeName } from "../core/patient-name.util";
+import { nowDate } from "../core/date.util";
 
 @Injectable()
 export class PatientSyncService {
@@ -26,7 +27,7 @@ export class PatientSyncService {
       admittedDate?: string;
     }>,
   ) {
-    const now = new Date();
+    const now = nowDate();
     let upserted = 0;
     let deactivated = 0;
 

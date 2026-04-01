@@ -7,6 +7,7 @@ import {
   BaseMessageChunk,
 } from "@langchain/core/messages";
 import { z } from "zod";
+import { currentTimeForDisplay } from "../../core/date.util";
 import { LangChainModelService } from "../langchain-model.service";
 import { getRouterPrompt } from "../prompts/router.prompt";
 import {
@@ -64,11 +65,7 @@ export class RouterAgent {
     const systemPrompt = getRouterPrompt({
       doctorName: doctorContext.doctorName,
       doctorSpecialty: doctorContext.doctorSpecialty,
-      currentTime: new Date().toLocaleTimeString("en-US", {
-        timeZone: "America/New_York",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      currentTime: currentTimeForDisplay(),
     });
 
     let finalResult = "";

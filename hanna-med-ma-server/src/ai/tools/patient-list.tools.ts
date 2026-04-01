@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
-import { formatDateForDisplay } from "../../core/date-format.util";
+import { formatForDisplay, isWithinLast24Hours } from "../../core/date.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
 
 /** Hospital display labels used for group headers */
@@ -12,14 +12,7 @@ const HOSPITAL_LABELS: Record<string, string> = {
 
 function isNewPatient(admittedDate: string | null): boolean {
   if (!admittedDate) return false;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 86_400_000);
-  // admittedDate is typically "MM/DD" — parse with current year
-  const [mm, dd] = admittedDate.split("/").map(Number);
-  if (!mm || !dd) return false;
-  const admitted = new Date(now.getFullYear(), mm - 1, dd);
-  return admitted >= yesterday && admitted <= now;
+  return isWithinLast24Hours(admittedDate);
 }
 
 @Injectable()
@@ -70,7 +63,7 @@ export class PatientListTool {
       return ts > latest ? ts : latest;
     }, patients[0].doctorLinks[0]?.lastSeenAt || patients[0].updatedAt);
 
-    const lastUpdated = formatDateForDisplay(mostRecentUpdate);
+    const lastUpdated = formatForDisplay(mostRecentUpdate);
 
     // If the doctor asks a specific question, delegate to conversational sub-agent
     if (specific_question) {

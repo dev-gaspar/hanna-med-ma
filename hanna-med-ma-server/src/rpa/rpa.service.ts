@@ -7,7 +7,7 @@ import { CredentialsService } from "../credentials/credentials.service";
 import { RedisService } from "../core/redis.service";
 import { SubAgentsService } from "../ai/agents/sub-agents.service";
 import { FcmService } from "../notifications/fcm.service";
-import { formatDateForDisplay } from "../core/date-format.util";
+import { nowDate, nowISO, deadlineFromNow, formatForDisplay } from "../core/date.util";
 
 const CARETRACKER_INSURANCE_COMPANIES: Record<string, string> = {
 	"0": "SELECT",
@@ -108,7 +108,7 @@ export class RpaService {
 				where: { uuid: dto.uuid },
 				data: {
 					hostname: dto.hostname || existing.hostname,
-					lastSeen: new Date(),
+					lastSeen: nowDate(),
 				},
 				include: { doctor: { select: { id: true, name: true } } },
 			});
@@ -213,7 +213,7 @@ export class RpaService {
 		await this.prisma.rpaNode.update({
 			where: { uuid },
 			data: {
-				lastSeen: new Date(),
+				lastSeen: nowDate(),
 				status: node.doctorId ? "ACTIVE" : node.status,
 			},
 		});
@@ -290,7 +290,7 @@ export class RpaService {
 		const aiOutput =
 			await this.subAgentsService.formatCareTrackerInsurancePayload(
 				latestInsuranceRaw.rawContent,
-				{ extractedAt: formatDateForDisplay(latestInsuranceRaw.extractedAt) },
+				{ extractedAt: formatForDisplay(latestInsuranceRaw.extractedAt) },
 			);
 
 		const payload = this.normalizeCareTrackerPayload(
@@ -312,7 +312,7 @@ export class RpaService {
 		return {
 			accepted: true,
 			patientId,
-			dispatchedAt: new Date().toISOString(),
+			dispatchedAt: nowISO(),
 		};
 	}
 
@@ -335,8 +335,8 @@ export class RpaService {
 				patientId,
 				doctorId,
 				type: encounterType,
-				dateOfService: new Date(),
-				deadline: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h from now
+				dateOfService: nowDate(),
+				deadline: deadlineFromNow(24),
 			},
 		});
 
@@ -389,7 +389,7 @@ export class RpaService {
 				const aiOutput =
 					await this.subAgentsService.formatCareTrackerInsurancePayload(
 						latestInsuranceRaw.rawContent,
-						{ extractedAt: formatDateForDisplay(latestInsuranceRaw.extractedAt) },
+						{ extractedAt: formatForDisplay(latestInsuranceRaw.extractedAt) },
 					);
 
 				const payload = this.normalizeCareTrackerPayload(
@@ -420,7 +420,7 @@ export class RpaService {
 			}
 		} else {
 			this.logger.warn(`[Background RPA] Patient ${patientId} has no INSURANCE raw data. Generating dummy without RPA.`);
-			const emrId = `DUMMY-${patientId}-${Date.now()}`;
+			const emrId = `DUMMY-${patientId}-${nowDate().getTime()}`;
 
 			await this.prisma.patient.update({
 				where: { id: patientId },
@@ -459,13 +459,13 @@ export class RpaService {
 
 		if (success) {
 			if (status === "NOT_FOUND") {
-				emrId = `DRAFT-${patientId}-${Date.now()}`;
+				emrId = `DRAFT-${patientId}-${nowDate().getTime()}`;
 				emrStatus = "REGISTERED";
 			} else if (status === "FOUND_SINGLE" || status === "FOUND_MULTIPLE") {
 				emrId = patient_emr_id || null;
 				emrStatus = "ALREADY_EXISTS";
 			} else {
-				emrId = `DRAFT-${patientId}-${Date.now()}`;
+				emrId = `DRAFT-${patientId}-${nowDate().getTime()}`;
 				emrStatus = "REGISTERED";
 			}
 		}

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
-import { formatDateForDisplay } from "../../core/date-format.util";
+import { formatForDisplay } from "../../core/date.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
 
 /** Hospital display labels */
@@ -59,7 +59,7 @@ export class PatientSeenTool {
 			return e.updatedAt > latest ? e.updatedAt : latest;
 		}, encounters[0].updatedAt);
 
-		const lastUpdated = formatDateForDisplay(mostRecentUpdate);
+		const lastUpdated = formatForDisplay(mostRecentUpdate);
 
 		// If the doctor asks a specific question, delegate to conversational sub-agent
 		if (specific_question) {
@@ -70,8 +70,8 @@ export class PatientSeenTool {
 					encounterType: e.type,
 					billingEmrStatus: e.patient.billingEmrStatus || null,
 					billingEmrPatientId: e.patient.billingEmrPatientId || null,
-					dateOfService: formatDateForDisplay(e.dateOfService),
-					updatedAt: formatDateForDisplay(e.updatedAt),
+					dateOfService: formatForDisplay(e.dateOfService),
+					updatedAt: formatForDisplay(e.updatedAt),
 				})),
 			);
 			return this.subAgents.formatSeenPatientList(
@@ -97,7 +97,7 @@ export class PatientSeenTool {
 				name: e.patient.name,
 				billingEmrStatus: e.patient.billingEmrStatus || null,
 				billingEmrPatientId: e.patient.billingEmrPatientId || null,
-				seenAt: formatDateForDisplay(e.dateOfService),
+				seenAt: formatForDisplay(e.dateOfService),
 			})),
 		}));
 

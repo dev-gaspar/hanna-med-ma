@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import * as admin from "firebase-admin";
 import * as path from "path";
 import * as fs from "fs";
+import { nowDate } from "../core/date.util";
 import { PrismaService } from "../core/prisma.service";
 
 @Injectable()
@@ -109,7 +110,7 @@ export class FcmService implements OnModuleInit {
       update: {
         doctorId,
         isActive: true,
-        updatedAt: new Date(),
+        updatedAt: nowDate(),
       },
       create: {
         doctorId,
