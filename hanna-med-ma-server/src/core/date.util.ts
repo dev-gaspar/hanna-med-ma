@@ -5,9 +5,10 @@
  * Conversion to display timezone only happens in `formatForDisplay()`.
  */
 
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
+/* eslint-disable @typescript-eslint/no-var-requires */
+const dayjs = require("dayjs");
+const utc = require("dayjs/plugin/utc");
+const timezone = require("dayjs/plugin/timezone");
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -16,14 +17,7 @@ dayjs.extend(timezone);
 const DISPLAY_TIMEZONE = "America/New_York";
 
 /**
- * Get the current time in UTC.
- */
-export function now(): dayjs.Dayjs {
-  return dayjs.utc();
-}
-
-/**
- * Get the current time as a JS Date (UTC).
+ * Get the current time in UTC as a JS Date.
  */
 export function nowDate(): Date {
   return dayjs.utc().toDate();
@@ -44,14 +38,7 @@ export function deadlineFromNow(hours: number): Date {
 }
 
 /**
- * Parse a date (string, Date, or number) into a dayjs UTC instance.
- */
-export function parse(input: string | Date | number): dayjs.Dayjs {
-  return dayjs.utc(input);
-}
-
-/**
- * Parse a date and return as JS Date (UTC).
+ * Parse a date (string, Date, or number) and return as JS Date (UTC).
  */
 export function parseToDate(input: string | Date | number): Date {
   return dayjs.utc(input).toDate();
@@ -61,10 +48,8 @@ export function parseToDate(input: string | Date | number): Date {
  * Format a date for user-facing display in the application timezone.
  * Example output: "Jan 1, 2026, 1:05 PM"
  */
-export function formatForDisplay(date: Date | dayjs.Dayjs): string {
-  return dayjs.utc(date instanceof Date ? date : date.toDate())
-    .tz(DISPLAY_TIMEZONE)
-    .format("MMM D, YYYY, h:mm A");
+export function formatForDisplay(date: Date): string {
+  return dayjs.utc(date).tz(DISPLAY_TIMEZONE).format("MMM D, YYYY, h:mm A");
 }
 
 /**
@@ -93,14 +78,14 @@ export function isWithinLast24Hours(admittedDate: string): boolean {
 
   const nowInTz = dayjs.utc().tz(DISPLAY_TIMEZONE);
   const year = nowInTz.year();
-  const admitted = dayjs.tz(`${year}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`, DISPLAY_TIMEZONE);
+  const admitted = dayjs.tz(
+    `${year}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`,
+    DISPLAY_TIMEZONE,
+  );
   const yesterday = nowInTz.subtract(1, "day").startOf("day");
 
   return admitted.isAfter(yesterday) && admitted.isBefore(nowInTz.add(1, "day"));
 }
-
-/** Re-export dayjs for edge cases where direct access is needed */
-export { dayjs };
 
 /** The display timezone constant for reference */
 export const TIMEZONE = DISPLAY_TIMEZONE;
