@@ -27,8 +27,6 @@ import {
 	FlaskConical,
 	Check,
 	CheckCircle2,
-	ClipboardPlus,
-	ClipboardList,
 } from "lucide-react";
 import ThemeToggle from "../../components/ThemeToggle";
 import { MessageItem } from "./MessageItem";
@@ -60,6 +58,9 @@ export default function DoctorChat() {
 	// Mark Seen State (tracked by patient DB id)
 	const [seenPatients, setSeenPatients] = useState<Set<number>>(new Set());
 	const [markingLoading, setMarkingLoading] = useState<Set<number>>(new Set());
+
+	// Encounter Type Modal
+	const [encounterModalPatientId, setEncounterModalPatientId] = useState<number | null>(null);
 
 	// UI States
 	const [isReady, setIsReady] = useState(false);
@@ -141,7 +142,15 @@ export default function DoctorChat() {
 		}, 1000);
 	}, [selectedItem, copyToClipboard]);
 
-	const handleMarkSeen = async (patientId: number, encounterType: "CONSULT" | "PROGRESS" = "CONSULT") => {
+	const handleMarkSeen = (patientId: number) => {
+		setEncounterModalPatientId(patientId);
+	};
+
+	const handleEncounterTypeSelected = async (encounterType: "CONSULT" | "PROGRESS") => {
+		const patientId = encounterModalPatientId;
+		setEncounterModalPatientId(null);
+		if (!patientId) return;
+
 		try {
 			setMarkingLoading((prev) => new Set(prev).add(patientId));
 
@@ -543,38 +552,36 @@ export default function DoctorChat() {
 									</span>
 								</button>
 
-								{/* Mark Seen Buttons (Consult / Follow-Up) */}
-								{selectedItem?.patientId && markingLoading.has(selectedItem.patientId) ? (
-									<div className="flex items-center gap-2 p-2 sm:px-3">
+								{/* Mark Seen Button */}
+								<button
+									onClick={() => handleMarkSeen(selectedItem?.patientId!)}
+									disabled={
+										!selectedItem?.patientId ||
+										seenPatients.has(selectedItem?.patientId!) ||
+										markingLoading.has(selectedItem?.patientId!)
+									}
+									className={`flex items-center gap-2 p-2 sm:px-3 rounded-xl transition-all group ${
+										selectedItem?.patientId && seenPatients.has(selectedItem.patientId)
+											? "text-green-500 cursor-default"
+											: "text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+									}`}
+									title="Seen"
+								>
+									{selectedItem?.patientId && markingLoading.has(selectedItem.patientId) ? (
 										<Loader2 className="w-5 h-5 animate-spin text-amber-500" />
-									</div>
-								) : selectedItem?.patientId && seenPatients.has(selectedItem.patientId) ? (
-									<div className="flex items-center gap-2 p-2 sm:px-3 text-green-500 cursor-default">
-										<CheckCircle2 className="w-5 h-5" />
-										<span className="text-xs font-semibold hidden sm:inline">Seen</span>
-									</div>
-								) : (
-									<>
-										<button
-											onClick={() => handleMarkSeen(selectedItem?.patientId!, "CONSULT")}
-											disabled={!selectedItem?.patientId}
-											className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
-											title="Consult (first visit)"
-										>
-											<ClipboardPlus className="w-5 h-5 text-amber-500" />
-											<span className="text-xs font-semibold hidden sm:inline">Consult</span>
-										</button>
-										<button
-											onClick={() => handleMarkSeen(selectedItem?.patientId!, "PROGRESS")}
-											disabled={!selectedItem?.patientId}
-											className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:text-violet-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
-											title="Progress (follow-up)"
-										>
-											<ClipboardList className="w-5 h-5 text-violet-500" />
-											<span className="text-xs font-semibold hidden sm:inline">F/Up</span>
-										</button>
-									</>
-								)}
+									) : (
+										<CheckCircle2
+											className={`w-5 h-5 ${
+												selectedItem?.patientId && seenPatients.has(selectedItem.patientId)
+													? "text-green-500"
+													: "text-amber-500"
+											}`}
+										/>
+									)}
+									<span className="text-xs font-semibold hidden sm:inline">
+										Seen
+									</span>
+								</button>
 							</>
 						)}
 
@@ -769,6 +776,46 @@ export default function DoctorChat() {
 					</div>
 				</div>
 			</main>
+
+			{/* Encounter Type Modal */}
+			{encounterModalPatientId !== null && (
+				<div
+					className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+					onClick={() => setEncounterModalPatientId(null)}
+				>
+					<div
+						className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 mx-4 w-full max-w-xs animate-in zoom-in-95 duration-200"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<h3 className="text-sm font-bold text-slate-800 dark:text-white text-center mb-1">
+							Visit Type
+						</h3>
+						<p className="text-xs text-slate-500 dark:text-slate-400 text-center mb-5">
+							Is this the first visit or a follow-up?
+						</p>
+						<div className="flex flex-col gap-2.5">
+							<button
+								onClick={() => handleEncounterTypeSelected("CONSULT")}
+								className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-md shadow-amber-500/20 hover:from-amber-600 hover:to-orange-600 active:scale-[0.98] transition-all"
+							>
+								Initial Consult
+							</button>
+							<button
+								onClick={() => handleEncounterTypeSelected("PROGRESS")}
+								className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-semibold text-sm shadow-md shadow-violet-500/20 hover:from-violet-600 hover:to-purple-600 active:scale-[0.98] transition-all"
+							>
+								Progress Note
+							</button>
+						</div>
+						<button
+							onClick={() => setEncounterModalPatientId(null)}
+							className="w-full mt-3 py-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+						>
+							Cancel
+						</button>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

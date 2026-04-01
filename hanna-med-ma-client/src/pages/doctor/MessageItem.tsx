@@ -13,7 +13,7 @@ interface MessageItemProps {
 		action: "summary" | "insurance" | "lab",
 		patientName: string,
 	) => void;
-	onMarkSeen?: (patientId: number, encounterType: "CONSULT" | "PROGRESS") => void;
+	onMarkSeen?: (patientId: number) => void;
 	seenPatients?: Set<number>;
 	markingLoading?: Set<number>;
 	isLastAssistant?: boolean;
