@@ -804,7 +804,7 @@ export default function DoctorChat() {
 								onClick={() => handleEncounterTypeSelected("PROGRESS")}
 								className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-semibold text-sm shadow-md shadow-violet-500/20 hover:from-violet-600 hover:to-purple-600 active:scale-[0.98] transition-all"
 							>
-								Progress Note
+								Follow-Up
 							</button>
 						</div>
 						<button
