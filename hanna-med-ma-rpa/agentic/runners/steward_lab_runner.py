@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import pyautogui
+
 from config import config
 from core.rpa_engine import RPABotBase
 from core.vdi_input import stoppable_sleep
@@ -310,6 +312,17 @@ class StewardLabRunner:
         logger.info(f"[LAB-RUNNER] Clicked patient element {element_id}")
 
         self.rpa.stoppable_sleep(3)
+
+        # Check for confidentiality modal
+        confidential_img = config.get_rpa_setting("images.steward_yes_btn_modal_confidential")
+        try:
+            modal = pyautogui.locateOnScreen(confidential_img, confidence=0.7)
+            if modal:
+                logger.info("[LAB-RUNNER] Confidentiality modal detected - clicking Yes")
+                pyautogui.click(modal)
+                self.rpa.stoppable_sleep(2)
+        except Exception:
+            pass
 
     def _build_scroll_state(
         self,

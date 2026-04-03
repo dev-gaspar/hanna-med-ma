@@ -379,6 +379,13 @@ class StewardFlow(BaseFlow):
         else:
             logger.info("[SIGN LIST] No Warning modal detected - continuing")
 
+    def _handle_confidential_modal(self, location):
+        """Dismiss the patient confidentiality modal by clicking Yes."""
+        logger.info("[MODAL] Confidentiality modal detected - clicking Yes...")
+        self.safe_click(location, "Yes (Confidential)")
+        stoppable_sleep(2)
+        logger.info("[MODAL] Confidentiality modal dismissed")
+
     def _handle_sign_list_modal_no(self, location):
         """Handler for the 'Items to be signed' Yes/No modal.
 
@@ -411,6 +418,7 @@ class StewardFlow(BaseFlow):
         - steward_sign_list_no_btn: The Yes/No modal → click 'No'
         - steward_sign_list: The Sign List page → close + leave now
         - steward_sign_list_obstacle: The Sign List page (alt) → close + leave now
+        - steward_yes_btn_modal_confidential: Confidentiality modal → click 'Yes'
         """
         return {
             config.get_rpa_setting("images.steward_sign_list_no_btn"): (
@@ -424,6 +432,10 @@ class StewardFlow(BaseFlow):
             config.get_rpa_setting("images.steward_sign_list_obstacle"): (
                 "Sign List Obstacle",
                 self._handle_sign_list_popup,
+            ),
+            config.get_rpa_setting("images.steward_yes_btn_modal_confidential"): (
+                "Confidentiality Modal",
+                self._handle_confidential_modal,
             ),
         }
 

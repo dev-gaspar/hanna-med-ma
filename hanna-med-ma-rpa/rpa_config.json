@@ -6,7 +6,7 @@
 	"skip_batch_insurance": false,
 	"skip_batch_lab": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": [],
+	"disabled_emr_types": ["JACKSON", "BAPTIST"],
 	"screen_resolution": "1024x768",
 	"available_resolutions": ["1024x768"],
 	"aws": {
@@ -188,7 +188,8 @@
 		"steward_print_ico": "images/{resolution}/steward/print_ico.png",
 		"steward_save_btn": "images/{resolution}/steward/save_btn.png",
 		"steward_select_all": "images/{resolution}/steward/select_all.png",
-		"steward_lab_no_result": "images/{resolution}/steward/lab_no_result.png"
+		"steward_lab_no_result": "images/{resolution}/steward/lab_no_result.png",
+		"steward_yes_btn_modal_confidential": "images/{resolution}/steward/yes_btn_modal_confidential.png"
 	},
 	"timeouts": {
 		"default": 60,

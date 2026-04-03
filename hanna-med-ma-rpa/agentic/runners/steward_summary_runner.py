@@ -393,6 +393,17 @@ class StewardSummaryRunner:
         logger.info(f"[RUNNER] Clicked patient element {element_id}")
         self.rpa.stoppable_sleep(3)  # Wait for patient selection to register
 
+        # Check for confidentiality modal
+        confidential_img = config.get_rpa_setting("images.steward_yes_btn_modal_confidential")
+        try:
+            modal = pyautogui.locateOnScreen(confidential_img, confidence=0.7)
+            if modal:
+                logger.info("[RUNNER] Confidentiality modal detected - clicking Yes")
+                pyautogui.click(modal)
+                self.rpa.stoppable_sleep(2)
+        except Exception:
+            pass
+
         # Step 2: Click Orders button (using wait_for_element for robustness)
         self.current_step += 1
         orders_image = config.get_rpa_setting("images.steward_orders_btn")
