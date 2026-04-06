@@ -123,6 +123,9 @@ a = Analysis(
         'playwright.sync_api',
         # Redis
         'redis',
+        # AWS S3
+        'boto3',
+        'botocore',
     ],
     hookspath=[],
     hooksconfig={},
