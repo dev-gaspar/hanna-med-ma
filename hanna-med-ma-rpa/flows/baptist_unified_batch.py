@@ -102,6 +102,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         self.insurance_results = []
         self.lab_results = []
         self._current_insurance_file_key = None
+        self._current_patient_name = None
 
         # Also setup the internal Baptist flow reference
         self._baptist_flow.setup(
@@ -221,6 +222,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
             lab_content = None
             patient_found = False
             self._current_insurance_file_key = None
+            self._current_patient_name = patient
 
             try:
                 # Step A: Find patient + navigate to report
@@ -987,7 +989,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                 logger.warning("[BAPTIST-UNIFIED] Insurance PDF not found or empty, skipping S3 upload")
                 return
 
-            patient_name = (self.current_patient or "unknown").replace(",", "").replace(" ", "_").lower()
+            patient_name = (self._current_patient_name or "unknown").replace(",", "").replace(" ", "_").lower()
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             s3_key = f"baptist/insurance/{patient_name}_{timestamp}.pdf"
 
