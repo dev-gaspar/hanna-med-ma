@@ -993,8 +993,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             s3_key = f"baptist/insurance/{patient_name}_{timestamp}.pdf"
 
-            with open(pdf_path, "rb") as f:
-                self.s3_client.upload_image(f, s3_key)
+            self.s3_client.upload_pdf(pdf_path, s3_key)
 
             self._current_insurance_file_key = s3_key
             logger.info(f"[BAPTIST-UNIFIED] Insurance PDF uploaded to S3: {s3_key}")
