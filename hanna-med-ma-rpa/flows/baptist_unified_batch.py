@@ -101,6 +101,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         self.summary_results = []
         self.insurance_results = []
         self.lab_results = []
+        self._current_insurance_file_key = None
 
         # Also setup the internal Baptist flow reference
         self._baptist_flow.setup(
@@ -219,6 +220,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
             insurance_content = None
             lab_content = None
             patient_found = False
+            self._current_insurance_file_key = None
 
             try:
                 # Step A: Find patient + navigate to report
@@ -349,6 +351,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                     "patient": patient,
                     "found": patient_found,
                     "content": insurance_content,
+                    "file": self._current_insurance_file_key,
                 }
             )
             self.lab_results.append(
@@ -799,8 +802,13 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         pydirectinput.press("enter")
         stoppable_sleep(5)
 
-        # Step 8: Extract text from PDF
-        return self._extract_pdf_content(self.PDF_INSURANCE_FILENAME, "insurance")
+        # Step 8: Extract text from PDF and upload to S3
+        content = self._extract_pdf_content(self.PDF_INSURANCE_FILENAME, "insurance")
+
+        # Upload PDF to S3
+        self._upload_insurance_pdf_to_s3()
+
+        return content
 
     # ------------------------------------------------------------------
     # Lab Extraction  (Results Review → Group → Print PDF → extract text)
@@ -968,6 +976,29 @@ class BaptistUnifiedBatchFlow(BaseFlow):
             return f"[ERROR] PyPDF2 not installed ({label})"
         except Exception as e:
             return f"[ERROR] PDF extraction failed ({label}): {e}"
+
+    def _upload_insurance_pdf_to_s3(self):
+        """Upload the insurance PDF to S3 and store the key on the current patient."""
+        try:
+            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            pdf_path = os.path.join(desktop_path, self.PDF_INSURANCE_FILENAME)
+
+            if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
+                logger.warning("[BAPTIST-UNIFIED] Insurance PDF not found or empty, skipping S3 upload")
+                return
+
+            patient_name = (self.current_patient or "unknown").replace(",", "").replace(" ", "_").lower()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            s3_key = f"baptist/insurance/{patient_name}_{timestamp}.pdf"
+
+            with open(pdf_path, "rb") as f:
+                self.s3_client.upload_image(f, s3_key)
+
+            self._current_insurance_file_key = s3_key
+            logger.info(f"[BAPTIST-UNIFIED] Insurance PDF uploaded to S3: {s3_key}")
+        except Exception as e:
+            logger.warning(f"[BAPTIST-UNIFIED] S3 upload failed for insurance PDF: {e}")
+            self._current_insurance_file_key = None
 
     # ------------------------------------------------------------------
     # Return to Patient List

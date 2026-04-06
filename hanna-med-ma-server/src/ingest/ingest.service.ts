@@ -81,6 +81,7 @@ export class IngestService {
       patientName: string;
       rawText: string;
       extractedAt: Date;
+      file?: string;
     }
 
     const itemsToProcess: ProcessItem[] = [];
@@ -96,6 +97,7 @@ export class IngestService {
             patientName: p.patient,
             rawText: p.content,
             extractedAt: nowDate(),
+            file: p.file || undefined,
           });
         }
       }
@@ -155,6 +157,7 @@ export class IngestService {
           data: {
             rawContent: item.rawText,
             extractedAt: item.extractedAt,
+            ...(item.file !== undefined && { file: item.file }),
           },
         });
       } else {
@@ -164,6 +167,7 @@ export class IngestService {
             dataType,
             rawContent: item.rawText,
             extractedAt: item.extractedAt,
+            ...(item.file !== undefined && { file: item.file }),
           },
         });
       }

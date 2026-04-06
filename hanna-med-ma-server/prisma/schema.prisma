@@ -263,6 +263,7 @@ model PatientRawData {
   patientId   Int
   dataType    RawDataType
   rawContent  String      @db.Text
+  file        String?
   extractedAt DateTime
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
