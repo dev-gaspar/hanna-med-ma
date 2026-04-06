@@ -651,6 +651,73 @@ def fill_registration(
     return filled
 
 
+def _save_registration(host: Page) -> bool:
+    """Click the Save button to persist the new patient registration."""
+    save_selectors = [
+        "#btnHtmlSave",
+        "input[name='btnHtmlSave']",
+        "#ctl00_MainContent_ucPatientDetail_dlPatient_ctl00_btnSave",
+    ]
+    if CareTrackerBrowser.click_first(host, save_selectors):
+        logger.info("[CARETRACKER] Save button clicked")
+        return True
+
+    # Fallback: try JavaScript click
+    for frame in host.frames:
+        try:
+            ok = frame.evaluate(
+                """
+                () => {
+                    const btn = document.getElementById('btnHtmlSave');
+                    if (btn) { btn.click(); return true; }
+                    return false;
+                }
+                """
+            )
+            if ok:
+                logger.info("[CARETRACKER] Save button clicked (JS fallback)")
+                return True
+        except Exception:
+            continue
+
+    logger.warning("[CARETRACKER] Save button not found")
+    return False
+
+
+def _extract_chart_id(page: Page, timeout_ms: int = 15000) -> str | None:
+    """
+    Extract the Chart # from the patient-area after save + page reload.
+    Looks for the #lblNameInfo element containing 'Chart #NNNN'.
+    """
+    try:
+        page.wait_for_selector("#lblNameInfo", timeout=timeout_ms)
+    except PlaywrightTimeoutError:
+        logger.warning("[CARETRACKER] #lblNameInfo not found after save")
+
+    # Try extracting from the top-level page and all frames
+    for target in [page] + page.frames:
+        try:
+            chart_id = target.evaluate(
+                """
+                () => {
+                    const el = document.getElementById('lblNameInfo');
+                    if (!el) return null;
+                    const text = el.textContent || el.innerText || '';
+                    const match = text.match(/Chart\\s*#\\s*(\\d+)/i);
+                    return match ? match[1] : null;
+                }
+                """
+            )
+            if chart_id:
+                logger.info(f"[CARETRACKER] Extracted Chart ID: {chart_id}")
+                return str(chart_id)
+        except Exception:
+            continue
+
+    logger.warning("[CARETRACKER] Could not extract Chart ID from page")
+    return None
+
+
 def run_registration_draft(
     page: Page,
     payload: PatientRegistrationPayload,
@@ -662,4 +729,45 @@ def run_registration_draft(
         "success": True,
         "filled_fields": filled,
         "registration_host_is_popup": host != page,
+    }
+
+
+def run_registration_and_save(
+    page: Page,
+    payload: PatientRegistrationPayload,
+    include_insurance: bool,
+) -> Dict[str, Any]:
+    """Fill registration form, save it, and extract the Chart ID."""
+    host = open_registration_form(page)
+    is_popup = host != page
+    filled = fill_registration(host, payload, include_insurance=include_insurance)
+
+    saved = _save_registration(host)
+    filled["save_clicked"] = saved
+
+    chart_id = None
+    if saved:
+        logger.info("[CARETRACKER] Save clicked, waiting 5s for page reload...")
+        try:
+            # host may be a popup that closes after save — use page as fallback
+            host.wait_for_timeout(5000)
+        except Exception:
+            logger.info("[CARETRACKER] Popup closed after save, waiting on main page...")
+            page.wait_for_timeout(5000)
+
+        logger.info("[CARETRACKER] Attempting to extract Chart ID...")
+        chart_id = _extract_chart_id(page)
+        if chart_id:
+            logger.info(f"[CARETRACKER] Registration complete — Chart ID: {chart_id}")
+        else:
+            logger.warning("[CARETRACKER] Save succeeded but Chart ID not found")
+    else:
+        logger.warning("[CARETRACKER] Save was not clicked, skipping Chart ID extraction")
+
+    return {
+        "success": saved,
+        "filled_fields": filled,
+        "registration_host_is_popup": is_popup,
+        "saved": saved,
+        "patient_emr_id": chart_id,
     }

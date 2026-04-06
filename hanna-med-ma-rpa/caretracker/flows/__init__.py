@@ -4,6 +4,7 @@ from .registration import (
     fill_registration,
     open_registration_form,
     run_registration_draft,
+    run_registration_and_save,
 )
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "open_registration_form",
     "fill_registration",
     "run_registration_draft",
+    "run_registration_and_save",
 ]

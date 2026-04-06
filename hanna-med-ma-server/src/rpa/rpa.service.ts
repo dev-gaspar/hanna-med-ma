@@ -458,15 +458,13 @@ export class RpaService {
 		let emrId: string | null = null;
 
 		if (success) {
+			emrId = patient_emr_id || null;
 			if (status === "NOT_FOUND") {
-				emrId = `DRAFT-${patientId}-${nowDate().getTime()}`;
-				emrStatus = "REGISTERED";
+				emrStatus = emrId ? "REGISTERED" : "FAILED";
 			} else if (status === "FOUND_SINGLE" || status === "FOUND_MULTIPLE") {
-				emrId = patient_emr_id || null;
 				emrStatus = "ALREADY_EXISTS";
 			} else {
-				emrId = `DRAFT-${patientId}-${nowDate().getTime()}`;
-				emrStatus = "REGISTERED";
+				emrStatus = emrId ? "REGISTERED" : "FAILED";
 			}
 		}
 

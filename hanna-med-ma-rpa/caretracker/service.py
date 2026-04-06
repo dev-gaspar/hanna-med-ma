@@ -11,6 +11,7 @@ from .fixtures import CARETRACKER_CREDENTIALS
 from .flows import (
     close_search_modal,
     run_login,
+    run_registration_and_save,
     run_registration_draft,
     run_search,
 )
@@ -75,23 +76,23 @@ def _execute_registration_on_open_page(
     logger.info("[CARETRACKER] Patient NOT_FOUND. Opening registration form...")
     close_search_modal(page, page)
     include_insurance = len(payload.insurance_periods) > 0
-    draft = run_registration_draft(
+    result = run_registration_and_save(
         page,
         payload,
         include_insurance=include_insurance,
     )
     page.screenshot(path=str(screenshot), full_page=True)
-    logger.info("[CARETRACKER] Waiting 10s after registration fill...")
-    page.wait_for_timeout(REGISTRATION_REVIEW_WAIT_MS)
+    chart_id = result.get("patient_emr_id")
     return {
-        "success": draft.get("success", False),
-        "message": "Formulario completado en borrador (sin guardar).",
+        "success": result.get("success", False),
+        "message": f"Patient registered (Chart #{chart_id})" if chart_id else "Registration saved but Chart ID not extracted",
         "include_insurance": include_insurance,
         "insurance_period_count": len(payload.insurance_periods),
         "status": "NOT_FOUND",
-        "filled_fields": draft.get("filled_fields", {}),
+        "filled_fields": result.get("filled_fields", {}),
         "screenshot": str(screenshot),
-        "saved": False,
+        "saved": result.get("saved", False),
+        "patient_emr_id": chart_id,
     }
 
 

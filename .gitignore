@@ -3,6 +3,8 @@
 Thumbs.db
 
 # Entornos y editores
+.venv*/
+venv/
 .vscode/
 .idea/
 *.suo
