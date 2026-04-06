@@ -7,6 +7,14 @@
 	"skip_batch_lab": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
 	"disabled_emr_types": [],
+	"smart_extraction": {
+		"enabled": true,
+		"rules": {
+			"summary": "if_missing",
+			"insurance": "if_missing",
+			"lab": "always"
+		}
+	},
 	"screen_resolution": "1024x768",
 	"available_resolutions": ["1024x768"],
 	"aws": {

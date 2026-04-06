@@ -503,6 +503,54 @@ export class RpaService {
 	}
 
 	/**
+	 * Returns data availability status for all active patients of the doctor
+	 * assigned to the given RPA node. Used for smart extraction filtering.
+	 */
+	async getPatientDataStatus(
+		uuid: string,
+		emrSystem: string,
+	): Promise<Record<string, { summary: boolean; insurance: boolean; lab: boolean }>> {
+		const node = await this.prisma.rpaNode.findUnique({
+			where: { uuid },
+			select: { doctorId: true },
+		});
+
+		if (!node?.doctorId) {
+			throw new NotFoundException(`RPA node ${uuid} not found or not assigned`);
+		}
+
+		const doctorPatients = await this.prisma.doctorPatient.findMany({
+			where: {
+				doctorId: node.doctorId,
+				isActive: true,
+				patient: { emrSystem: emrSystem as any },
+			},
+			include: {
+				patient: {
+					include: {
+						rawData: {
+							select: { dataType: true },
+						},
+					},
+				},
+			},
+		});
+
+		const result: Record<string, { summary: boolean; insurance: boolean; lab: boolean }> = {};
+
+		for (const dp of doctorPatients) {
+			const types = new Set(dp.patient.rawData.map((r) => r.dataType));
+			result[dp.patient.name] = {
+				summary: types.has(RawDataType.SUMMARY),
+				insurance: types.has(RawDataType.INSURANCE),
+				lab: types.has(RawDataType.LAB),
+			};
+		}
+
+		return result;
+	}
+
+	/**
 	 * Returns the IDs of all patients that have encounters with the given doctor.
 	 */
 	async getSeenPatientIds(doctorId: number): Promise<number[]> {
