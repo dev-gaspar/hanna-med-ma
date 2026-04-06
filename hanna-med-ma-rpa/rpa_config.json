@@ -6,7 +6,7 @@
 	"skip_batch_insurance": false,
 	"skip_batch_lab": true,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": [],
+	"disabled_emr_types": ["STEWARD", "JACKSON"],
 	"screen_resolution": "1024x768",
 	"available_resolutions": ["1024x768"],
 	"aws": {
