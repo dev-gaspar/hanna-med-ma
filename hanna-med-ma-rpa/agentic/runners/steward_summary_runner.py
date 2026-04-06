@@ -113,33 +113,49 @@ class StewardSummaryRunner:
         logger.info("=" * 70)
 
         try:
-            # === PHASE 2: Find Patient (with scroll support) ===
-            logger.info("[RUNNER] Phase 2: Finding patient in list...")
-            patient_result, phase2_elements = self._phase2_find_patient_with_scroll(
-                patient_name
-            )
-
-            if patient_result.status == "not_found" or patient_result.status == "error":
-                logger.warning("[RUNNER] Patient not found in list")
-                return RunnerResult(
-                    status=AgentStatus.PATIENT_NOT_FOUND,
-                    execution_id=self.execution_id,
-                    steps_taken=self.current_step,
-                    error=f"Patient '{patient_name}' not found in Rounds Patients list",
-                    history=self.history,
-                    patient_detail_open=False,
+            # === PHASE 2 + 3: Find Patient and Open Orders (with retry) ===
+            MAX_SELECT_RETRIES = 2
+            for select_attempt in range(MAX_SELECT_RETRIES + 1):
+                # === PHASE 2: Find Patient (with scroll support) ===
+                logger.info("[RUNNER] Phase 2: Finding patient in list...")
+                patient_result, phase2_elements = self._phase2_find_patient_with_scroll(
+                    patient_name
                 )
 
-            patient_element_id = patient_result.target_id
-            logger.info(
-                f"[RUNNER] Phase 2 complete - Patient at element {patient_element_id}"
-            )
+                if patient_result.status == "not_found" or patient_result.status == "error":
+                    logger.warning("[RUNNER] Patient not found in list")
+                    return RunnerResult(
+                        status=AgentStatus.PATIENT_NOT_FOUND,
+                        execution_id=self.execution_id,
+                        steps_taken=self.current_step,
+                        error=f"Patient '{patient_name}' not found in Rounds Patients list",
+                        history=self.history,
+                        patient_detail_open=False,
+                    )
 
-            # === PHASE 3: Click Patient + Click Orders (RPA) ===
-            logger.info("[RUNNER] Phase 3: Clicking patient and opening Orders...")
-            self._phase3_click_patient_and_orders(patient_element_id, phase2_elements)
-            patient_detail_opened = True
-            logger.info("[RUNNER] Phase 3 complete - Orders view open")
+                patient_element_id = patient_result.target_id
+                logger.info(
+                    f"[RUNNER] Phase 2 complete - Patient at element {patient_element_id}"
+                )
+
+                # === PHASE 3: Click Patient + Click Orders (RPA) ===
+                logger.info("[RUNNER] Phase 3: Clicking patient and opening Orders...")
+                phase3_result = self._phase3_click_patient_and_orders(
+                    patient_element_id, phase2_elements
+                )
+
+                if phase3_result == "success":
+                    patient_detail_opened = True
+                    logger.info("[RUNNER] Phase 3 complete - Orders view open")
+                    break
+                elif phase3_result == "no_patient_selected" and select_attempt < MAX_SELECT_RETRIES:
+                    logger.warning(
+                        f"[RUNNER] Patient not selected, retrying Phase 2+3 "
+                        f"({select_attempt + 1}/{MAX_SELECT_RETRIES})..."
+                    )
+                    continue
+                else:
+                    raise Exception("Orders view not visible after clicking Orders button")
 
             # === PHASE 4: Find Reason For Consult (Agent) ===
             logger.info("[RUNNER] Phase 4: Finding Reason For Consult...")
@@ -427,10 +443,12 @@ class StewardSummaryRunner:
         # Step 3: Wait for Orders view to load and verify it's visible
         self.current_step += 1
         orders_view_image = config.get_rpa_setting("images.steward_orders_view")
+        no_patient_image = config.get_rpa_setting("images.steward_no_patient_selected")
         logger.info(f"[RUNNER] Waiting for Orders view: {orders_view_image}")
 
         max_wait = 10  # Max seconds to wait
         for attempt in range(max_wait):
+            # Check for Orders view
             try:
                 location = pyautogui.locateOnScreen(orders_view_image, confidence=0.8)
                 if location:
@@ -438,9 +456,32 @@ class StewardSummaryRunner:
                         "rpa", "verify_orders_view", "Orders view confirmed visible"
                     )
                     logger.info("[RUNNER] Orders view confirmed visible")
-                    return
+                    return "success"
             except Exception:
                 pass
+
+            # Check for "No patient selected" modal
+            try:
+                modal_location = pyautogui.locateOnScreen(
+                    no_patient_image, confidence=0.8
+                )
+                if modal_location:
+                    logger.warning(
+                        "[RUNNER] 'No patient selected' modal detected - "
+                        "clicking OK to dismiss"
+                    )
+                    self._record_step(
+                        "rpa",
+                        "no_patient_selected",
+                        "Modal detected - patient was not selected correctly",
+                    )
+                    # Click OK button to dismiss modal
+                    pyautogui.click(pyautogui.center(modal_location))
+                    self.rpa.stoppable_sleep(2)
+                    return "no_patient_selected"
+            except Exception:
+                pass
+
             self.rpa.stoppable_sleep(1)
             logger.info(
                 f"[RUNNER] Waiting for Orders view... ({attempt + 1}/{max_wait})"

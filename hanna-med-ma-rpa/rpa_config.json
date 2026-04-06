@@ -189,7 +189,8 @@
 		"steward_save_btn": "images/{resolution}/steward/save_btn.png",
 		"steward_select_all": "images/{resolution}/steward/select_all.png",
 		"steward_lab_no_result": "images/{resolution}/steward/lab_no_result.png",
-		"steward_yes_btn_modal_confidential": "images/{resolution}/steward/yes_btn_modal_confidential.png"
+		"steward_yes_btn_modal_confidential": "images/{resolution}/steward/yes_btn_modal_confidential.png",
+		"steward_no_patient_selected": "images/{resolution}/steward/no_patient_selected.png"
 	},
 	"timeouts": {
 		"default": 60,
