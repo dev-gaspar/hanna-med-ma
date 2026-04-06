@@ -12,6 +12,7 @@ import { RpaModule } from "./rpa/rpa.module";
 import { IngestModule } from "./ingest/ingest.module";
 import { AiModule } from "./ai/ai.module";
 import { RedisModule } from "./core/redis.module";
+import { S3Module } from "./core/s3.module";
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { RedisModule } from "./core/redis.module";
     IngestModule,
     AiModule,
     RedisModule,
+    S3Module,
   ],
   controllers: [],
   providers: [],

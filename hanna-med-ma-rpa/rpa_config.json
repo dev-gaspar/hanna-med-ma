@@ -12,9 +12,8 @@
 	"aws": {
 		"access_key_id": "${AWS_ACCESS_KEY_ID}",
 		"secret_access_key": "${AWS_SECRET_ACCESS_KEY}",
-		"bucket_name": "answer-clinic-dev",
-		"region": "us-east-1",
-		"s3_prefix": "hanna-med-ma"
+		"bucket_name": "hannamed-ma",
+		"region": "us-east-2"
 	},
 	"hospitals": [
 		{

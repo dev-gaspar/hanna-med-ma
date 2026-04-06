@@ -23,7 +23,6 @@ class S3Client:
         self.secret_key = config.get_rpa_setting("aws.secret_access_key")
         self.bucket_name = config.get_rpa_setting("aws.bucket_name")
         self.region = config.get_rpa_setting("aws.region")
-        self.s3_prefix = config.get_rpa_setting("aws.s3_prefix", "baptist-health")
         self._client = None
 
     def _get_client(self):
