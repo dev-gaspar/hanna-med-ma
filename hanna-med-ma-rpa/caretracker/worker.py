@@ -79,7 +79,7 @@ def handle_caretracker_task(task_data: dict):
         search_query_data = raw_payload.get("search_query")
 
         # Execute registration flow in visual mode (Playwright)
-        result = run_registration(payload=payload, search_query_data=search_query_data, headless=False)
+        result = run_registration(payload=payload, search_query_data=search_query_data, headless=True)
         
         # Publish result to backend
         send_caretracker_result(patient_id, result)
