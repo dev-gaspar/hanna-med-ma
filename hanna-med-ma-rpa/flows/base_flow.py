@@ -316,20 +316,22 @@ class BaseFlow(RPABotBase, ABC):
             return None
 
     def _capture_error_screenshot(self, timestamp):
-        """Capture screenshot on error and upload to S3."""
-        from core.s3_client import get_s3_client
+        """Capture screenshot on error and try to upload to S3. Returns URL or None."""
+        try:
+            from core.s3_client import get_s3_client
 
-        s3_client = get_s3_client()
-        img_buffer = s3_client.take_screenshot()
+            s3_client = get_s3_client()
+            img_buffer = s3_client.take_screenshot()
 
-        # Generate error screenshot filename
-        failed_step = rpa_state.get("current_step", "unknown_step")
-        filename = f"{self.FLOW_TYPE}/{self.doctor_id or 'unknown'}/error_{failed_step}_{timestamp}.png"
+            failed_step = rpa_state.get("current_step", "unknown_step")
+            filename = f"{self.FLOW_TYPE}/{self.doctor_id or 'unknown'}/error_{failed_step}_{timestamp}.png"
 
-        s3_client.upload_image(img_buffer, filename)
-        screenshot_url = s3_client.generate_presigned_url(filename)
-
-        return screenshot_url
+            s3_client.upload_image(img_buffer, filename)
+            screenshot_url = s3_client.generate_presigned_url(filename)
+            return screenshot_url
+        except Exception as e:
+            logger.warning(f"[ERROR] S3 upload failed for error screenshot: {e}")
+            return None
 
     # =========================================================================
     # Fullscreen Toggle Methods (EMR-agnostic)

@@ -16,7 +16,6 @@ import pydirectinput
 import requests
 
 from config import config
-from core.s3_client import get_s3_client
 from core.vdi_input import stoppable_sleep, type_with_clipboard
 from logger import logger
 
@@ -54,7 +53,6 @@ class JacksonSummaryFlow(BaseFlow):
 
     def __init__(self):
         super().__init__()
-        self.s3_client = get_s3_client()
         self.patient_name: Optional[str] = None
         self.copied_content: Optional[str] = None
 

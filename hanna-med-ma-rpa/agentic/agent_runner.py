@@ -62,7 +62,7 @@ class AgentRunner:
         max_steps: int = 50,
         step_delay: float = 2.0,
         request_timeout: float = 120.0,
-        upload_screenshots: bool = True,
+        upload_screenshots: bool = False,
     ):
         """
         Initialize the agent runner.

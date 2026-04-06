@@ -462,11 +462,10 @@ class JacksonUnifiedBatchFlow(BaseFlow):
         rois = self._get_rois("patient_finder")
 
         # Capture screenshot with ROI mask (no enhancement for Jackson)
-        screenshot_data = self.s3_client.capture_screenshot_with_processing(
+        screenshot_data = self.s3_client.capture_screenshot_locally(
             "South Florida Foot And Ankle Institut",
             "Hospital_1",
             1,
-            self.doctor_id or "unknown",
             rois=rois,
             enhance=False,
         )

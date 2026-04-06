@@ -14,6 +14,7 @@ import uuid
 import json
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -814,7 +815,11 @@ class RpaNode:
                 from core.s3_client import get_s3_client
 
                 s3 = get_s3_client()
-                screenshot_url = s3.take_screenshot()
+                img_buffer = s3.take_screenshot()
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"errors/{self.uuid}/{hospital_type}_{timestamp}.png"
+                s3.upload_image(img_buffer, filename)
+                screenshot_url = s3.generate_presigned_url(filename)
             except Exception:
                 pass
 

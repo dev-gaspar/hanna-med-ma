@@ -640,13 +640,12 @@ class BaptistFlow(BaseFlow):
                     continue
 
             # Capture screenshot (already in fullscreen)
-            screenshot_data = self.s3_client.capture_screenshot_with_processing(
+            screenshot_data = self.s3_client.capture_screenshot_locally(
                 hospital_full_name,
                 display_name,
                 hospital_index,
-                self.doctor_id or "unknown",
                 rois=rois,
-                enhance=True,  # Baptist: mask + VDI enhancement
+                enhance=True,
             )
             screenshot_data["display_name"] = display_name
             screenshots.append(screenshot_data)
