@@ -103,6 +103,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
         self.lab_results = []
         self._current_insurance_file_key = None
         self._current_patient_name = None
+        self._data_status = kwargs.get("data_status", {})
 
         # Also setup the internal Baptist flow reference
         self._baptist_flow.setup(
@@ -224,10 +225,48 @@ class BaptistUnifiedBatchFlow(BaseFlow):
             self._current_insurance_file_key = None
             self._current_patient_name = patient
 
+            # Per-patient smart skip based on existing data
+            patient_data = self._data_status.get(patient, {})
+            smart_config = config.get_rpa_setting("smart_extraction", {})
+            smart_enabled = smart_config.get("enabled", False)
+            smart_rules = smart_config.get("rules", {})
+
+            skip_summary_smart = (
+                smart_enabled
+                and smart_rules.get("summary") == "if_missing"
+                and patient_data.get("summary", False)
+            )
+            skip_insurance_smart = (
+                smart_enabled
+                and smart_rules.get("insurance") == "if_missing"
+                and patient_data.get("insurance", False)
+            )
+
+            patient_skip_summary = skip_summaries or skip_summary_smart
+            patient_skip_insurance = skip_insurance or skip_insurance_smart
+
+            if skip_summary_smart or skip_insurance_smart:
+                skipped = []
+                if skip_summary_smart:
+                    skipped.append("summary")
+                if skip_insurance_smart:
+                    skipped.append("insurance")
+                logger.info(
+                    f"[SMART] {patient}: skipping {', '.join(skipped)} (already have data)"
+                )
+
+            # If all data types are skipped for this patient, skip entirely
+            if patient_skip_summary and patient_skip_insurance and skip_lab:
+                logger.info(f"[SMART] {patient}: all data types skipped, moving to next")
+                self.summary_results.append({"patient": patient, "found": False, "content": None})
+                self.insurance_results.append({"patient": patient, "found": False, "content": None, "file": None})
+                self.lab_results.append({"patient": patient, "found": False, "content": None})
+                continue
+
             try:
                 # Step A: Find patient + navigate to report
                 # Only navigate to Notes/Report if summaries are needed
-                need_report = not skip_summaries
+                need_report = not patient_skip_summary
                 runner_result = self._find_patient_and_report(
                     patient, need_report=need_report
                 )
@@ -238,7 +277,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                     self._patient_detail_open = True
 
                     # Step B: Extract summary via PDF
-                    if not skip_summaries:
+                    if not patient_skip_summary:
                         summary_content = self._extract_summary()
                         logger.info(
                             f"[BAPTIST-UNIFIED] Summary extracted for {patient}"
@@ -247,7 +286,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                         logger.info(f"[BAPTIST-UNIFIED] Summary SKIPPED for {patient}")
 
                     # Step C: Navigate to Face Sheet and extract insurance
-                    if not skip_insurance:
+                    if not patient_skip_insurance:
                         try:
                             self._navigate_to_face_sheet()
                             insurance_content = self._extract_insurance()
@@ -299,7 +338,7 @@ class BaptistUnifiedBatchFlow(BaseFlow):
                         "trying insurance/lab anyway..."
                     )
 
-                    if not skip_insurance:
+                    if not patient_skip_insurance:
                         try:
                             self._navigate_to_face_sheet()
                             insurance_content = self._extract_insurance()

@@ -65,6 +65,8 @@ class RpaNode:
         # Stores patient names per hospital after patient_list extraction
         # Used to pass to batch summary/insurance flows
         self._last_patient_names: dict[str, list[str]] = {}
+        # Cached data status per hospital (refreshed once per extraction cycle)
+        self._data_status_cache: dict[str, dict] = {}
 
     def register(self) -> bool:
         """Register this RPA node with the backend."""
@@ -202,6 +204,7 @@ class RpaNode:
             # Refresh config and heartbeat at the start of each cycle
             self._fetch_config()
             self.send_heartbeat()
+            self._data_status_cache.clear()
 
             if not self.hospital_configs:
                 logger.info("No hospital configs found. Waiting 60s...")
@@ -425,12 +428,16 @@ class RpaNode:
 
         creds = self._get_credentials_for(hospital_type)
 
+        # Smart extraction: fetch data status for per-patient skip decisions
+        data_status = self._get_patient_data_status(hospital_type)
+
         result = flow.run(
             doctor_id=self.doctor_id,
             doctor_name=self.doctor_name,
             credentials=creds,
             doctor_specialty=self.doctor_specialty,
             hospital_type=hospital_type,
+            data_status=data_status,
         )
 
         if result and isinstance(result, dict):
@@ -471,6 +478,13 @@ class RpaNode:
                 f"No patient names available for {hospital_type} batch summaries. "
                 "Skipping — patient list may have failed or returned no patients."
             )
+            return
+
+        # Smart extraction: filter patients that already have summaries
+        data_status = self._get_patient_data_status(hospital_type)
+        patient_names = self._filter_patients(patient_names, data_status, "summary")
+        if not patient_names:
+            logger.info(f"[SMART] All patients already have summaries for {hospital_type}. Skipping batch.")
             return
 
         logger.info(
@@ -545,6 +559,13 @@ class RpaNode:
             )
             return
 
+        # Smart extraction: filter patients that already have insurance
+        data_status = self._get_patient_data_status(hospital_type)
+        patient_names = self._filter_patients(patient_names, data_status, "insurance")
+        if not patient_names:
+            logger.info(f"[SMART] All patients already have insurance for {hospital_type}. Skipping batch.")
+            return
+
         logger.info(
             f"Batch insurance: processing {len(patient_names)} patients for {hospital_type}"
         )
@@ -617,6 +638,13 @@ class RpaNode:
                 f"No patient names available for {hospital_type} batch lab. "
                 "Skipping — patient list may have failed or returned no patients."
             )
+            return
+
+        # Smart extraction: filter patients based on lab rules
+        data_status = self._get_patient_data_status(hospital_type)
+        patient_names = self._filter_patients(patient_names, data_status, "lab")
+        if not patient_names:
+            logger.info(f"[SMART] All patients already have lab for {hospital_type}. Skipping batch.")
             return
 
         logger.info(
@@ -700,6 +728,117 @@ class RpaNode:
                 )
         except Exception as e:
             logger.error(f"Send error: {e}")
+
+    def _get_patient_data_status(self, hospital_type: str) -> dict:
+        """
+        Query backend for existing data status of all active patients.
+        Cached per hospital per extraction cycle. Falls back to empty dict on error.
+        """
+        if hospital_type in self._data_status_cache:
+            return self._data_status_cache[hospital_type]
+
+        try:
+            response = requests.get(
+                f"{self.backend_url}/rpa/{self.uuid}/patients/data-status",
+                params={"emrSystem": hospital_type},
+                timeout=15,
+            )
+            if response.status_code == 200:
+                status = response.json()
+                logger.info(
+                    f"[SMART] Data status received for {len(status)} patients in {hospital_type}"
+                )
+                self._data_status_cache[hospital_type] = status
+                return status
+            else:
+                logger.warning(
+                    f"[SMART] Backend returned {response.status_code}, falling back to full extraction"
+                )
+                return {}
+        except Exception as e:
+            logger.warning(f"[SMART] Could not fetch data status: {e}, falling back to full extraction")
+            return {}
+
+    def _filter_patients(
+        self, patient_names: list, data_status: dict, data_type: str
+    ) -> list:
+        """
+        Filter patient list based on smart extraction rules.
+        data_type: "summary", "insurance", or "lab"
+        """
+        smart_config = config.get_rpa_setting("smart_extraction", {})
+        if not smart_config.get("enabled", False):
+            return patient_names
+
+        rule = smart_config.get("rules", {}).get(data_type, "always")
+
+        if rule == "always":
+            logger.info(
+                f"[SMART] {data_type.capitalize()}: processing all {len(patient_names)} patients (rule: always)"
+            )
+            return patient_names
+
+        if rule == "if_missing":
+            needed = []
+            skipped = []
+            for name in patient_names:
+                patient_status = data_status.get(name, {})
+                if patient_status.get(data_type, False):
+                    skipped.append(name)
+                else:
+                    needed.append(name)
+
+            if skipped:
+                logger.info(
+                    f"[SMART] {data_type.capitalize()}: skipping {len(skipped)} patients "
+                    f"(already have data), processing {len(needed)}"
+                )
+            else:
+                logger.info(
+                    f"[SMART] {data_type.capitalize()}: processing all {len(needed)} patients "
+                    f"(none have data yet)"
+                )
+            return needed
+
+        logger.warning(f"[SMART] Unknown rule '{rule}' for {data_type}, processing all")
+        return patient_names
+
+    def _build_per_patient_skip_flags(
+        self, patient_names: list, data_status: dict
+    ) -> dict:
+        """
+        Build per-patient skip flags for unified batch flows.
+        Returns: { "PATIENT NAME": { "skip_summary": True, "skip_insurance": False, "skip_lab": False } }
+        """
+        smart_config = config.get_rpa_setting("smart_extraction", {})
+        if not smart_config.get("enabled", False):
+            return {}
+
+        rules = smart_config.get("rules", {})
+        flags = {}
+
+        for name in patient_names:
+            patient_status = data_status.get(name, {})
+            patient_flags = {}
+            for data_type in ("summary", "insurance", "lab"):
+                rule = rules.get(data_type, "always")
+                if rule == "if_missing" and patient_status.get(data_type, False):
+                    patient_flags[f"skip_{data_type}"] = True
+                else:
+                    patient_flags[f"skip_{data_type}"] = False
+            flags[name] = patient_flags
+
+        skipped_summary = sum(1 for f in flags.values() if f.get("skip_summary"))
+        skipped_insurance = sum(1 for f in flags.values() if f.get("skip_insurance"))
+        total = len(patient_names)
+
+        if skipped_summary or skipped_insurance:
+            logger.info(
+                f"[SMART] Per-patient flags: {skipped_summary}/{total} skip summary, "
+                f"{skipped_insurance}/{total} skip insurance"
+            )
+
+        return flags
 
     def _report_error(self, hospital_type: str, error_message: str):
         """Report an error to the backend."""

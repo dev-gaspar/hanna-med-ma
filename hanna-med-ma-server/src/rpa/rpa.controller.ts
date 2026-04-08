@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  Query,
   ParseIntPipe,
   UseGuards,
   Request,
@@ -13,6 +14,7 @@ import {
   ApiTags,
   ApiOperation,
   ApiResponse,
+  ApiQuery,
   ApiBody,
   ApiParam,
   ApiBearerAuth,
@@ -150,6 +152,23 @@ export class RpaController {
     const encounterType = body?.encounterType || "CONSULT";
     return this.rpaService.markPatientAsSeen(patientId, doctorId, encounterType);
   }
+
+  @Get(":uuid/patients/data-status")
+  @ApiOperation({
+    summary: "Get data availability status for all active patients",
+    description:
+      "Returns which data types (summary, insurance, lab) each patient already has. Used by RPA for smart extraction.",
+  })
+  @ApiParam({ name: "uuid", type: "string" })
+  @ApiQuery({ name: "emrSystem", required: true })
+  @ApiResponse({ status: 200, description: "Patient data status map" })
+  async getPatientDataStatus(
+    @Param("uuid") uuid: string,
+    @Query("emrSystem") emrSystem: string,
+  ) {
+    return this.rpaService.getPatientDataStatus(uuid, emrSystem);
+  }
+
   @Get("patients/seen")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth("JWT-auth")
