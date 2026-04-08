@@ -21,6 +21,7 @@ import requests
 
 from core.redis_consumer import RedisConsumer
 from caretracker.worker import handle_caretracker_task
+from billing.worker import get_billing_worker
 
 from config import config
 
@@ -165,16 +166,29 @@ class RpaNode:
             logger.warning(f"Heartbeat failed: {e}")
 
     def start_redis_listener(self):
-        """Start the Redis listener in a background thread."""
-        logger.info("Initializing Redis Consumer...")
+        """Start Redis listeners in background threads."""
+        logger.info("Initializing Redis Consumers...")
+
+        # CareTracker queue (Playwright headless — runs in parallel)
         self._redis_consumer = RedisConsumer()
-        
-        def run_listener():
+        def run_caretracker_listener():
             self._redis_consumer.listen("caretracker:tasks", handle_caretracker_task)
-            
-        self._redis_thread = threading.Thread(target=run_listener, daemon=True, name="RedisListener")
+        self._redis_thread = threading.Thread(
+            target=run_caretracker_listener, daemon=True, name="CareTrackerListener"
+        )
         self._redis_thread.start()
-        logger.info("Redis listener thread started.")
+        logger.info("CareTracker Redis listener started.")
+
+        # Billing note search queue (enqueues for processing between cycles)
+        self._billing_consumer = RedisConsumer()
+        billing_worker = get_billing_worker()
+        def run_billing_listener():
+            self._billing_consumer.listen("billing:note-search", billing_worker.enqueue_task)
+        self._billing_thread = threading.Thread(
+            target=run_billing_listener, daemon=True, name="BillingNoteListener"
+        )
+        self._billing_thread.start()
+        logger.info("Billing note Redis listener started.")
 
     def run_extraction_loop(self):
         """
@@ -312,6 +326,9 @@ class RpaNode:
                 if not check_should_stop():
                     time.sleep(5)
 
+            # Process billing note tasks between cycles
+            self._process_billing_queue()
+
             # Wait before next full cycle
             interval = config.get_rpa_setting("extraction_interval_seconds", 3600)
             logger.info(
@@ -320,6 +337,11 @@ class RpaNode:
             for _ in range(interval):
                 if check_should_stop():
                     break
+                # Check for new billing tasks during wait
+                billing_worker = get_billing_worker()
+                if billing_worker.has_pending_tasks():
+                    logger.info("[BILLING] New tasks detected during wait, processing...")
+                    self._process_billing_queue()
                 time.sleep(1)
 
     def _run_task(
@@ -728,6 +750,25 @@ class RpaNode:
                 )
         except Exception as e:
             logger.error(f"Send error: {e}")
+
+    def _process_billing_queue(self):
+        """Process pending billing note search tasks between extraction cycles."""
+        billing_worker = get_billing_worker()
+        pending = billing_worker.pending_count()
+
+        if pending == 0:
+            return
+
+        logger.info(f"[BILLING] Processing {pending} pending note search task(s)...")
+
+        while billing_worker.has_pending_tasks():
+            from core.rpa_engine import check_should_stop
+
+            if check_should_stop():
+                break
+            billing_worker.process_next_task()
+
+        logger.info("[BILLING] Billing queue processing complete.")
 
     def _get_patient_data_status(self, hospital_type: str) -> dict:
         """

@@ -109,6 +109,13 @@ a = Analysis(
         'caretracker.flows.login',
         'caretracker.flows.search',
         'caretracker.flows.registration',
+        # Billing (note search)
+        'billing',
+        'billing.worker',
+        'billing.baptist_note_flow',
+        # Agentic (note finder + runner)
+        'agentic.emr.baptist.note_finder',
+        'agentic.runners.baptist_note_runner',
         # Runtime libs that may be missed
         'httpx',
         'httpcore',

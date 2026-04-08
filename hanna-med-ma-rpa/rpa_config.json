@@ -1,10 +1,10 @@
 {
 	"extraction_interval_seconds": 3600,
 	"task_timeout_seconds": 7200,
-	"skip_patient_list": false,
-	"skip_batch_summaries": false,
-	"skip_batch_insurance": false,
-	"skip_batch_lab": false,
+	"skip_patient_list": true,
+	"skip_batch_summaries": true,
+	"skip_batch_insurance": true,
+	"skip_batch_lab": true,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
 	"disabled_emr_types": [],
 	"smart_extraction": {

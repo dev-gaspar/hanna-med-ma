@@ -230,6 +230,14 @@ enum EncounterType {
   PROGRESS  // Follow-up visits — Progress Note
 }
 
+enum NoteStatus {
+  PENDING     // Waiting for RPA to search
+  SEARCHING   // RPA is actively searching
+  FOUND       // Note found and uploaded to S3
+  NOT_FOUND   // Not found after all retries
+  FAILED      // Error during search
+}
+
 model Encounter {
   id              Int           @id @default(autoincrement())
   patientId       Int
@@ -239,6 +247,9 @@ model Encounter {
   deadline        DateTime?     // 24h window for clinical note collection
   faceSheetUrl    String?
   providerNoteUrl String?
+  noteFile        String?       // S3 key of the provider note PDF
+  noteStatus      NoteStatus    @default(PENDING)
+  noteRetries     Int           @default(0)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

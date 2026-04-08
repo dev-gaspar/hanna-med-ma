@@ -178,4 +178,31 @@ export class RpaController {
     const doctorId = req.user.userId;
     return this.rpaService.getSeenPatientIds(doctorId);
   }
+
+  @Patch("encounters/:encounterId/note")
+  @ApiOperation({
+    summary: "Update encounter with provider note file from RPA",
+    description:
+      "Called by RPA after finding and uploading the provider note to S3.",
+  })
+  @ApiParam({ name: "encounterId", type: "number" })
+  @ApiResponse({ status: 200, description: "Encounter note updated" })
+  async updateEncounterNote(
+    @Param("encounterId", ParseIntPipe) encounterId: number,
+    @Body() body: { noteFile?: string; noteStatus: string; noteRetries?: number },
+  ) {
+    return this.rpaService.updateEncounterNote(encounterId, body);
+  }
+
+  @Get(":uuid/encounters/pending-notes")
+  @ApiOperation({
+    summary: "Get encounters pending note search",
+    description:
+      "Returns encounters with noteStatus=PENDING and deadline not expired. Used by RPA to know which notes to search.",
+  })
+  @ApiParam({ name: "uuid", type: "string" })
+  @ApiResponse({ status: 200, description: "List of pending encounters" })
+  async getPendingNoteEncounters(@Param("uuid") uuid: string) {
+    return this.rpaService.getPendingNoteEncounters(uuid);
+  }
 }

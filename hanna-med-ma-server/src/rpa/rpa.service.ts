@@ -560,6 +560,91 @@ export class RpaService {
 		return encounters.map((e) => e.patientId);
 	}
 
+	/**
+	 * Update encounter with provider note info from RPA.
+	 */
+	async updateEncounterNote(
+		encounterId: number,
+		data: { noteFile?: string; noteStatus: string; noteRetries?: number },
+	) {
+		const encounter = await this.prisma.encounter.findUnique({
+			where: { id: encounterId },
+		});
+
+		if (!encounter) {
+			throw new NotFoundException(`Encounter ${encounterId} not found`);
+		}
+
+		const updated = await this.prisma.encounter.update({
+			where: { id: encounterId },
+			data: {
+				...(data.noteFile !== undefined && { noteFile: data.noteFile }),
+				noteStatus: data.noteStatus as any,
+				...(data.noteRetries !== undefined && { noteRetries: data.noteRetries }),
+			},
+		});
+
+		this.logger.log(
+			`Encounter ${encounterId} note updated: status=${data.noteStatus}, file=${data.noteFile || "none"}`,
+		);
+
+		return { success: true, encounterId, noteStatus: updated.noteStatus };
+	}
+
+	/**
+	 * Get encounters that need provider note search.
+	 * Returns PENDING encounters with deadline not yet expired.
+	 */
+	async getPendingNoteEncounters(uuid: string) {
+		const node = await this.prisma.rpaNode.findUnique({
+			where: { uuid },
+			select: { doctorId: true },
+		});
+
+		if (!node?.doctorId) {
+			throw new NotFoundException(`RPA node ${uuid} not found or not assigned`);
+		}
+
+		const encounters = await this.prisma.encounter.findMany({
+			where: {
+				doctorId: node.doctorId,
+				noteStatus: "PENDING",
+				deadline: { gt: nowDate() },
+			},
+			include: {
+				patient: {
+					select: {
+						id: true,
+						name: true,
+						emrSystem: true,
+					},
+				},
+				doctor: {
+					select: {
+						id: true,
+						name: true,
+						specialty: true,
+					},
+				},
+			},
+			orderBy: { createdAt: "asc" },
+		});
+
+		return encounters.map((e) => ({
+			encounterId: e.id,
+			patientId: e.patient.id,
+			patientName: e.patient.name,
+			emrSystem: e.patient.emrSystem,
+			doctorId: e.doctor.id,
+			doctorName: e.doctor.name,
+			doctorSpecialty: e.doctor.specialty,
+			encounterType: e.type,
+			dateOfService: e.dateOfService,
+			deadline: e.deadline,
+			noteRetries: e.noteRetries,
+		}));
+	}
+
 	private parseCareTrackerJson(raw: string): unknown {
 		const trimmed = raw.trim();
 
