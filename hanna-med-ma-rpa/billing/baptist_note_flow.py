@@ -165,15 +165,28 @@ class BaptistNoteFlow:
     def _navigate_to_patient_list(self) -> bool:
         """Login to Baptist EMR and navigate to patient list."""
         try:
-            self._baptist_flow.step_1_click_vdi_desktop()
-            self._baptist_flow.step_2_click_horizon()
-            self._baptist_flow.step_3_open_horizon()
-            self._baptist_flow.step_4_enter_username()
-            self._baptist_flow.step_5_enter_password()
-            self._baptist_flow.step_6_login()
-            self._baptist_flow.step_7_click_patient_list()
-            self._baptist_flow.step_8_click_hospital_tab()
+            self._baptist_flow.step_1_open_vdi_desktop()
+            self._baptist_flow.step_2_open_edge()
+            self._baptist_flow.step_3_wait_pineapple_connect()
+            self._baptist_flow.step_4_open_menu()
+            self._baptist_flow.step_5_scroll_modal()
+            self._baptist_flow.step_6_click_cerner()
+            self._baptist_flow.step_7_wait_cerner_login()
+            self._baptist_flow.step_8_click_favorites()
+            self._baptist_flow.step_9_click_powerchart()
+            self._baptist_flow.step_10_wait_powerchart_open()
+
+            # Click patient list button
+            patient_list_btn = self._baptist_flow.wait_for_element(
+                config.get_rpa_setting("images.patient_list"),
+                timeout=10,
+                description="Patient List button",
+                auto_click=True,
+            )
+            if not patient_list_btn:
+                raise Exception("Patient List button not found")
             stoppable_sleep(3)
+
             logger.info("[NOTE-FLOW] Patient list visible")
             return True
         except Exception as e:
