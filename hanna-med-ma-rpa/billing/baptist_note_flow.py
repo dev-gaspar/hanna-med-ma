@@ -265,18 +265,19 @@ class BaptistNoteFlow:
             pass
 
     def _extract_note_content(self) -> Optional[str]:
-        """Extract note content by printing to PDF and reading it."""
-        try:
-            # Click on report document to focus it
-            report_img = config.get_rpa_setting("images.baptist_report_document")
-            location = self.rpa.wait_for_element(
-                report_img, timeout=10, description="Report Document"
-            )
-            if location:
-                self.rpa.safe_click(location, "Report Document")
-            stoppable_sleep(2)
+        """Extract note content by printing to PDF and reading it.
 
-            # Print to PDF
+        The NoteFinder agent has already selected and auto-opened the target
+        document in the right pane (via nav_down). We MUST NOT click the
+        'Report' link here — that link opens the patient's DEFAULT report
+        (usually the most recent admission H&P), which overrides the agent's
+        selection and prints the wrong document.
+
+        Instead, click directly on the print button, which prints whatever is
+        currently shown in the right pane.
+        """
+        try:
+            # Print directly from the currently-displayed note
             print_img = config.get_rpa_setting("images.baptist_print_powerchart")
             location = self.rpa.wait_for_element(
                 print_img, timeout=10, description="Print PowerChart"
