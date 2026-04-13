@@ -36,7 +36,16 @@ A clinical note written by **{doctor_name}** ({doctor_specialty}) on or near
   - Partial OCR of the name (e.g. "Han..." — use reasoning to confirm)
 - Notes from the doctor may also be split across variants of their name
   (with credentials like "DPM", "MD", etc.). Check carefully.
-- Use **scroll_down / scroll_up** to find the folder if it's not visible.
+
+**Navigation inside Phase A (choose the right tool):**
+- If the current view could contain the folder (near it alphabetically) →
+  use **scroll_down / scroll_up** to inspect nearby rows.
+- **If after 2 scrolls you have not reached the doctor's alphabetical
+  section**, use **press_key** with the first letter of the doctor's LAST NAME
+  (e.g. `key="H"` for "Hanna"). The tree will jump directly to the first
+  folder starting with that letter. This is much faster than scrolling from
+  A through the whole tree. After the jump, continue with small scrolls if
+  needed to find the exact folder.
 - Once you SEE the folder → use **dblclick** on its row to expand it.
 
 ### Phase B — Navigate documents inside the folder
@@ -74,6 +83,7 @@ For each document shown in the right pane, look for:
 
 1. **Folders vs documents**:
    - scroll_down/scroll_up → find FOLDERS (Phase A)
+   - press_key → jump to alphabetical section in Phase A (use LAST-NAME letter)
    - dblclick → expand a folder (Phase A, once folder is visible)
    - nav_down/nav_up → navigate DOCUMENTS inside an open folder (Phase B)
 
@@ -138,6 +148,7 @@ class NoteFinderResult(BaseModel):
             "nav_down",
             "scroll_up",
             "scroll_down",
+            "press_key",
             "wait",
         ]
     ] = Field(default=None, description="Action to execute")
@@ -146,6 +157,10 @@ class NoteFinderResult(BaseModel):
     )
     repeat: Optional[int] = Field(
         default=1, description="Repeat count for scroll/nav (1-5)"
+    )
+    key: Optional[str] = Field(
+        default=None,
+        description="Single letter for press_key action (e.g. 'H' for Hanna)",
     )
     reasoning: str = Field(
         description="Phase X: What I see → What I'm doing → Why"
@@ -219,9 +234,20 @@ class NoteFinderAgent(BaseAgent):
     def _detect_loop_from_text(self, history: str) -> str:
         if not history:
             return "No loop detected."
-        nav_down_count = history.lower().count("nav_down")
-        nav_up_count = history.lower().count("nav_up")
-        scroll_count = history.lower().count("scroll")
+        lowered = history.lower()
+        nav_down_count = lowered.count("nav_down")
+        nav_up_count = lowered.count("nav_up")
+        scroll_down_count = lowered.count("scroll_down")
+        scroll_up_count = lowered.count("scroll_up")
+        scroll_count = scroll_down_count + scroll_up_count
+        press_key_count = lowered.count("press_key")
+
+        if scroll_count >= 2 and press_key_count == 0:
+            return (
+                f"WARNING: You have scrolled {scroll_count} times without finding "
+                "the doctor's folder. STOP scrolling and use press_key with the "
+                "first letter of the doctor's LAST NAME to jump to that section."
+            )
         if nav_down_count >= 3 and scroll_count == 0:
             return (
                 f"WARNING: You have used nav_down {nav_down_count} times without scrolling. "

@@ -72,50 +72,31 @@ class BillingNoteWorker:
         )
 
         try:
-            # Update encounter status to SEARCHING
-            self._update_encounter(encounter_id, {
-                "noteStatus": "SEARCHING",
-                "noteRetries": attempt,
-            })
-
             # Execute the note search flow
             result = self._execute_note_search(task)
 
             if result.get("success") and result.get("s3_key"):
-                # Note found and uploaded
+                # Note found and uploaded — set providerNote on the encounter
                 self._update_encounter(encounter_id, {
-                    "noteFile": result["s3_key"],
-                    "noteStatus": "FOUND",
-                    "noteRetries": attempt,
+                    "providerNote": result["s3_key"],
                 })
                 logger.info(
                     f"[BILLING] Note found for encounter {encounter_id}: {result['s3_key']}"
                 )
+            elif attempt < max_attempts:
+                # Re-enqueue for another attempt
+                task["attempt"] = attempt + 1
+                with self._lock:
+                    self._queue.append(task)
+                logger.info(
+                    f"[BILLING] Note not found for encounter {encounter_id}, "
+                    f"re-enqueued for attempt {attempt + 1}/{max_attempts}"
+                )
             else:
-                # Note not found this attempt
-                if attempt < max_attempts:
-                    # Re-enqueue for retry
-                    task["attempt"] = attempt + 1
-                    with self._lock:
-                        self._queue.append(task)
-                    logger.info(
-                        f"[BILLING] Note not found for encounter {encounter_id}, "
-                        f"re-enqueued for attempt {attempt + 1}/{max_attempts}"
-                    )
-                    self._update_encounter(encounter_id, {
-                        "noteStatus": "PENDING",
-                        "noteRetries": attempt,
-                    })
-                else:
-                    # Max retries exhausted
-                    self._update_encounter(encounter_id, {
-                        "noteStatus": "NOT_FOUND",
-                        "noteRetries": attempt,
-                    })
-                    logger.warning(
-                        f"[BILLING] Note not found after {max_attempts} attempts "
-                        f"for encounter {encounter_id}"
-                    )
+                logger.warning(
+                    f"[BILLING] Note not found after {max_attempts} attempts "
+                    f"for encounter {encounter_id}"
+                )
 
         except Exception as e:
             logger.error(
@@ -126,15 +107,6 @@ class BillingNoteWorker:
                 task["attempt"] = attempt + 1
                 with self._lock:
                     self._queue.append(task)
-                self._update_encounter(encounter_id, {
-                    "noteStatus": "PENDING",
-                    "noteRetries": attempt,
-                })
-            else:
-                self._update_encounter(encounter_id, {
-                    "noteStatus": "FAILED",
-                    "noteRetries": attempt,
-                })
 
     def _execute_note_search(self, task: dict) -> dict:
         """Execute the Baptist note search flow."""
@@ -179,7 +151,7 @@ class BillingNoteWorker:
         )
 
     def _update_encounter(self, encounter_id: int, data: dict):
-        """Update encounter note status on the backend."""
+        """Update encounter providerNote on the backend."""
         if not encounter_id:
             return
 
@@ -189,7 +161,7 @@ class BillingNoteWorker:
 
             if response.status_code in (200, 201):
                 logger.info(
-                    f"[BILLING] Encounter {encounter_id} updated: {data.get('noteStatus')}"
+                    f"[BILLING] Encounter {encounter_id} updated: providerNote={data.get('providerNote')}"
                 )
             else:
                 logger.error(

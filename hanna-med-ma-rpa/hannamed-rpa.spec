@@ -113,8 +113,9 @@ a = Analysis(
         'billing',
         'billing.worker',
         'billing.baptist_note_flow',
-        # Agentic (note finder + runner)
+        # Agentic (note finder + validator + runner)
         'agentic.emr.baptist.note_finder',
+        'agentic.emr.baptist.note_validator',
         'agentic.runners.baptist_note_runner',
         # Runtime libs that may be missed
         'httpx',

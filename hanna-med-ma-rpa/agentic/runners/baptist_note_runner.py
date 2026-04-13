@@ -518,15 +518,82 @@ class BaptistNoteRunner:
                 return False
 
             repeat = getattr(result, "repeat", 1) or 1
-            self._execute_action(result.action, result.target_id, elements, repeat=repeat)
+            key = getattr(result, "key", None)
+            self._execute_action(
+                result.action, result.target_id, elements, repeat=repeat, key=key
+            )
 
             self.rpa.stoppable_sleep(self.step_delay)
 
         logger.warning("[NOTE-RUNNER] Max steps reached without finding note")
         return False
 
+    def continue_search(self) -> NoteRunnerResult:
+        """
+        Resume the note search after a validation failure.
+
+        The previous agent run marked a document as "finished" but the
+        validator rejected it (wrong doctor or wrong date). We assume the
+        screen is still on the notes view with the wrong document focused
+        in the right pane. Strategy:
+          1. nav_down once to move past the wrong document
+          2. Extend the step budget so the agent has room to keep searching
+          3. Resume Phase 3 loop
+
+        Returns a NoteRunnerResult reflecting the next match (or error).
+        """
+        logger.info("=" * 70)
+        logger.info(" BAPTIST NOTE RUNNER - CONTINUE SEARCH")
+        logger.info(f" Current step: {self.current_step}/{self.max_steps}")
+        logger.info("=" * 70)
+
+        try:
+            logger.info("[NOTE-RUNNER] Advancing past rejected document (nav_down)")
+            tools.nav_down(times=1)
+            self.rpa.stoppable_sleep(2)
+            self.rpa.check_stop()
+
+            self.max_steps += 10
+            logger.info(f"[NOTE-RUNNER] Step budget extended to {self.max_steps}")
+
+            note_found = self._phase3_find_note()
+
+            if not note_found:
+                return NoteRunnerResult(
+                    status=AgentStatus.ERROR,
+                    execution_id=self.execution_id,
+                    steps_taken=self.current_step,
+                    error="No further matching note found after validation retry",
+                    history=self.history,
+                    patient_detail_open=True,
+                )
+
+            return NoteRunnerResult(
+                status=AgentStatus.FINISHED,
+                execution_id=self.execution_id,
+                steps_taken=self.current_step,
+                history=self.history,
+                patient_detail_open=True,
+            )
+
+        except Exception as e:
+            logger.error(f"[NOTE-RUNNER] continue_search error: {e}", exc_info=True)
+            return NoteRunnerResult(
+                status=AgentStatus.ERROR,
+                execution_id=self.execution_id,
+                steps_taken=self.current_step,
+                error=str(e),
+                history=self.history,
+                patient_detail_open=True,
+            )
+
     def _execute_action(
-        self, action: str, target_id: Optional[int], elements: list, repeat: int = 1
+        self,
+        action: str,
+        target_id: Optional[int],
+        elements: list,
+        repeat: int = 1,
+        key: Optional[str] = None,
     ):
         """Execute the action decided by the agent."""
         if action == "nav_up":
@@ -537,6 +604,11 @@ class BaptistNoteRunner:
             tools.scroll_tree_up(clicks=repeat)
         elif action == "scroll_down":
             tools.scroll_tree_down(clicks=repeat)
+        elif action == "press_key":
+            if key:
+                tools.press_key_in_tree(key)
+            else:
+                logger.warning("[NOTE-RUNNER] press_key requested without key")
         elif action == "click" and target_id is not None:
             tools.click_element(target_id, elements, action="click")
         elif action == "dblclick" and target_id is not None:

@@ -20,10 +20,12 @@ from flows.baptist import BaptistFlow
 from logger import logger
 
 from agentic.runners.baptist_note_runner import BaptistNoteRunner, NoteRunnerResult
+from agentic.emr.baptist.note_validator import NoteValidatorAgent
 from agentic.models import AgentStatus
 
 
 PDF_NOTE_FILENAME = "baptis report.pdf"
+MAX_VALIDATION_ATTEMPTS = 3
 
 
 class BaptistNoteFlow:
@@ -107,47 +109,103 @@ class BaptistNoteFlow:
                 patient_name=patient_name,
             )
 
-            runner_result = runner.run(patient_name=patient_name)
+            validator = NoteValidatorAgent(
+                doctor_name=doctor_name,
+                doctor_specialty=doctor_specialty,
+                encounter_type=encounter_type,
+                date_of_service=date_of_service,
+            )
 
-            if runner_result.status != AgentStatus.FINISHED:
-                logger.warning(
-                    f"[NOTE-FLOW] Note not found: {runner_result.error or 'unknown'}"
+            # Step 4: Search + validate loop
+            note_content: Optional[str] = None
+            runner_result: Optional[NoteRunnerResult] = None
+            validation_failures: list = []
+
+            for attempt in range(1, MAX_VALIDATION_ATTEMPTS + 1):
+                logger.info(
+                    f"[NOTE-FLOW] Search attempt {attempt}/{MAX_VALIDATION_ATTEMPTS}"
                 )
-                # Close patient detail if open
-                if runner_result.patient_detail_open:
+
+                if attempt == 1:
+                    runner_result = runner.run(patient_name=patient_name)
+                else:
+                    runner_result = runner.continue_search()
+
+                if runner_result.status != AgentStatus.FINISHED:
+                    logger.warning(
+                        f"[NOTE-FLOW] Runner did not finish on attempt {attempt}: "
+                        f"{runner_result.error or 'unknown'}"
+                    )
+                    break
+
+                logger.info("[NOTE-FLOW] Candidate note found. Extracting content...")
+                note_content = self._extract_note_content()
+
+                if not note_content:
+                    logger.warning(
+                        f"[NOTE-FLOW] Attempt {attempt}: PDF extraction returned empty"
+                    )
+                    validation_failures.append("empty PDF content")
+                    continue
+
+                logger.info(
+                    f"[NOTE-FLOW] Validating extracted content ({len(note_content)} chars)..."
+                )
+                validation = validator.validate(note_content)
+
+                logger.info(
+                    f"[NOTE-FLOW] Validation result: valid={validation.valid} "
+                    f"reason='{validation.reason}' "
+                    f"detected_doctor='{validation.detected_doctor}' "
+                    f"detected_date='{validation.detected_date}'"
+                )
+
+                if validation.valid:
+                    # Step 5: Upload PDF to S3
+                    s3_key = self._upload_note_to_s3(patient_name, date_of_service)
+
+                    # Step 6: Close patient and cleanup
                     self._close_patient_detail()
-                self._cleanup()
-                return {
-                    "success": False,
-                    "message": runner_result.error or "Note not found",
-                    "note_content": None,
-                    "s3_key": None,
-                    "steps": runner_result.steps_taken,
-                }
+                    self._cleanup()
 
-            # Step 4: Extract note content via PDF
-            logger.info("[NOTE-FLOW] Note found! Extracting content...")
-            note_content = self._extract_note_content()
+                    logger.info("=" * 70)
+                    logger.info(" BAPTIST NOTE FLOW - SUCCESS")
+                    logger.info(f" Attempts: {attempt}/{MAX_VALIDATION_ATTEMPTS}")
+                    logger.info(f" Content: {len(note_content)} chars")
+                    logger.info(f" S3 Key: {s3_key or 'none'}")
+                    logger.info("=" * 70)
 
-            # Step 5: Upload PDF to S3
-            s3_key = self._upload_note_to_s3(patient_name, date_of_service)
+                    return {
+                        "success": True,
+                        "message": f"Note extracted ({len(note_content)} chars)",
+                        "note_content": note_content,
+                        "s3_key": s3_key,
+                        "steps": runner_result.steps_taken,
+                        "validation_attempts": attempt,
+                    }
 
-            # Step 6: Close patient and cleanup
-            self._close_patient_detail()
+                validation_failures.append(validation.reason)
+                logger.warning(
+                    f"[NOTE-FLOW] Attempt {attempt} rejected: {validation.reason}. "
+                    "Continuing search..."
+                )
+
+            # Exhausted attempts or runner could not continue
+            if runner_result and runner_result.patient_detail_open:
+                self._close_patient_detail()
             self._cleanup()
 
-            logger.info("=" * 70)
-            logger.info(" BAPTIST NOTE FLOW - SUCCESS")
-            logger.info(f" Content: {len(note_content or '')} chars")
-            logger.info(f" S3 Key: {s3_key or 'none'}")
-            logger.info("=" * 70)
-
+            reason_summary = "; ".join(validation_failures) or (
+                runner_result.error if runner_result else "note not found"
+            )
+            logger.warning(f"[NOTE-FLOW] Exhausted validation attempts: {reason_summary}")
             return {
-                "success": True,
-                "message": f"Note extracted ({len(note_content or '')} chars)",
-                "note_content": note_content,
-                "s3_key": s3_key,
-                "steps": runner_result.steps_taken,
+                "success": False,
+                "message": f"Validation failed: {reason_summary}",
+                "note_content": None,
+                "s3_key": None,
+                "steps": runner_result.steps_taken if runner_result else 0,
+                "validation_attempts": len(validation_failures),
             }
 
         except Exception as e:

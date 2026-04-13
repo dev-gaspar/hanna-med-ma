@@ -329,7 +329,15 @@ export class RpaService {
 			throw new NotFoundException(`Patient ${patientId} not found`);
 		}
 
-		// 1. Create the Encounter
+		// 1. Look up latest INSURANCE raw data for this patient — its S3 key
+		//    becomes the new encounter's faceSheet (face sheet PDF).
+		const insuranceRaw = await this.prisma.patientRawData.findFirst({
+			where: { patientId, dataType: "INSURANCE" },
+			orderBy: { extractedAt: "desc" },
+			select: { file: true },
+		});
+
+		// 2. Create the Encounter
 		const encounter = await this.prisma.encounter.create({
 			data: {
 				patientId,
@@ -337,10 +345,11 @@ export class RpaService {
 				type: encounterType,
 				dateOfService: nowDate(),
 				deadline: deadlineFromNow(24),
+				faceSheet: insuranceRaw?.file ?? null,
 			},
 		});
 
-		// 2. If patient not yet registered in billing EMR, trigger RPA
+		// 3. If patient not yet registered in billing EMR, trigger RPA
 		const needsRegistration = patient.billingEmrStatus === "PENDING" || patient.billingEmrStatus === "FAILED";
 		if (needsRegistration) {
 			await this.prisma.patient.update({
@@ -561,11 +570,12 @@ export class RpaService {
 	}
 
 	/**
-	 * Update encounter with provider note info from RPA.
+	 * Update encounter with the provider note S3 key from RPA.
+	 * Called by the RPA billing worker once the note PDF has been found and uploaded.
 	 */
 	async updateEncounterNote(
 		encounterId: number,
-		data: { noteFile?: string; noteStatus: string; noteRetries?: number },
+		data: { providerNote: string },
 	) {
 		const encounter = await this.prisma.encounter.findUnique({
 			where: { id: encounterId },
@@ -577,23 +587,19 @@ export class RpaService {
 
 		const updated = await this.prisma.encounter.update({
 			where: { id: encounterId },
-			data: {
-				...(data.noteFile !== undefined && { noteFile: data.noteFile }),
-				noteStatus: data.noteStatus as any,
-				...(data.noteRetries !== undefined && { noteRetries: data.noteRetries }),
-			},
+			data: { providerNote: data.providerNote },
 		});
 
 		this.logger.log(
-			`Encounter ${encounterId} note updated: status=${data.noteStatus}, file=${data.noteFile || "none"}`,
+			`Encounter ${encounterId} providerNote set: ${data.providerNote}`,
 		);
 
-		return { success: true, encounterId, noteStatus: updated.noteStatus };
+		return { success: true, encounterId, providerNote: updated.providerNote };
 	}
 
 	/**
-	 * Get encounters that need provider note search.
-	 * Returns PENDING encounters with deadline not yet expired.
+	 * Get encounters that still need a provider note.
+	 * An encounter is pending when providerNote is null and the 24h deadline hasn't passed.
 	 */
 	async getPendingNoteEncounters(uuid: string) {
 		const node = await this.prisma.rpaNode.findUnique({
@@ -608,7 +614,7 @@ export class RpaService {
 		const encounters = await this.prisma.encounter.findMany({
 			where: {
 				doctorId: node.doctorId,
-				noteStatus: "PENDING",
+				providerNote: null,
 				deadline: { gt: nowDate() },
 			},
 			include: {
@@ -641,7 +647,6 @@ export class RpaService {
 			encounterType: e.type,
 			dateOfService: e.dateOfService,
 			deadline: e.deadline,
-			noteRetries: e.noteRetries,
 		}));
 	}
 

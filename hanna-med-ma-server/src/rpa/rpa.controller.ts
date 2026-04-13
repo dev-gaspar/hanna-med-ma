@@ -181,15 +181,15 @@ export class RpaController {
 
   @Patch("encounters/:encounterId/note")
   @ApiOperation({
-    summary: "Update encounter with provider note file from RPA",
+    summary: "Set the provider note S3 key on an encounter",
     description:
-      "Called by RPA after finding and uploading the provider note to S3.",
+      "Called by RPA after finding and uploading the provider note PDF to S3.",
   })
   @ApiParam({ name: "encounterId", type: "number" })
-  @ApiResponse({ status: 200, description: "Encounter note updated" })
+  @ApiResponse({ status: 200, description: "Encounter providerNote updated" })
   async updateEncounterNote(
     @Param("encounterId", ParseIntPipe) encounterId: number,
-    @Body() body: { noteFile?: string; noteStatus: string; noteRetries?: number },
+    @Body() body: { providerNote: string },
   ) {
     return this.rpaService.updateEncounterNote(encounterId, body);
   }
@@ -198,7 +198,7 @@ export class RpaController {
   @ApiOperation({
     summary: "Get encounters pending note search",
     description:
-      "Returns encounters with noteStatus=PENDING and deadline not expired. Used by RPA to know which notes to search.",
+      "Returns encounters where providerNote is null and the deadline has not expired. Used by RPA to know which notes to search.",
   })
   @ApiParam({ name: "uuid", type: "string" })
   @ApiResponse({ status: 200, description: "List of pending encounters" })

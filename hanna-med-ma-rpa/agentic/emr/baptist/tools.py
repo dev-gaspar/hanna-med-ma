@@ -4,6 +4,7 @@ Used by ReportFinderAgent and PatientFinderAgent to interact with the UI.
 """
 
 import pyautogui
+import pydirectinput
 
 from config import config
 from logger import logger
@@ -295,6 +296,43 @@ def scroll_tree_up(clicks: int = 3) -> str:
         return "success"
     except Exception as e:
         logger.error(f"[TOOL] scroll_tree_up error: {e}")
+        return f"error: {e}"
+
+
+def press_key_in_tree(key: str) -> str:
+    """
+    Press a single letter on the notes tree to jump to that alphabetical
+    section. The Cerner tree supports "jump to letter" when focused: pressing
+    'H' will focus the first folder whose name starts with 'H'.
+
+    Strategy: click on the tree center (to give it focus), then press the key.
+
+    Args:
+        key: A single letter (A-Z, case-insensitive). Invalid input is a no-op.
+    """
+    if not key or not isinstance(key, str):
+        logger.warning("[TOOL] press_key_in_tree: empty key")
+        return "error: empty key"
+
+    key = key.strip()[:1]
+    if not key.isalpha():
+        logger.warning(f"[TOOL] press_key_in_tree: invalid key '{key}'")
+        return "error: invalid key"
+
+    try:
+        center = config.get_roi_center("baptist", "notes_tree")
+        if not center:
+            screen_w, screen_h = pyautogui.size()
+            center = (int(screen_w * 0.30), int(screen_h * 0.50))
+
+        pyautogui.click(center[0], center[1])
+        pyautogui.sleep(0.3)
+
+        pydirectinput.press(key.lower())
+        logger.info(f"[TOOL] press_key_in_tree: pressed '{key.upper()}' at {center}")
+        return "success"
+    except Exception as e:
+        logger.error(f"[TOOL] press_key_in_tree error: {e}")
         return f"error: {e}"
 
 
