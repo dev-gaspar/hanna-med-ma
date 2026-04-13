@@ -49,9 +49,9 @@ A clinical note written by **{doctor_name}** ({doctor_specialty}) on or near
 - Once you SEE the folder → use **dblclick** on its row to expand it.
 
 ### Phase B — Navigate documents inside the folder
-Inside the doctor's folder you will see a list of document entries.
-**Document names do NOT always show the date.** You MUST check the right pane
-content for each document to determine its date and type.
+Inside the doctor's folder you will see a list of document entries (e.g.
+"Podiatry Consultation", "Podiatry Progress Note"). Each doctor usually has
+only a handful of notes.
 
 **IMPORTANT — how to navigate documents:**
 - Use **nav_down / nav_up** to step through documents one by one.
@@ -61,23 +61,34 @@ content for each document to determine its date and type.
 - If the first document is not visible as "selected", use nav_down once to
   open the first document of the folder.
 
-For each document shown in the right pane, look for:
-  - **Date** at the top (e.g. "Result date: July 7, 2024 14:32 EDT")
-  - **Document type** (e.g. "Consultation Note", "Progress Note", "H&P")
-  - **Provider signature** at the bottom
+For each document, look at its TITLE in the tree and the content summary in
+the right pane to decide if its TYPE plausibly matches the encounter type
+(e.g. "Podiatry Consultation" for CONSULT, "Podiatry Progress Note" for
+PROGRESS).
 
-- If the document's date matches the encounter date AND the type matches the
-  encounter type → status="finished".
-- If the document doesn't match (wrong date or wrong type) → nav_down to check
-  the next document in the folder.
-- If you've exhausted all documents in the folder without finding a match →
-  status="error".
+**DO NOT try to confirm the date of service visually.**
+- The result date (e.g. "July 7, 2024") lives at the very END of the document
+  PDF, NOT in the tree view and NOT in the first part of the right pane.
+- Trying to scroll the right pane to find the date is a waste of steps and
+  leads to loops. The post-extraction validator will read the full PDF and
+  confirm the date authoritatively.
 
-### Encounter type mapping
-- CONSULT → First visit — expect "Consultation Note"
-- PROGRESS → Follow-up — expect "Progress Note"
-- An H&P (History and Physical) from admission day can also match if it's the
-  doctor's first encounter (CONSULT) with this patient.
+- If the document's TITLE / TYPE plausibly matches the encounter type →
+  status="finished". Stop here. The validator will verify date + doctor from
+  the PDF content.
+- If the folder has several plausible candidates, pick the one whose type
+  matches best and return finished; if the validator rejects it, the flow
+  will automatically call back and you can nav_down to the next one.
+- If you've exhausted every document in the folder and none has a plausible
+  type → status="error".
+
+### Encounter type mapping (tree-side only)
+- CONSULT → first-visit consult — a document titled "Consultation",
+  "Consult Note", "<Specialty> Consultation", etc.
+- PROGRESS → follow-up — a document titled "Progress Note",
+  "<Specialty> Progress Note", "Follow-up".
+- **Do NOT treat admission H&P / Intake H&P as a consult match.** Those are
+  internal medicine documents, not the target doctor's consult.
 
 ## RESPONSE RULES
 
@@ -90,17 +101,22 @@ For each document shown in the right pane, look for:
 2. **Never**:
    - Use nav_down to find folders (Phase A)
    - Use click on documents — use nav_down/nav_up instead (Phase B)
-   - Skip reading the right pane to confirm the document
+   - Scroll the right pane looking for the date — it is NOT shown there
+   - Return to Phase A once you have already expanded the doctor's folder
+     (the folder stays expanded; do not press_key or scroll_down again to
+     re-find it)
 
-3. **Finishing criteria**:
-   - RIGHT PANE shows a note from {doctor_name} (or matching specialty)
-   - Date visible in right pane matches {date_of_service} (within 1 day)
-   - Type matches {encounter_type}
-   - Return status="finished"
+3. **Finishing criteria (keep it simple)**:
+   - You are inside the correct doctor's expanded folder, AND
+   - A document whose TITLE/TYPE plausibly matches the encounter type is
+     selected in the tree (auto-opened in the right pane)
+   - → return status="finished". Trust the post-extraction validator for
+     the date + signature check.
 
 4. **Error criteria**:
-   - Doctor's folder not found after scrolling through the whole tree
-   - Doctor's folder has no documents matching the date
+   - Doctor's folder not found after alphabet-jumping AND a couple of scrolls
+   - Doctor's folder contains NO document of a plausible type (e.g. only
+     H&Ps when we need a Progress Note)
    - Exhausted max steps
    - Return status="error" with clear reasoning
 
@@ -212,9 +228,9 @@ class NoteFinderAgent(BaseAgent):
         loop_warning = self._detect_loop_from_text(history)
 
         encounter_type_description = (
-            "First visit — look for Consultation Note or admission H&P"
+            "First visit — look for a Consultation / Consult Note"
             if self.encounter_type == "CONSULT"
-            else "Follow-up visit — look for Progress Note"
+            else "Follow-up visit — look for a Progress Note"
         )
 
         return USER_PROMPT.format(

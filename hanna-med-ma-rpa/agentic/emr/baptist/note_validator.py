@@ -65,18 +65,33 @@ and dates of embedded radiology / lab / medication / history items.
      off is a mismatch.
 
 3. **Type consistency**:
-   - CONSULT → "Consultation Note" / "Consult Note" / admission "H&P"
+   - CONSULT → "Consultation Note" / "Consult Note"
    - PROGRESS → "Progress Note" / "Follow-up"
+   - An admission "H&P" is an Internal Medicine intake note. It is NOT a
+     specialty consult. Do NOT accept an H&P as a CONSULT match.
+
+## UNSIGNED / DRAFT NOTES
+
+If the note is still a draft (the doctor hasn't signed yet), the tail may
+lack "Performed by: <doctor> on <date>" or "Electronically Signed on <date>"
+lines. In that case:
+- If you see a "Result type: <Specialty> Consultation/Progress Note" header
+  AND a consistent "Result date" AND the note body clearly talks about the
+  target specialty (e.g. podiatry assessment and plan) → still return
+  valid=false, reason="note not yet signed by <doctor_name>". Rejecting an
+  unsigned note is correct — the flow will re-enqueue and retry later, so
+  we only upload the definitive signed version.
 
 ## RULES
 
-- If doctor AND date both match the note's own metadata → valid=true.
-- If the metadata clearly refers to a different encounter → valid=false with a
-  concise reason quoting the mismatching metadata value.
-- If you cannot find a signature / "Performed by" / "Result date" block in the
-  provided text → valid=false, reason "metadata block not in extract".
-- NEVER use an embedded radiologist / lab tech / prior-encounter author as the
-  note's author. They are references, not signers.
+- valid=true ONLY if the note is signed AND the signer's last name matches
+  AND the result date matches the encounter date (±1 day).
+- If the metadata clearly refers to a different encounter → valid=false with
+  a concise reason quoting the mismatching metadata value.
+- If the metadata block is missing entirely from the extract → valid=false,
+  reason "metadata block not in extract".
+- NEVER use an embedded radiologist / lab tech / prior-encounter author as
+  the note's author. They are references, not signers.
 """
 
 
