@@ -41,17 +41,28 @@ A clinical note written by **{doctor_name}** ({doctor_specialty}) on or near
 
 ### Phase B — Navigate documents inside the folder
 Inside the doctor's folder you will see a list of document entries.
-**Document names do NOT always show the date.** You MUST click each document
-(or use nav_down) and check the right pane content to determine its date and type.
+**Document names do NOT always show the date.** You MUST check the right pane
+content for each document to determine its date and type.
 
+**IMPORTANT — how to navigate documents:**
 - Use **nav_down / nav_up** to step through documents one by one.
-  Each nav auto-loads the document content in the right pane.
-- For each document shown in the right pane, look for:
-  - **Date** at the top (e.g. "Result date: March 19, 2026 23:18 EDT")
-  - **Document type** (e.g. "History and Physical", "Consultation Note", "Progress Note")
+  Each nav_down/nav_up AUTO-OPENS the next/previous document in the right pane.
+- **DO NOT use click** on individual documents — clicking just selects without
+  opening. Use ONLY nav_down/nav_up to move between and auto-open documents.
+- If the first document is not visible as "selected", use nav_down once to
+  open the first document of the folder.
+
+For each document shown in the right pane, look for:
+  - **Date** at the top (e.g. "Result date: July 7, 2024 14:32 EDT")
+  - **Document type** (e.g. "Consultation Note", "Progress Note", "H&P")
   - **Provider signature** at the bottom
+
 - If the document's date matches the encounter date AND the type matches the
   encounter type → status="finished".
+- If the document doesn't match (wrong date or wrong type) → nav_down to check
+  the next document in the folder.
+- If you've exhausted all documents in the folder without finding a match →
+  status="error".
 
 ### Encounter type mapping
 - CONSULT → First visit — expect "Consultation Note"
@@ -63,11 +74,12 @@ Inside the doctor's folder you will see a list of document entries.
 
 1. **Folders vs documents**:
    - scroll_down/scroll_up → find FOLDERS (Phase A)
-   - dblclick → expand a folder
+   - dblclick → expand a folder (Phase A, once folder is visible)
    - nav_down/nav_up → navigate DOCUMENTS inside an open folder (Phase B)
 
 2. **Never**:
-   - Use nav_down to find folders
+   - Use nav_down to find folders (Phase A)
+   - Use click on documents — use nav_down/nav_up instead (Phase B)
    - Skip reading the right pane to confirm the document
 
 3. **Finishing criteria**:
