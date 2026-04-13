@@ -265,19 +265,18 @@ class BaptistNoteFlow:
             pass
 
     def _extract_note_content(self) -> Optional[str]:
-        """Extract note content by printing to PDF and reading it.
-
-        The NoteFinder agent has already selected and auto-opened the target
-        document in the right pane (via nav_down). We MUST NOT click the
-        'Report' link here — that link opens the patient's DEFAULT report
-        (usually the most recent admission H&P), which overrides the agent's
-        selection and prints the wrong document.
-
-        Instead, click directly on the print button, which prints whatever is
-        currently shown in the right pane.
-        """
+        """Extract note content by printing to PDF and reading it."""
         try:
-            # Print directly from the currently-displayed note
+            # Click on report document to focus it
+            report_img = config.get_rpa_setting("images.baptist_report_document")
+            location = self.rpa.wait_for_element(
+                report_img, timeout=10, description="Report Document"
+            )
+            if location:
+                self.rpa.safe_click(location, "Report Document")
+            stoppable_sleep(2)
+
+            # Print to PDF
             print_img = config.get_rpa_setting("images.baptist_print_powerchart")
             location = self.rpa.wait_for_element(
                 print_img, timeout=10, description="Print PowerChart"
@@ -299,10 +298,18 @@ class BaptistNoteFlow:
             pydirectinput.keyUp("ctrl")
             stoppable_sleep(2)
 
-            # Click the PDF file to overwrite
+            # Click the PDF file to overwrite.
+            # HIGH confidence (0.95) is required here because the save dialog
+            # also shows the Baptist insurance PDF icon on Desktop, which is
+            # visually almost identical to the note PDF icon. The default 0.8
+            # confidence matches the insurance file and overwrites IT instead
+            # of the note file, silently corrupting the S3 insurance key.
             report_pdf_img = config.get_rpa_setting("images.baptist_report_pdf")
             location = self.rpa.wait_for_element(
-                report_pdf_img, timeout=10, description="Report PDF file"
+                report_pdf_img,
+                timeout=10,
+                confidence=0.95,
+                description="Report PDF file",
             )
             if location:
                 self.rpa.safe_click(location, "Report PDF file")
