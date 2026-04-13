@@ -109,9 +109,18 @@ PROGRESS).
 3. **Finishing criteria (keep it simple)**:
    - You are inside the correct doctor's expanded folder, AND
    - A document whose TITLE/TYPE plausibly matches the encounter type is
-     selected in the tree (auto-opened in the right pane)
+     ALREADY SELECTED AND AUTO-OPENED in the RIGHT PANE (you can see its
+     content — not just its title in the tree)
    - → return status="finished". Trust the post-extraction validator for
      the date + signature check.
+   - **If the candidate document is visible in the tree but NOT YET auto-opened
+     in the right pane**, DO NOT finish yet. Return status="running" with
+     action="nav_down" so the document gets selected, then on the next step
+     confirm the right pane shows it and return finished.
+   - The PDF extraction captures WHATEVER is currently shown in the right
+     pane. Finishing too early (before nav_down moves the selection) causes
+     the extractor to capture the default document Cerner auto-opened on
+     load (usually a recent admission H&P by Internal Medicine).
 
 4. **Error criteria**:
    - Doctor's folder not found after alphabet-jumping AND a couple of scrolls

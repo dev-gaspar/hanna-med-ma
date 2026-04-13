@@ -509,19 +509,36 @@ class BaptistNoteRunner:
                 "note_finder", result.action or result.status, result.reasoning
             )
 
-            if result.status == "finished":
-                logger.info("[NOTE-RUNNER] Encounter note found!")
-                return True
-
             if result.status == "error":
                 logger.error(f"[NOTE-RUNNER] Agent error: {result.reasoning}")
                 return False
 
             repeat = getattr(result, "repeat", 1) or 1
             key = getattr(result, "key", None)
-            self._execute_action(
-                result.action, result.target_id, elements, repeat=repeat, key=key
-            )
+
+            # The agent sometimes returns status="finished" together with a
+            # pending action (e.g. "nav_down to auto-open the candidate
+            # document, and I'm done"). Execute that action FIRST so the
+            # candidate is actually selected in the right pane before the
+            # extractor captures the PDF. Otherwise the extractor prints
+            # whatever document Cerner auto-selected on load (usually the
+            # most recent admission H&P).
+            if result.action:
+                self._execute_action(
+                    result.action,
+                    result.target_id,
+                    elements,
+                    repeat=repeat,
+                    key=key,
+                )
+                # Extra settle time when finishing so the right-pane content
+                # catches up before the PDF is printed.
+                if result.status == "finished":
+                    self.rpa.stoppable_sleep(2)
+
+            if result.status == "finished":
+                logger.info("[NOTE-RUNNER] Encounter note found!")
+                return True
 
             self.rpa.stoppable_sleep(self.step_delay)
 
