@@ -1,8 +1,12 @@
 """
-Baptist Note Finder Agent — Finds provider notes by date, specialty and encounter type.
+Baptist Note Finder Agent — Finds a provider's note for a specific encounter.
 
-Same pattern as ReportFinderAgent but with a prompt focused on finding
-billing-relevant clinical notes for a specific encounter.
+The notes tree is organized by "Performed By" (grouped by author).
+The agent's strategy is:
+  1. Find the doctor's folder by name
+  2. Expand that folder
+  3. Navigate documents inside, checking the content in the right pane
+     for a match on date + encounter type
 """
 
 from typing import Any, Dict, List, Literal, Optional, Type
@@ -15,77 +19,68 @@ from logger import logger
 
 SYSTEM_PROMPT = """You are an RPA assistant navigating a Cerner EMR Notes tree view for Baptist Health.
 
-## YOUR TASK
-Find the **provider's clinical note** for a specific patient encounter.
+The notes tree is organized by "Performed By" — each folder is named after the provider
+who wrote the notes inside it. Your job is to find a specific clinical note for one doctor.
 
-You are looking for a note that matches ALL of these criteria:
-- **Date:** Written on or near the date of service provided
-- **Specialty:** Written by a provider of the specified specialty
-- **Type:** Matches the encounter type (Consultation Note OR Progress Note)
+## WHAT YOU ARE LOOKING FOR
+A clinical note written by **{doctor_name}** ({doctor_specialty}) on or near
+**{date_of_service}** for an encounter of type **{encounter_type}**.
 
-## ENCOUNTER DETAILS (provided in user prompt)
-- Doctor Specialty (e.g. "Podiatry")
-- Encounter Type: CONSULT (first visit) or PROGRESS (follow-up)
-- Date of Service (the date the doctor saw the patient)
+## NAVIGATION STRATEGY
 
-## NOTE PRIORITY (by encounter type)
+### Phase A — Find the doctor's folder
+- The tree is ordered alphabetically by provider name (last name).
+- Look at the visible folder names for one matching the doctor. Match can be by:
+  - Last name (e.g. "Hanna")
+  - First + last name (e.g. "Peter Hanna", "Hanna, Peter")
+  - Partial OCR of the name (e.g. "Han..." — use reasoning to confirm)
+- Notes from the doctor may also be split across variants of their name
+  (with credentials like "DPM", "MD", etc.). Check carefully.
+- Use **scroll_down / scroll_up** to find the folder if it's not visible.
+- Once you SEE the folder → use **dblclick** on its row to expand it.
 
-### If CONSULT (first visit):
-1. "Consultation Notes" folder → Specialty sub-folder (e.g. "Podiatry Cons")
-2. "History and Physical Notes" folder (H&P from admission)
-3. "Progress Notes" folder → Specialty sub-folder
+### Phase B — Navigate documents inside the folder
+Inside the doctor's folder you will see a list of document entries.
+**Document names do NOT always show the date.** You MUST click each document
+(or use nav_down) and check the right pane content to determine its date and type.
 
-### If PROGRESS (follow-up):
-1. "Progress Notes" folder → Specialty sub-folder (e.g. "Podiatry Progress")
-2. "Consultation Notes" folder → Specialty sub-folder
-3. "History and Physical Notes" folder
+- Use **nav_down / nav_up** to step through documents one by one.
+  Each nav auto-loads the document content in the right pane.
+- For each document shown in the right pane, look for:
+  - **Date** at the top (e.g. "Result date: March 19, 2026 23:18 EDT")
+  - **Document type** (e.g. "History and Physical", "Consultation Note", "Progress Note")
+  - **Provider signature** at the bottom
+- If the document's date matches the encounter date AND the type matches the
+  encounter type → status="finished".
 
-## NAVIGATION RULES
+### Encounter type mapping
+- CONSULT → First visit — expect "Consultation Note"
+- PROGRESS → Follow-up — expect "Progress Note"
+- An H&P (History and Physical) from admission day can also match if it's the
+  doctor's first encounter (CONSULT) with this patient.
 
-### Folder Navigation
-- **DBLCLICK** parent folders to expand/collapse them
-- **CLICK** sub-folders to select, then **DBLCLICK** to expand
-- **NAV_DOWN** to browse documents WITHIN an expanded sub-folder
-- **SCROLL_DOWN/UP** to find folders in the tree (Phase 1 scanning)
+## RESPONSE RULES
 
-### Critical Rules
-1. scroll_down/up = Find FOLDERS (scanning the tree)
-2. nav_down/up = Browse DOCUMENTS inside a folder
-3. NEVER use nav_down to find folders
-4. Once you SEE a folder → CLICK it, don't nav towards it
-5. nav_down/up AUTO-OPEN documents in the right pane
+1. **Folders vs documents**:
+   - scroll_down/scroll_up → find FOLDERS (Phase A)
+   - dblclick → expand a folder
+   - nav_down/nav_up → navigate DOCUMENTS inside an open folder (Phase B)
 
-### Date Matching
-- The note date should match or be within 1 day of the date of service
-- Dates in the tree are formatted as MM/DD/YYYY or M/D/YYYY
-- Look at the date column next to the document name
+2. **Never**:
+   - Use nav_down to find folders
+   - Skip reading the right pane to confirm the document
 
-### Specialty Matching
-- Look for sub-folders matching the doctor's specialty
-- Example: Podiatry → "Podiatry Cons", "Podiatry Progress"
-- If no exact specialty folder, check the document content in the right pane
+3. **Finishing criteria**:
+   - RIGHT PANE shows a note from {doctor_name} (or matching specialty)
+   - Date visible in right pane matches {date_of_service} (within 1 day)
+   - Type matches {encounter_type}
+   - Return status="finished"
 
-### What to SKIP
-- "23 Hour History and Physical Update Note"
-- "Nurse Progress Note" (unless absolute last resort)
-- Notes from other specialties (unless matching date and no specialty-specific note exists)
-- Notes from dates that don't match the encounter
-
-### Folder Exploration
-- Mark exhausted folders mentally
-- NEVER return to a folder already checked
-- After 2 scroll actions, if folder not visible → skip to next priority
-
-## SUCCESS CRITERIA
-Return status="finished" when the RIGHT PANE shows a clinical note that:
-1. Matches the encounter date (within 1 day)
-2. Is from the correct specialty (or a comprehensive H&P)
-3. Contains valid clinical content (Chief Complaint, HPI, Assessment, Plan, etc.)
-
-## ERROR CONDITIONS
-- NOT in Notes tree view
-- All priority folders tried with no matching notes
-- Past step 28 with no valid document
+4. **Error criteria**:
+   - Doctor's folder not found after scrolling through the whole tree
+   - Doctor's folder has no documents matching the date
+   - Exhausted max steps
+   - Return status="error" with clear reasoning
 
 ## RESPONSE FORMAT
 Always explain your reasoning as: "Phase X: What I see → What I'm doing → Why"
@@ -94,7 +89,8 @@ Always explain your reasoning as: "Phase X: What I see → What I'm doing → Wh
 
 USER_PROMPT = """
 === ENCOUNTER DETAILS ===
-Doctor Specialty: {doctor_specialty}
+Doctor: {doctor_name}
+Specialty: {doctor_specialty}
 Encounter Type: {encounter_type} ({encounter_type_description})
 Date of Service: {date_of_service}
 Patient: {patient_name}
@@ -112,7 +108,9 @@ Steps remaining: {steps_remaining}
 === LOOP WARNING ===
 {loop_warning}
 
-Decide your next action.
+Decide your next action. Remember: the tree is sorted by Performed By,
+so folders are provider names — find the folder for {doctor_name}, expand it,
+and navigate its documents checking the right pane for a match on date and type.
 """
 
 
@@ -143,7 +141,7 @@ class NoteFinderResult(BaseModel):
 
 
 class NoteFinderAgent(BaseAgent):
-    """Agent that finds provider notes by encounter date, specialty and type."""
+    """Agent that finds a provider's note by doctor folder + encounter match."""
 
     emr_type = "baptist"
     agent_name = "note_finder"
@@ -152,12 +150,14 @@ class NoteFinderAgent(BaseAgent):
 
     def __init__(
         self,
+        doctor_name: str = "",
         doctor_specialty: str = None,
         encounter_type: str = "CONSULT",
         date_of_service: str = "",
         patient_name: str = "",
     ):
         super().__init__()
+        self.doctor_name = doctor_name
         self.doctor_specialty = doctor_specialty
         self.encounter_type = encounter_type
         self.date_of_service = date_of_service
@@ -167,7 +167,12 @@ class NoteFinderAgent(BaseAgent):
         return NoteFinderResult
 
     def get_system_prompt(self, **kwargs) -> str:
-        return SYSTEM_PROMPT
+        return SYSTEM_PROMPT.format(
+            doctor_name=self.doctor_name or "Unknown",
+            doctor_specialty=self.doctor_specialty or "Unknown",
+            date_of_service=self.date_of_service or "Unknown",
+            encounter_type=self.encounter_type,
+        )
 
     def get_user_prompt(
         self,
@@ -180,12 +185,13 @@ class NoteFinderAgent(BaseAgent):
         loop_warning = self._detect_loop_from_text(history)
 
         encounter_type_description = (
-            "First visit — look for Consultation Note"
+            "First visit — look for Consultation Note or admission H&P"
             if self.encounter_type == "CONSULT"
             else "Follow-up visit — look for Progress Note"
         )
 
         return USER_PROMPT.format(
+            doctor_name=self.doctor_name or "Unknown",
             doctor_specialty=self.doctor_specialty or "Unknown",
             encounter_type=self.encounter_type,
             encounter_type_description=encounter_type_description,
@@ -207,17 +213,17 @@ class NoteFinderAgent(BaseAgent):
         if nav_down_count >= 3 and scroll_count == 0:
             return (
                 f"WARNING: You have used nav_down {nav_down_count} times without scrolling. "
-                "If you're not finding the note, try scrolling or checking a different folder."
+                "If you're inside a folder with no match, exit and try another folder."
             )
         if nav_up_count >= 3:
             return (
                 f"WARNING: You have used nav_up {nav_up_count} times. "
-                "Consider moving to a different folder instead."
+                "Consider exiting this folder or trying a different approach."
             )
         if nav_down_count >= 2 and nav_up_count >= 2:
             return (
                 "WARNING: You are alternating between nav_up and nav_down. "
-                "This suggests a loop. Move to a different folder."
+                "This suggests a loop. Try a different folder."
             )
         return "No loop detected."
 

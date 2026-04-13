@@ -100,6 +100,7 @@ class BaptistNoteFlow:
                 max_steps=30,
                 step_delay=1.5,
                 vdi_enhance=True,
+                doctor_name=doctor_name,
                 doctor_specialty=doctor_specialty,
                 encounter_type=encounter_type,
                 date_of_service=date_of_service,

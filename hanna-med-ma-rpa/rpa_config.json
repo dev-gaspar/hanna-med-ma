@@ -97,6 +97,7 @@
 		"baptist_group": "images/{resolution}/baptist/group.png",
 		"baptist_results_review": "images/{resolution}/baptist/result_review.png",
 		"baptist_lab_baptis": "images/{resolution}/baptist/lab_baptis.png",
+		"baptist_performed_by": "images/{resolution}/baptist/performed_by.png",
 		"jackson_tab": "images/{resolution}/jackson/step1_tab_jackson.png",
 		"jackson_powered": "images/{resolution}/jackson/step2_powered_jackson.png",
 		"jackson_open_download": "images/{resolution}/jackson/step3_open_download_powered.png",

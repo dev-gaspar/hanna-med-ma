@@ -55,6 +55,7 @@ class BaptistNoteRunner:
         max_steps: int = 30,
         step_delay: float = 1.5,
         vdi_enhance: bool = True,
+        doctor_name: str = "",
         doctor_specialty: str = None,
         encounter_type: str = "CONSULT",
         date_of_service: str = "",
@@ -63,6 +64,7 @@ class BaptistNoteRunner:
         self.max_steps = max_steps
         self.step_delay = step_delay
         self.vdi_enhance = vdi_enhance
+        self.doctor_name = doctor_name
         self.doctor_specialty = doctor_specialty
 
         # Components
@@ -70,6 +72,7 @@ class BaptistNoteRunner:
         self.capturer = get_screen_capturer()
         self.patient_finder = PatientFinderAgent()
         self.note_finder = NoteFinderAgent(
+            doctor_name=doctor_name,
             doctor_specialty=doctor_specialty,
             encounter_type=encounter_type,
             date_of_service=date_of_service,
@@ -104,6 +107,7 @@ class BaptistNoteRunner:
         logger.info("=" * 70)
         logger.info(f"[NOTE-RUNNER] Execution ID: {self.execution_id}")
         logger.info(f"[NOTE-RUNNER] Patient: {patient_name}")
+        logger.info(f"[NOTE-RUNNER] Doctor: {self.doctor_name}")
         logger.info(f"[NOTE-RUNNER] Specialty: {self.doctor_specialty}")
         logger.info(f"[NOTE-RUNNER] Encounter: {self.note_finder.encounter_type}")
         logger.info(f"[NOTE-RUNNER] Date: {self.note_finder.date_of_service}")
@@ -354,21 +358,23 @@ class BaptistNoteRunner:
         self.rpa.stoppable_sleep(5)
         self.rpa.check_stop()
 
-        self._click_by_type_sort()
+        self._click_performed_by_sort()
 
-    def _click_by_type_sort(self):
-        """Click 'By Type' to sort notes if visible."""
-        logger.info("[NOTE-RUNNER] Checking for 'By Type' sort option...")
+    def _click_performed_by_sort(self):
+        """Click 'Performed By' to group notes by author if visible."""
+        logger.info("[NOTE-RUNNER] Checking for 'Performed By' sort option...")
         try:
-            by_type_image = config.get_rpa_setting("images.baptist_by_type")
-            if by_type_image:
-                location = pyautogui.locateOnScreen(by_type_image, confidence=0.8)
+            performed_by_image = config.get_rpa_setting("images.baptist_performed_by")
+            if performed_by_image:
+                location = pyautogui.locateOnScreen(performed_by_image, confidence=0.8)
                 if location:
-                    self.rpa.safe_click(location, "By Type (Sort)")
-                    logger.info("[NOTE-RUNNER] Clicked 'By Type' sort option")
+                    self.rpa.safe_click(location, "Performed By (Sort)")
+                    logger.info("[NOTE-RUNNER] Clicked 'Performed By' sort option")
                     self.rpa.stoppable_sleep(2)
+                else:
+                    logger.warning("[NOTE-RUNNER] 'Performed By' option not found on screen")
         except Exception as e:
-            logger.warning(f"[NOTE-RUNNER] Error checking for 'By Type': {e}")
+            logger.warning(f"[NOTE-RUNNER] Error checking for 'Performed By': {e}")
 
     def _handle_patient_open_modals(self):
         """Handle modals that appear after opening patient detail."""
