@@ -3,19 +3,34 @@ Billing Worker - Consumes note search tasks from Redis and processes them.
 
 Tasks are enqueued from the billing:note-search Redis queue and processed
 between extraction cycles (since they require visual EMR interaction).
+
+State reported to the backend for each attempt:
+- SEARCHING  : attempt started
+- FOUND_SIGNED   : success, providerNote populated
+- FOUND_UNSIGNED : note exists but not signed yet → re-enqueue with +4h delay
+- NOT_FOUND  : nothing matched → re-enqueue with +4h delay
+
+On the last attempt (attempt == maxAttempts) we leave whichever state we
+reached without re-enqueuing; noteAttempts on the encounter reaches 6 and
+the scheduler stops trying.
 """
 
 import json
 import logging
 import threading
 from collections import deque
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import requests
 
 from config import config
+from core.redis_scheduler import enqueue_with_delay
 
 logger = logging.getLogger(__name__)
+
+
+RETRY_DELAY_SECONDS = 4 * 60 * 60  # 4 hours between attempts
 
 
 class BillingNoteWorker:
@@ -64,49 +79,106 @@ class BillingNoteWorker:
         encounter_id = task.get("encounterId")
         patient_name = task.get("patientName", "Unknown")
         attempt = task.get("attempt", 1)
-        max_attempts = task.get("maxAttempts", 3)
+        max_attempts = task.get("maxAttempts", 6)
 
         logger.info(
             f"[BILLING] Processing note search: encounter {encounter_id}, "
             f"patient {patient_name}, attempt {attempt}/{max_attempts}"
         )
 
-        try:
-            # Execute the note search flow
-            result = self._execute_note_search(task)
+        # Mark SEARCHING before running the flow
+        self._patch_note_state(encounter_id, {
+            "noteStatus": "SEARCHING",
+            "noteAttempts": attempt,
+            "noteLastAttemptAt": self._now_iso(),
+        })
 
-            if result.get("success") and result.get("s3_key"):
-                # Note found and uploaded — set providerNote on the encounter
-                self._update_encounter(encounter_id, {
-                    "providerNote": result["s3_key"],
+        try:
+            result = self._execute_note_search(task)
+            outcome = result.get("outcome", "not_found")
+            agent_summary = result.get("agent_summary") or ""
+            s3_key = result.get("s3_key")
+
+            if outcome == "found_signed" and s3_key:
+                self._patch_note_state(encounter_id, {
+                    "noteStatus": "FOUND_SIGNED",
+                    "providerNote": s3_key,
+                    "noteAttempts": attempt,
+                    "noteAgentSummary": agent_summary,
+                    "noteLastAttemptAt": self._now_iso(),
                 })
                 logger.info(
-                    f"[BILLING] Note found for encounter {encounter_id}: {result['s3_key']}"
+                    f"[BILLING] Encounter {encounter_id} FOUND_SIGNED "
+                    f"(attempt {attempt}) → {s3_key}"
                 )
-            elif attempt < max_attempts:
-                # Re-enqueue for another attempt
-                task["attempt"] = attempt + 1
-                with self._lock:
-                    self._queue.append(task)
-                logger.info(
-                    f"[BILLING] Note not found for encounter {encounter_id}, "
-                    f"re-enqueued for attempt {attempt + 1}/{max_attempts}"
-                )
-            else:
-                logger.warning(
-                    f"[BILLING] Note not found after {max_attempts} attempts "
-                    f"for encounter {encounter_id}"
-                )
+
+            elif outcome == "found_unsigned":
+                self._patch_note_state(encounter_id, {
+                    "noteStatus": "FOUND_UNSIGNED",
+                    "noteAttempts": attempt,
+                    "noteAgentSummary": agent_summary,
+                    "noteLastAttemptAt": self._now_iso(),
+                })
+                if attempt < max_attempts:
+                    self._reschedule(task, attempt + 1, max_attempts)
+                else:
+                    logger.warning(
+                        f"[BILLING] Encounter {encounter_id} ended FOUND_UNSIGNED "
+                        f"after {attempt} attempts — doctor never signed."
+                    )
+
+            else:  # not_found
+                self._patch_note_state(encounter_id, {
+                    "noteStatus": "NOT_FOUND",
+                    "noteAttempts": attempt,
+                    "noteAgentSummary": agent_summary,
+                    "noteLastAttemptAt": self._now_iso(),
+                })
+                if attempt < max_attempts:
+                    self._reschedule(task, attempt + 1, max_attempts)
+                else:
+                    logger.warning(
+                        f"[BILLING] Encounter {encounter_id} ended NOT_FOUND "
+                        f"after {attempt} attempts."
+                    )
 
         except Exception as e:
             logger.error(
                 f"[BILLING] Error processing encounter {encounter_id}: {e}",
                 exc_info=True,
             )
+            self._patch_note_state(encounter_id, {
+                "noteStatus": "NOT_FOUND",
+                "noteAttempts": attempt,
+                "noteAgentSummary": f"Outcome: not_found. Unhandled exception: {e}",
+                "noteLastAttemptAt": self._now_iso(),
+            })
             if attempt < max_attempts:
-                task["attempt"] = attempt + 1
-                with self._lock:
-                    self._queue.append(task)
+                self._reschedule(task, attempt + 1, max_attempts)
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _reschedule(self, task: dict, next_attempt: int, max_attempts: int):
+        """Put the task back on the delayed queue with a 4h delay."""
+        next_task = dict(task)
+        next_task["attempt"] = next_attempt
+        next_task["maxAttempts"] = max_attempts
+        ok = enqueue_with_delay(
+            "billing:note-search", next_task, RETRY_DELAY_SECONDS
+        )
+        if ok:
+            logger.info(
+                f"[BILLING] Encounter {task.get('encounterId')} re-enqueued "
+                f"for attempt {next_attempt}/{max_attempts} in "
+                f"{RETRY_DELAY_SECONDS // 60}min"
+            )
+        else:
+            logger.error(
+                f"[BILLING] Failed to re-schedule encounter "
+                f"{task.get('encounterId')} — dropping. Manual intervention needed."
+            )
 
     def _execute_note_search(self, task: dict) -> dict:
         """Execute the Baptist note search flow."""
@@ -150,8 +222,8 @@ class BillingNoteWorker:
             credentials=credentials,
         )
 
-    def _update_encounter(self, encounter_id: int, data: dict):
-        """Update encounter providerNote on the backend."""
+    def _patch_note_state(self, encounter_id: int, data: dict):
+        """PATCH the encounter note-tracking fields on the backend."""
         if not encounter_id:
             return
 
@@ -161,15 +233,16 @@ class BillingNoteWorker:
 
             if response.status_code in (200, 201):
                 logger.info(
-                    f"[BILLING] Encounter {encounter_id} updated: providerNote={data.get('providerNote')}"
+                    f"[BILLING] Encounter {encounter_id} PATCHed: "
+                    f"status={data.get('noteStatus')}, attempts={data.get('noteAttempts')}"
                 )
             else:
                 logger.error(
-                    f"[BILLING] Failed to update encounter {encounter_id}: "
+                    f"[BILLING] PATCH /rpa/encounters/{encounter_id}/note failed: "
                     f"{response.status_code} - {response.text}"
                 )
         except Exception as e:
-            logger.error(f"[BILLING] Error updating encounter {encounter_id}: {e}")
+            logger.error(f"[BILLING] Error PATCHing encounter {encounter_id}: {e}")
 
 
 # Singleton worker instance

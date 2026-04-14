@@ -89,6 +89,7 @@ a = Analysis(
         'core.system_utils',
         'core.vdi_input',
         'core.redis_consumer',
+        'core.redis_scheduler',
         # Services
         'services',
         'services.modal_watcher_service',
@@ -113,9 +114,10 @@ a = Analysis(
         'billing',
         'billing.worker',
         'billing.baptist_note_flow',
-        # Agentic (note finder + validator + runner)
+        # Agentic (note finder + validator + summarizer + runner)
         'agentic.emr.baptist.note_finder',
         'agentic.emr.baptist.note_validator',
+        'agentic.emr.baptist.note_summarizer',
         'agentic.runners.baptist_note_runner',
         # Runtime libs that may be missed
         'httpx',

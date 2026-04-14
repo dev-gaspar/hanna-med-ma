@@ -53,6 +53,18 @@ Inside the doctor's folder you will see a list of document entries (e.g.
 "Podiatry Consultation", "Podiatry Progress Note"). Each doctor usually has
 only a handful of notes.
 
+**IMPORTANT — document ordering inside the folder:**
+Documents inside a provider folder are ordered **newest first**. The document
+that auto-opens when you expand the folder is the MOST RECENT note. If the
+target encounter date is months or years in the past, you will likely need
+several `nav_down` steps to reach it. Accept that and walk downward through
+the list; the validator will decide if the currently-open document matches.
+
+If you `nav_down` past the last document in this doctor's folder, the
+selection will leave the folder and enter a different provider's folder.
+When that happens, return `status="error"` with a reasoning explicitly
+saying "no matching document found in <doctor>'s folder".
+
 **IMPORTANT — how to navigate documents:**
 - Use **nav_down / nav_up** to step through documents one by one.
   Each nav_down/nav_up AUTO-OPENS the next/previous document in the right pane.

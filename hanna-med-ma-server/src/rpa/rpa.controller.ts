@@ -181,15 +181,22 @@ export class RpaController {
 
   @Patch("encounters/:encounterId/note")
   @ApiOperation({
-    summary: "Set the provider note S3 key on an encounter",
+    summary: "Update note tracking fields on an encounter",
     description:
-      "Called by RPA after finding and uploading the provider note PDF to S3.",
+      "Called by the RPA billing worker on every state transition (SEARCHING, FOUND_SIGNED, FOUND_UNSIGNED, NOT_FOUND). Accepts any subset of the tracking fields.",
   })
   @ApiParam({ name: "encounterId", type: "number" })
-  @ApiResponse({ status: 200, description: "Encounter providerNote updated" })
+  @ApiResponse({ status: 200, description: "Encounter note tracking updated" })
   async updateEncounterNote(
     @Param("encounterId", ParseIntPipe) encounterId: number,
-    @Body() body: { providerNote: string },
+    @Body()
+    body: {
+      noteStatus?: "PENDING" | "SEARCHING" | "NOT_FOUND" | "FOUND_UNSIGNED" | "FOUND_SIGNED";
+      providerNote?: string | null;
+      noteAttempts?: number;
+      noteLastAttemptAt?: string;
+      noteAgentSummary?: string;
+    },
   ) {
     return this.rpaService.updateEncounterNote(encounterId, body);
   }
@@ -204,5 +211,35 @@ export class RpaController {
   @ApiResponse({ status: 200, description: "List of pending encounters" })
   async getPendingNoteEncounters(@Param("uuid") uuid: string) {
     return this.rpaService.getPendingNoteEncounters(uuid);
+  }
+
+  @Get("encounters/billing-status")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Billing-materials status per encounter",
+    description:
+      "Diagnostic view: for each recent encounter, returns the state of chartId / faceSheet / providerNote plus the note tracking details (status, attempts, last attempt, agent summary).",
+  })
+  @ApiQuery({ name: "doctorId", required: false, type: "number" })
+  @ApiQuery({
+    name: "status",
+    required: false,
+    enum: ["PENDING", "SEARCHING", "NOT_FOUND", "FOUND_UNSIGNED", "FOUND_SIGNED"],
+  })
+  @ApiQuery({ name: "attempts", required: false, type: "number" })
+  @ApiQuery({ name: "limit", required: false, type: "number" })
+  async getEncountersBillingStatus(
+    @Query("doctorId") doctorId?: string,
+    @Query("status") status?: "PENDING" | "SEARCHING" | "NOT_FOUND" | "FOUND_UNSIGNED" | "FOUND_SIGNED",
+    @Query("attempts") attempts?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.rpaService.getEncountersBillingStatus({
+      doctorId: doctorId ? Number(doctorId) : undefined,
+      status,
+      attempts: attempts ? Number(attempts) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 }

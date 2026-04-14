@@ -21,11 +21,30 @@ from logger import logger
 
 from agentic.runners.baptist_note_runner import BaptistNoteRunner, NoteRunnerResult
 from agentic.emr.baptist.note_validator import NoteValidatorAgent
+from agentic.emr.baptist.note_summarizer import NoteExecutionSummarizer
 from agentic.models import AgentStatus
 
 
 PDF_NOTE_FILENAME = "baptis report.pdf"
 MAX_VALIDATION_ATTEMPTS = 3
+
+# Markers in the validator's reason that mean the note exists but is not
+# signed yet. In that case the flow reports outcome=found_unsigned so the
+# worker re-enqueues with a 4h delay (waiting for the doctor to sign).
+_UNSIGNED_MARKERS = (
+    "not yet signed",
+    "not signed",
+    "draft",
+    "in progress",
+)
+
+
+def _classify_validation_reason(reason: str) -> str:
+    """Return 'found_unsigned' if the reason describes a draft note, else 'not_found'."""
+    if not reason:
+        return "not_found"
+    lowered = reason.lower()
+    return "found_unsigned" if any(m in lowered for m in _UNSIGNED_MARKERS) else "not_found"
 
 
 class BaptistNoteFlow:
@@ -116,10 +135,21 @@ class BaptistNoteFlow:
                 date_of_service=date_of_service,
             )
 
+            summarizer = NoteExecutionSummarizer(
+                doctor_name=doctor_name,
+                doctor_specialty=doctor_specialty,
+                encounter_type=encounter_type,
+                date_of_service=date_of_service,
+                patient_name=patient_name,
+            )
+
             # Step 4: Search + validate loop
             note_content: Optional[str] = None
             runner_result: Optional[NoteRunnerResult] = None
             validation_failures: list = []
+            last_validator_reason = ""
+            outcome = "not_found"
+            s3_key: Optional[str] = None
 
             for attempt in range(1, MAX_VALIDATION_ATTEMPTS + 1):
                 logger.info(
@@ -152,60 +182,93 @@ class BaptistNoteFlow:
                     f"[NOTE-FLOW] Validating extracted content ({len(note_content)} chars)..."
                 )
                 validation = validator.validate(note_content)
-
-                logger.info(
-                    f"[NOTE-FLOW] Validation result: valid={validation.valid} "
+                last_validator_reason = (
+                    f"valid={validation.valid} "
                     f"reason='{validation.reason}' "
                     f"detected_doctor='{validation.detected_doctor}' "
                     f"detected_date='{validation.detected_date}'"
                 )
 
+                logger.info(f"[NOTE-FLOW] Validation result: {last_validator_reason}")
+
                 if validation.valid:
-                    # Step 5: Upload PDF to S3
+                    # Valid signed note — upload to S3 and finish
                     s3_key = self._upload_note_to_s3(patient_name, date_of_service)
-
-                    # Step 6: Close patient and cleanup
-                    self._close_patient_detail()
-                    self._cleanup()
-
-                    logger.info("=" * 70)
-                    logger.info(" BAPTIST NOTE FLOW - SUCCESS")
-                    logger.info(f" Attempts: {attempt}/{MAX_VALIDATION_ATTEMPTS}")
-                    logger.info(f" Content: {len(note_content)} chars")
-                    logger.info(f" S3 Key: {s3_key or 'none'}")
-                    logger.info("=" * 70)
-
-                    return {
-                        "success": True,
-                        "message": f"Note extracted ({len(note_content)} chars)",
-                        "note_content": note_content,
-                        "s3_key": s3_key,
-                        "steps": runner_result.steps_taken,
-                        "validation_attempts": attempt,
-                    }
+                    outcome = "found_signed"
+                    break
 
                 validation_failures.append(validation.reason)
+                # If the rejection says "not signed", we've already located the
+                # right document; no need to keep searching other candidates in
+                # this attempt — stop, report found_unsigned so the worker can
+                # re-enqueue later when the doctor has signed.
+                if _classify_validation_reason(validation.reason) == "found_unsigned":
+                    outcome = "found_unsigned"
+                    logger.info(
+                        "[NOTE-FLOW] Candidate note is not signed yet — "
+                        "stopping attempts so the worker can retry later."
+                    )
+                    break
+
                 logger.warning(
                     f"[NOTE-FLOW] Attempt {attempt} rejected: {validation.reason}. "
                     "Continuing search..."
                 )
 
-            # Exhausted attempts or runner could not continue
+            # Always try to produce a narrative summary of what happened.
+            agent_history = runner_result.history if runner_result else []
+            validator_summary = (
+                last_validator_reason
+                or "(validator did not run — runner did not reach a candidate)"
+            )
+            try:
+                agent_summary = summarizer.summarize(
+                    outcome=outcome,
+                    agent_history=agent_history,
+                    validator_result=validator_summary,
+                )
+            except Exception as e:
+                logger.warning(f"[NOTE-FLOW] Summarizer failed: {e}")
+                agent_summary = (
+                    f"Outcome: {outcome}. Validator: {validator_summary}. "
+                    f"Runner steps: {runner_result.steps_taken if runner_result else 0}."
+                )
+
+            # Cleanup VDI regardless of outcome
             if runner_result and runner_result.patient_detail_open:
                 self._close_patient_detail()
             self._cleanup()
 
+            if outcome == "found_signed":
+                logger.info("=" * 70)
+                logger.info(" BAPTIST NOTE FLOW - SUCCESS")
+                logger.info(f" Content: {len(note_content or '')} chars")
+                logger.info(f" S3 Key: {s3_key or 'none'}")
+                logger.info("=" * 70)
+                return {
+                    "success": True,
+                    "outcome": "found_signed",
+                    "message": f"Note extracted ({len(note_content or '')} chars)",
+                    "note_content": note_content,
+                    "s3_key": s3_key,
+                    "agent_summary": agent_summary,
+                    "validator_reason": last_validator_reason,
+                    "steps": runner_result.steps_taken if runner_result else 0,
+                }
+
             reason_summary = "; ".join(validation_failures) or (
                 runner_result.error if runner_result else "note not found"
             )
-            logger.warning(f"[NOTE-FLOW] Exhausted validation attempts: {reason_summary}")
+            logger.warning(f"[NOTE-FLOW] Final outcome={outcome}: {reason_summary}")
             return {
                 "success": False,
-                "message": f"Validation failed: {reason_summary}",
+                "outcome": outcome,
+                "message": f"Outcome {outcome}: {reason_summary}",
                 "note_content": None,
                 "s3_key": None,
+                "agent_summary": agent_summary,
+                "validator_reason": last_validator_reason,
                 "steps": runner_result.steps_taken if runner_result else 0,
-                "validation_attempts": len(validation_failures),
             }
 
         except Exception as e:
@@ -216,9 +279,13 @@ class BaptistNoteFlow:
                 pass
             return {
                 "success": False,
+                "outcome": "not_found",
                 "message": str(e),
                 "note_content": None,
                 "s3_key": None,
+                "agent_summary": f"Outcome: not_found. Unhandled error during note search: {e}",
+                "validator_reason": "",
+                "steps": 0,
             }
 
     def _navigate_to_patient_list(self) -> bool:

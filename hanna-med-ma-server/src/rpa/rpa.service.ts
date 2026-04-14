@@ -362,6 +362,14 @@ export class RpaService {
 			});
 		}
 
+		// 4. Schedule the provider-note search on the delayed Redis queue.
+		//    First attempt runs 4h after the encounter is created, giving the
+		//    doctor time to sign. If the note isn't found / still a draft, the
+		//    RPA worker re-enqueues with another 4h delay (up to 6 attempts).
+		if (patient.emrSystem === "BAPTIST") {
+			await this.scheduleBillingNoteSearch(encounter, patient, doctorId);
+		}
+
 		this.logger.log(`Encounter ${encounter.id} created for patient ${patientId} by doctor ${doctorId}.`);
 
 		return {
@@ -370,6 +378,56 @@ export class RpaService {
 			encounterId: encounter.id,
 			billingEmrStatus: patient.billingEmrStatus,
 		};
+	}
+
+	/**
+	 * Enqueue the first note-search attempt for this encounter with a 4h delay.
+	 */
+	private async scheduleBillingNoteSearch(
+		encounter: { id: number; type: string; dateOfService: Date },
+		patient: { id: number; name: string; emrSystem: string },
+		doctorId: number,
+	) {
+		const doctor = await this.prisma.doctor.findUnique({
+			where: { id: doctorId },
+			select: { id: true, name: true, specialty: true },
+		});
+
+		if (!doctor) {
+			this.logger.warn(
+				`Cannot schedule note search for encounter ${encounter.id}: doctor ${doctorId} not found`,
+			);
+			return;
+		}
+
+		const dateOfService = encounter.dateOfService
+			.toISOString()
+			.slice(0, 10)
+			.replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1"); // MM/DD/YYYY
+
+		const payload = {
+			encounterId: encounter.id,
+			patientName: patient.name,
+			doctorId: doctor.id,
+			doctorName: doctor.name,
+			doctorSpecialty: doctor.specialty ?? "Unknown",
+			encounterType: encounter.type,
+			dateOfService,
+			emrSystem: patient.emrSystem,
+			attempt: 1,
+			maxAttempts: 6,
+		};
+
+		const FOUR_HOURS_SECONDS = 4 * 60 * 60;
+		await this.redisService.scheduleTask(
+			"billing:note-search",
+			payload,
+			FOUR_HOURS_SECONDS,
+		);
+
+		this.logger.log(
+			`Encounter ${encounter.id} scheduled for note search in 4h (attempt 1/6)`,
+		);
 	}
 
 	/**
@@ -570,12 +628,19 @@ export class RpaService {
 	}
 
 	/**
-	 * Update encounter with the provider note S3 key from RPA.
-	 * Called by the RPA billing worker once the note PDF has been found and uploaded.
+	 * Update note tracking fields on an encounter. Accepts any subset:
+	 *   noteStatus, providerNote, noteAttempts, noteLastAttemptAt, noteAgentSummary.
+	 * Called by the RPA billing worker on every state transition.
 	 */
 	async updateEncounterNote(
 		encounterId: number,
-		data: { providerNote: string },
+		data: {
+			noteStatus?: "PENDING" | "SEARCHING" | "NOT_FOUND" | "FOUND_UNSIGNED" | "FOUND_SIGNED";
+			providerNote?: string | null;
+			noteAttempts?: number;
+			noteLastAttemptAt?: string;
+			noteAgentSummary?: string;
+		},
 	) {
 		const encounter = await this.prisma.encounter.findUnique({
 			where: { id: encounterId },
@@ -585,16 +650,32 @@ export class RpaService {
 			throw new NotFoundException(`Encounter ${encounterId} not found`);
 		}
 
+		const updateData: Record<string, unknown> = {};
+		if (data.noteStatus !== undefined) updateData.noteStatus = data.noteStatus;
+		if (data.providerNote !== undefined) updateData.providerNote = data.providerNote;
+		if (data.noteAttempts !== undefined) updateData.noteAttempts = data.noteAttempts;
+		if (data.noteLastAttemptAt !== undefined)
+			updateData.noteLastAttemptAt = new Date(data.noteLastAttemptAt);
+		if (data.noteAgentSummary !== undefined)
+			updateData.noteAgentSummary = data.noteAgentSummary;
+
 		const updated = await this.prisma.encounter.update({
 			where: { id: encounterId },
-			data: { providerNote: data.providerNote },
+			data: updateData,
 		});
 
 		this.logger.log(
-			`Encounter ${encounterId} providerNote set: ${data.providerNote}`,
+			`Encounter ${encounterId} note state → ${updated.noteStatus} ` +
+				`(attempts=${updated.noteAttempts}${updated.providerNote ? `, providerNote=${updated.providerNote}` : ""})`,
 		);
 
-		return { success: true, encounterId, providerNote: updated.providerNote };
+		return {
+			success: true,
+			encounterId,
+			noteStatus: updated.noteStatus,
+			providerNote: updated.providerNote,
+			noteAttempts: updated.noteAttempts,
+		};
 	}
 
 	/**
@@ -648,6 +729,78 @@ export class RpaService {
 			dateOfService: e.dateOfService,
 			deadline: e.deadline,
 		}));
+	}
+
+	/**
+	 * Billing-status diagnostic endpoint — returns recent encounters with
+	 * the state of all three materia-prima pieces (chartId, faceSheet,
+	 * providerNote) plus the note tracking details. Used to answer:
+	 * "what's the status of this encounter's billing materials?" without
+	 * opening Prisma Studio.
+	 */
+	async getEncountersBillingStatus(options: {
+		doctorId?: number;
+		status?: "PENDING" | "SEARCHING" | "NOT_FOUND" | "FOUND_UNSIGNED" | "FOUND_SIGNED";
+		attempts?: number;
+		limit?: number;
+	}) {
+		const limit = Math.min(options.limit ?? 50, 200);
+
+		const encounters = await this.prisma.encounter.findMany({
+			where: {
+				...(options.doctorId !== undefined && { doctorId: options.doctorId }),
+				...(options.status !== undefined && { noteStatus: options.status }),
+				...(options.attempts !== undefined && { noteAttempts: options.attempts }),
+			},
+			include: {
+				patient: {
+					select: {
+						id: true,
+						name: true,
+						emrSystem: true,
+						billingEmrPatientId: true,
+					},
+				},
+				doctor: {
+					select: { id: true, name: true, specialty: true },
+				},
+			},
+			orderBy: { createdAt: "desc" },
+			take: limit,
+		});
+
+		return {
+			count: encounters.length,
+			encounters: encounters.map((e) => {
+				const chartIdOk = Boolean(e.patient.billingEmrPatientId);
+				const faceSheetOk = Boolean(e.faceSheet);
+				const providerNoteOk = Boolean(e.providerNote);
+				const overallReady = chartIdOk && faceSheetOk && providerNoteOk;
+
+				return {
+					encounterId: e.id,
+					patientName: e.patient.name,
+					emrSystem: e.patient.emrSystem,
+					doctorName: e.doctor.name,
+					type: e.type,
+					dateOfService: e.dateOfService,
+					createdAt: e.createdAt,
+					deadline: e.deadline,
+					materials: {
+						chartId: { ok: chartIdOk, value: e.patient.billingEmrPatientId },
+						faceSheet: { ok: faceSheetOk, value: e.faceSheet },
+						providerNote: { ok: providerNoteOk, value: e.providerNote },
+					},
+					noteTracking: {
+						status: e.noteStatus,
+						attempts: e.noteAttempts,
+						lastAttemptAt: e.noteLastAttemptAt,
+						summary: e.noteAgentSummary,
+					},
+					overallReady,
+				};
+			}),
+		};
 	}
 
 	private parseCareTrackerJson(raw: string): unknown {

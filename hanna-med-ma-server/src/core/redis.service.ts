@@ -59,4 +59,34 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       throw error;
     }
   }
+
+  /**
+   * Schedules a task to become visible to workers after `delaySeconds`.
+   *
+   * Implementation detail: payload is ZADD'ed to `<queue>:scheduled` with
+   * score = Unix timestamp at which it matures. A scheduler thread living
+   * inside the RPA node polls this sorted set and moves matured items to
+   * the primary queue. See hanna-med-ma-rpa/core/redis_scheduler.py.
+   */
+  async scheduleTask(
+    queue: string,
+    data: Record<string, any>,
+    delaySeconds: number,
+  ): Promise<number> {
+    try {
+      const payload = JSON.stringify(data);
+      const scheduledKey = `${queue}:scheduled`;
+      const score = Math.floor(Date.now() / 1000) + Math.max(0, delaySeconds);
+      const result = await this.client.zadd(scheduledKey, score, payload);
+      this.logger.log(
+        `Task scheduled on ${scheduledKey} (delay=${delaySeconds}s, score=${score})`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Failed to schedule task on ${queue}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
 }

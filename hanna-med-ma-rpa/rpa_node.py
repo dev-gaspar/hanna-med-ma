@@ -20,6 +20,7 @@ from pathlib import Path
 import requests
 
 from core.redis_consumer import RedisConsumer
+from core.redis_scheduler import RedisScheduler
 from caretracker.worker import handle_caretracker_task
 from billing.worker import get_billing_worker
 
@@ -189,6 +190,15 @@ class RpaNode:
         )
         self._billing_thread.start()
         logger.info("Billing note Redis listener started.")
+
+        # Scheduler thread: moves matured delayed tasks from <queue>:scheduled
+        # (sorted set) into the primary queue. Lives in the same node as the
+        # consumers so it piggy-backs on the same Redis connection pool.
+        self._scheduler = RedisScheduler(
+            queue_names=["billing:note-search"],
+        )
+        self._scheduler.start()
+        logger.info("Redis delayed-queue scheduler started.")
 
     def run_extraction_loop(self):
         """
