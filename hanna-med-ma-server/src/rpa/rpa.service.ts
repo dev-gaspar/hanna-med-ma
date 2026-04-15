@@ -423,13 +423,13 @@ export class RpaService {
 			dateOfService,
 			emrSystem: patient.emrSystem,
 			attempt: 1,
-			// ⚠️ TEST MODE: maxAttempts reduced from 6 to 3 for faster iterations.
-			maxAttempts: 3,
+			maxAttempts: 6,
 		};
 
-		// ⚠️ TEST MODE: initial schedule delay reduced from 4h to 60s.
-		// Revert to `4 * 60 * 60` before shipping.
-		const INITIAL_DELAY_SECONDS = 60;
+		// First attempt runs 4h after the encounter is created, giving the
+		// doctor time to write and sign the note. Subsequent retries are
+		// scheduled by the RPA billing worker itself on a 4h cadence.
+		const INITIAL_DELAY_SECONDS = 4 * 60 * 60;
 		await this.redisService.scheduleTask(
 			"billing:note-search",
 			payload,
@@ -437,7 +437,7 @@ export class RpaService {
 		);
 
 		this.logger.log(
-			`Encounter ${encounter.id} scheduled for note search in ${INITIAL_DELAY_SECONDS}s (attempt 1/3) [TEST MODE]`,
+			`Encounter ${encounter.id} scheduled for note search in 4h (attempt 1/6)`,
 		);
 	}
 
