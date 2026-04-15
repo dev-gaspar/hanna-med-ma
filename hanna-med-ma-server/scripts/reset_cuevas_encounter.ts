@@ -45,10 +45,19 @@ async function main() {
         providerNote: null,
         faceSheet: insurance?.file ?? null,
         deadline,
+        noteStatus: "PENDING",
+        noteAttempts: 0,
+        noteLastAttemptAt: null,
+        noteAgentSummary: null,
       },
     });
     console.log(
-      `  encounter ${enc.id}: providerNote=null, faceSheet=${updated.faceSheet ?? "null"}, deadline=${updated.deadline?.toISOString()}`,
+      `  encounter ${enc.id}: ` +
+        `noteStatus=${updated.noteStatus}, ` +
+        `noteAttempts=${updated.noteAttempts}, ` +
+        `providerNote=null, ` +
+        `faceSheet=${updated.faceSheet ?? "null"}, ` +
+        `deadline=${updated.deadline?.toISOString()}`,
     );
   }
 }
