@@ -338,12 +338,15 @@ export class RpaService {
 		});
 
 		// 2. Create the Encounter
+		// ⚠️ TEST MODE: dateOfService hardcoded to 2024-07-07 so the note search
+		// lands on the known-signed Hanna Podiatry Consultation. Revert to
+		// nowDate() before shipping.
 		const encounter = await this.prisma.encounter.create({
 			data: {
 				patientId,
 				doctorId,
 				type: encounterType,
-				dateOfService: nowDate(),
+				dateOfService: new Date("2024-07-07T00:00:00.000Z"),
 				deadline: deadlineFromNow(24),
 				faceSheet: insuranceRaw?.file ?? null,
 			},
@@ -415,18 +418,21 @@ export class RpaService {
 			dateOfService,
 			emrSystem: patient.emrSystem,
 			attempt: 1,
-			maxAttempts: 6,
+			// ⚠️ TEST MODE: maxAttempts reduced from 6 to 3 for faster iterations.
+			maxAttempts: 3,
 		};
 
-		const FOUR_HOURS_SECONDS = 4 * 60 * 60;
+		// ⚠️ TEST MODE: initial schedule delay reduced from 4h to 60s.
+		// Revert to `4 * 60 * 60` before shipping.
+		const INITIAL_DELAY_SECONDS = 60;
 		await this.redisService.scheduleTask(
 			"billing:note-search",
 			payload,
-			FOUR_HOURS_SECONDS,
+			INITIAL_DELAY_SECONDS,
 		);
 
 		this.logger.log(
-			`Encounter ${encounter.id} scheduled for note search in 4h (attempt 1/6)`,
+			`Encounter ${encounter.id} scheduled for note search in ${INITIAL_DELAY_SECONDS}s (attempt 1/3) [TEST MODE]`,
 		);
 	}
 

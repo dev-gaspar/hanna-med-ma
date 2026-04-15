@@ -30,7 +30,9 @@ from core.redis_scheduler import enqueue_with_delay
 logger = logging.getLogger(__name__)
 
 
-RETRY_DELAY_SECONDS = 4 * 60 * 60  # 4 hours between attempts
+# ⚠️ TEST MODE: retry delay reduced from 4h to 60s for fast e2e iteration.
+# Revert to `4 * 60 * 60` before shipping.
+RETRY_DELAY_SECONDS = 60
 
 
 class BillingNoteWorker:

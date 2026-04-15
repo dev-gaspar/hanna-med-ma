@@ -48,7 +48,9 @@ return #items
 class RedisScheduler:
     """Background thread that flushes matured delayed items into the active queue."""
 
-    POLL_INTERVAL_SECONDS = 30
+    # ⚠️ TEST MODE: poll interval reduced from 30s to 5s.
+    # Revert to 30 before shipping.
+    POLL_INTERVAL_SECONDS = 5
     BATCH_LIMIT = 100
 
     def __init__(self, queue_names: Iterable[str]):
