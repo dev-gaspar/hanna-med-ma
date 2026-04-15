@@ -320,7 +320,12 @@ export class RpaService {
 	 * Marks a patient as seen by creating an Encounter, and triggers async RPA flow
 	 * if the patient hasn't been registered in the billing EMR yet.
 	 */
-	async markPatientAsSeen(patientId: number, doctorId: number, encounterType: "CONSULT" | "PROGRESS" = "CONSULT") {
+	async markPatientAsSeen(
+		patientId: number,
+		doctorId: number,
+		encounterType: "CONSULT" | "PROGRESS" = "CONSULT",
+		dateOfService?: Date,
+	) {
 		const patient = await this.prisma.patient.findUnique({
 			where: { id: patientId },
 		});
@@ -337,13 +342,16 @@ export class RpaService {
 			select: { file: true },
 		});
 
-		// 2. Create the Encounter
+		// 2. Create the Encounter. If the doctor explicitly passed a
+		//    dateOfService (e.g. when catching up on a visit from a prior
+		//    day they forgot to mark), use it. Otherwise default to now.
+		const resolvedDateOfService = dateOfService ?? nowDate();
 		const encounter = await this.prisma.encounter.create({
 			data: {
 				patientId,
 				doctorId,
 				type: encounterType,
-				dateOfService: nowDate(),
+				dateOfService: resolvedDateOfService,
 				deadline: deadlineFromNow(24),
 				faceSheet: insuranceRaw?.file ?? null,
 			},

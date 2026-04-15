@@ -61,6 +61,10 @@ export default function DoctorChat() {
 
 	// Encounter Type Modal
 	const [encounterModalPatientId, setEncounterModalPatientId] = useState<number | null>(null);
+	// Date of service defaults to today; lets the doctor back-date a visit they
+	// forgot to mark as seen on the actual day.
+	const todayIso = () => new Date().toISOString().slice(0, 10);
+	const [encounterDateOfService, setEncounterDateOfService] = useState<string>(todayIso());
 
 	// UI States
 	const [isReady, setIsReady] = useState(false);
@@ -143,11 +147,15 @@ export default function DoctorChat() {
 	}, [selectedItem, copyToClipboard]);
 
 	const handleMarkSeen = (patientId: number) => {
+		// Reset the date picker to today every time the modal opens so a
+		// previous back-dated selection never leaks into a fresh visit.
+		setEncounterDateOfService(todayIso());
 		setEncounterModalPatientId(patientId);
 	};
 
 	const handleEncounterTypeSelected = async (encounterType: "CONSULT" | "PROGRESS") => {
 		const patientId = encounterModalPatientId;
+		const dateOfService = encounterDateOfService;
 		setEncounterModalPatientId(null);
 		if (!patientId) return;
 
@@ -155,8 +163,13 @@ export default function DoctorChat() {
 
 		try {
 			setMarkingLoading((prev) => new Set(prev).add(patientId));
-			await patientService.markAsSeen(patientId, encounterType);
-			toast.success(`${label} encounter created`);
+			await patientService.markAsSeen(patientId, encounterType, dateOfService);
+			const isToday = dateOfService === todayIso();
+			toast.success(
+				isToday
+					? `${label} encounter created`
+					: `${label} encounter created for ${dateOfService}`,
+			);
 		} catch (error) {
 			console.error("Failed to mark patient as seen:", error);
 			toast.error("Failed to create encounter. Please try again.");
@@ -775,6 +788,26 @@ export default function DoctorChat() {
 							<h3 className="text-sm font-bold text-slate-800 dark:text-white">
 								Encounter Type
 							</h3>
+						</div>
+
+						<div className="mb-4">
+							<label
+								htmlFor="encounter-dos"
+								className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1"
+							>
+								Date of service
+							</label>
+							<input
+								id="encounter-dos"
+								type="date"
+								value={encounterDateOfService}
+								max={todayIso()}
+								onChange={(e) => setEncounterDateOfService(e.target.value)}
+								className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
+							/>
+							<p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500 leading-tight">
+								Defaults to today. Change it if you forgot to mark the visit on the actual day.
+							</p>
 						</div>
 
 						<div className="grid grid-cols-2 gap-3">

@@ -138,6 +138,12 @@ export class RpaController {
           enum: ["CONSULT", "PROGRESS"],
           default: "CONSULT",
         },
+        dateOfService: {
+          type: "string",
+          format: "date",
+          description:
+            "Optional ISO date (YYYY-MM-DD). If omitted, today's date is used. Useful when the doctor is catching up on a visit from a previous day.",
+        },
       },
     },
     required: false,
@@ -145,12 +151,23 @@ export class RpaController {
   @ApiResponse({ status: 200, description: "Encounter created" })
   async markPatientAsSeen(
     @Param("patientId", ParseIntPipe) patientId: number,
-    @Body() body: { encounterType?: "CONSULT" | "PROGRESS" },
+    @Body() body: {
+      encounterType?: "CONSULT" | "PROGRESS";
+      dateOfService?: string;
+    },
     @Request() req,
   ) {
     const doctorId = req.user.userId;
     const encounterType = body?.encounterType || "CONSULT";
-    return this.rpaService.markPatientAsSeen(patientId, doctorId, encounterType);
+    const dateOfService = body?.dateOfService
+      ? new Date(body.dateOfService)
+      : undefined;
+    return this.rpaService.markPatientAsSeen(
+      patientId,
+      doctorId,
+      encounterType,
+      dateOfService,
+    );
   }
 
   @Get(":uuid/patients/data-status")

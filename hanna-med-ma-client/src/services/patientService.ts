@@ -4,11 +4,19 @@ import type { PatientBillingInfo, EncounterType } from "../types";
 export const patientService = {
 	/**
 	 * Mark a patient as seen by their database ID, creating an Encounter.
+	 *
+	 * @param dateOfService Optional YYYY-MM-DD string. If omitted, the server
+	 * uses today's date. Useful when catching up on a visit the doctor forgot
+	 * to mark the day of.
 	 */
-	async markAsSeen(patientId: number, encounterType: EncounterType = "CONSULT"): Promise<PatientBillingInfo> {
+	async markAsSeen(
+		patientId: number,
+		encounterType: EncounterType = "CONSULT",
+		dateOfService?: string,
+	): Promise<PatientBillingInfo> {
 		const response = await api.patch<PatientBillingInfo>(
 			`/rpa/patients/${patientId}/seen`,
-			{ encounterType },
+			{ encounterType, ...(dateOfService ? { dateOfService } : {}) },
 		);
 		return response.data;
 	},
