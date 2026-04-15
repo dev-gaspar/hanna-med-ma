@@ -338,15 +338,12 @@ export class RpaService {
 		});
 
 		// 2. Create the Encounter
-		// ⚠️ TEST MODE: dateOfService hardcoded to 2024-07-07 so the note search
-		// lands on the known-signed Hanna Podiatry Consultation. Revert to
-		// nowDate() before shipping.
 		const encounter = await this.prisma.encounter.create({
 			data: {
 				patientId,
 				doctorId,
 				type: encounterType,
-				dateOfService: new Date("2024-07-07T00:00:00.000Z"),
+				dateOfService: nowDate(),
 				deadline: deadlineFromNow(24),
 				faceSheet: insuranceRaw?.file ?? null,
 			},
