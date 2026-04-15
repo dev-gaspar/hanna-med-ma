@@ -28,3 +28,6 @@ venv/
 hanna-med-ma-rpa/rpa_uuid.json
 
 # Ignorar las carpetas locales de git si se usan submódulos (opcional)
+
+# Local-only working notes
+resumen_local.md
