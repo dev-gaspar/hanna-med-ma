@@ -6,7 +6,7 @@
 	"skip_batch_insurance": false,
 	"skip_batch_lab": false,
 	"_comment": "emr types to skip. Example: [\"STEWARD\", \"JACKSON\"]",
-	"disabled_emr_types": ["STEWARD", "JACKSON"],
+	"disabled_emr_types": [],
 	"smart_extraction": {
 		"enabled": true,
 		"rules": {
