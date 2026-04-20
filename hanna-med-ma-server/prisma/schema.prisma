@@ -286,3 +286,62 @@ model PatientRawData {
   @@index([patientId, dataType])
   @@map("patient_raw_data")
 }
+
+// ─── Coverage / Regulatory Engine ───────────────────────────
+// The regulatory "brain" the AI Coder queries to propose codes,
+// price them, and flag audit risk. Populated from CMS sources
+// (MPFS + GPCIs). LCDs / NCCI / MUE come in later migrations.
+
+// Medicare GPCI locality. A locality bundles the three GPCIs
+// (work / practice expense / malpractice) that localize the
+// national RVUs into a regional payment amount.
+// Florida Locality 04 = Miami-Dade, MAC = First Coast (FCSO).
+model Locality {
+  id            Int     @id @default(autoincrement())
+  code          String  // e.g., "04"
+  state         String  // e.g., "FL"
+  macContractor String? // e.g., "First Coast (FCSO)"
+  description   String? // e.g., "Miami, FL"
+  workGpci      Float
+  peGpci        Float
+  mpGpci        Float
+  year          Int
+
+  feeScheduleItems FeeScheduleItem[]
+
+  @@unique([code, state, year])
+  @@map("localities")
+}
+
+// One row of the localized Medicare Physician Fee Schedule:
+// one CPT (+ optional modifier) at one locality for one year.
+// amountUsd is pre-computed from RVUs × GPCIs × conversion factor
+// so lookups are a single PK hit.
+model FeeScheduleItem {
+  id                Int     @id @default(autoincrement())
+  cpt               String
+  modifier          String? // e.g., "26" professional, "TC" technical
+  year              Int
+  localityId        Int
+  description       String?
+
+  workRvu           Float
+  peRvu             Float   // non-facility practice expense
+  peFacilityRvu     Float?  // facility practice expense (site-of-service alternative)
+  mpRvu             Float
+  conversionFactor  Float
+  amountUsd         Float   // non-facility payment
+  amountFacilityUsd Float?  // facility payment (when peFacilityRvu present)
+
+  globalDays        String? // "000" | "010" | "090" | "MMM" | "XXX" | "YYY" | "ZZZ"
+  statusCode        String? // CMS status indicator (A=active, R=restricted, I=invalid, etc.)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locality Locality @relation(fields: [localityId], references: [id], onDelete: Cascade)
+
+  @@unique([cpt, modifier, localityId, year])
+  @@index([cpt, year])
+  @@map("fee_schedule_items")
+}

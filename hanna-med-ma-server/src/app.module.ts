@@ -12,6 +12,7 @@ import { RpaModule } from "./rpa/rpa.module";
 import { IngestModule } from "./ingest/ingest.module";
 import { PatientsModule } from "./patients/patients.module";
 import { AiModule } from "./ai/ai.module";
+import { CoverageModule } from "./coverage/coverage.module";
 import { RedisModule } from "./core/redis.module";
 import { S3Module } from "./core/s3.module";
 
@@ -31,6 +32,7 @@ import { S3Module } from "./core/s3.module";
     IngestModule,
     PatientsModule,
     AiModule,
+    CoverageModule,
     RedisModule,
     S3Module,
   ],
