@@ -124,7 +124,7 @@ export default function PatientDetail() {
 		<div className="flex-1 flex flex-col min-h-0">
 			{/* Header */}
 			<div className="bg-n-0 border-b border-n-150 shrink-0">
-				<div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
+				<div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
 					<button
 						onClick={() => navigate(-1)}
 						className="inline-flex items-center justify-center w-8 h-8 rounded-md text-n-600 hover:text-n-900 hover:bg-n-100 transition"
@@ -158,7 +158,9 @@ export default function PatientDetail() {
 			</div>
 
 			<div className="flex-1 overflow-y-auto custom-scrollbar">
-				<div className="max-w-3xl mx-auto px-4 py-4 space-y-5">
+				<div className="max-w-5xl mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-5 lg:items-start">
+					{/* ── Left column: identity + quick actions ── */}
+					<div className="space-y-5">
 					{/* Demographics card */}
 					<section className="bg-n-0 border border-n-150 rounded-lg">
 						<div className="px-4 py-3 border-b border-n-150">
@@ -231,6 +233,9 @@ export default function PatientDetail() {
 							Lab
 						</Button>
 					</section>
+					</div>
+					{/* ── Right column: encounter + history + raw data ── */}
+					<div className="space-y-5 min-w-0">
 
 					{/* Latest encounter */}
 					{latestEncounter && (
@@ -348,6 +353,7 @@ export default function PatientDetail() {
 							</p>
 						</section>
 					)}
+					</div>
 				</div>
 			</div>
 		</div>

@@ -156,7 +156,7 @@ export default function PatientListPage() {
 	return (
 		<div className="flex-1 flex flex-col min-h-0">
 			<div className="bg-n-0 border-b border-n-150 shrink-0">
-				<div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
+				<div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
 					<Link
 						to="/doctor/round"
 						className="inline-flex items-center justify-center w-8 h-8 rounded-md text-n-600 hover:text-n-900 hover:bg-n-100 transition"
@@ -178,7 +178,7 @@ export default function PatientListPage() {
 					</div>
 				</div>
 				{/* Filter strip */}
-				<div className="max-w-3xl mx-auto px-4 pb-2.5 pt-1 flex gap-1.5 overflow-x-auto">
+				<div className="max-w-5xl mx-auto px-4 pb-2.5 pt-1 flex gap-1.5 overflow-x-auto">
 					{([
 						{ id: "all", label: "All", n: counts.all },
 						{ id: "unseen", label: "Unseen", n: counts.unseen },
@@ -217,7 +217,7 @@ export default function PatientListPage() {
 						</span>
 					</div>
 				) : filtered.length === 0 ? (
-					<div className="max-w-3xl mx-auto px-4 py-12 text-center">
+					<div className="max-w-5xl mx-auto px-4 py-12 text-center">
 						<p className="font-mono text-[11.5px] uppercase tracking-widest text-n-500">
 							{filter === "unseen"
 								? "No unseen patients — nice"
@@ -227,7 +227,7 @@ export default function PatientListPage() {
 						</p>
 					</div>
 				) : (
-					<div className="max-w-3xl mx-auto px-4 py-3 space-y-5">
+					<div className="max-w-5xl mx-auto px-4 py-3 space-y-5">
 						{grouped.map(([key, group]) => (
 							<div key={key} className="space-y-2">
 								{hasFacilities && key !== UNGROUPED && (

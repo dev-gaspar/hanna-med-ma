@@ -52,7 +52,7 @@ export default function TodaysRound() {
 
 	return (
 		<div className="flex-1 overflow-y-auto pb-4 custom-scrollbar">
-			<div className="max-w-3xl mx-auto px-4 pt-5 pb-3">
+			<div className="max-w-5xl mx-auto px-4 pt-5 pb-3">
 				<div className="label-kicker mb-1">{formattedDate}</div>
 				<h1 className="font-serif text-[24px] text-n-900 leading-tight">
 					Today&rsquo;s round
@@ -60,7 +60,7 @@ export default function TodaysRound() {
 			</div>
 
 			{/* Hero census card */}
-			<div className="max-w-3xl mx-auto px-4">
+			<div className="max-w-5xl mx-auto px-4">
 				<div className="rounded-xl bg-p-700 text-white p-5">
 					<div className="font-mono text-[10px] uppercase tracking-widest text-white/70">
 						Census today
@@ -97,11 +97,11 @@ export default function TodaysRound() {
 
 			{/* Hospitals list */}
 			{emrSystems.length > 0 && (
-				<section className="max-w-3xl mx-auto px-4 mt-6">
+				<section className="max-w-5xl mx-auto px-4 mt-6">
 					<div className="flex items-end justify-between mb-3">
 						<div className="label-kicker">Hospitals</div>
 					</div>
-					<div className="space-y-2">
+					<div className="grid grid-cols-1 md:grid-cols-2 gap-2">
 						{stats.map((h) => (
 							<Link
 								key={h.key}
@@ -154,7 +154,7 @@ export default function TodaysRound() {
 
 			{/* Recent census — flatten + sort by updatedAt */}
 			{!loading && totalCensus > 0 && (
-				<section className="max-w-3xl mx-auto px-4 mt-6">
+				<section className="max-w-5xl mx-auto px-4 mt-6">
 					<div className="label-kicker mb-3">Recent</div>
 					<div className="space-y-1">
 						{Object.values(patientsBySystem)

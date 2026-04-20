@@ -21,7 +21,7 @@ export default function DoctorMe() {
 
 	return (
 		<div className="flex-1 overflow-y-auto pb-6 custom-scrollbar">
-			<div className="max-w-3xl mx-auto px-4 pt-5 pb-3">
+			<div className="max-w-5xl mx-auto px-4 pt-5 pb-3">
 				<div className="label-kicker mb-1">Profile</div>
 				<h1 className="font-serif text-[24px] text-n-900 leading-tight">
 					{doctor?.name || "Doctor"}
@@ -31,7 +31,7 @@ export default function DoctorMe() {
 				)}
 			</div>
 
-			<section className="max-w-3xl mx-auto px-4 mt-4">
+			<section className="max-w-5xl mx-auto px-4 mt-4">
 				<div className="label-kicker mb-2">Account</div>
 				<div className="bg-n-0 rounded-lg border border-n-150 divide-y divide-n-150">
 					<Row label="Username" value={doctor?.username || "—"} />
@@ -40,7 +40,7 @@ export default function DoctorMe() {
 			</section>
 
 			{emrSystems.length > 0 && (
-				<section className="max-w-3xl mx-auto px-4 mt-5">
+				<section className="max-w-5xl mx-auto px-4 mt-5">
 					<div className="label-kicker mb-2">Hospitals</div>
 					<div className="bg-n-0 rounded-lg border border-n-150">
 						{emrSystems.map((s, i) => {
@@ -69,7 +69,7 @@ export default function DoctorMe() {
 				</section>
 			)}
 
-			<section className="max-w-3xl mx-auto px-4 mt-5">
+			<section className="max-w-5xl mx-auto px-4 mt-5">
 				<div className="label-kicker mb-2">Security</div>
 				<div className="bg-n-0 rounded-lg border border-n-150 px-4 py-3 flex items-center gap-3">
 					<Lock className="w-4 h-4 text-n-500 shrink-0" />
@@ -82,7 +82,7 @@ export default function DoctorMe() {
 				</div>
 			</section>
 
-			<section className="max-w-3xl mx-auto px-4 mt-6">
+			<section className="max-w-5xl mx-auto px-4 mt-6">
 				<Button
 					tone="ghost"
 					size="lg"
