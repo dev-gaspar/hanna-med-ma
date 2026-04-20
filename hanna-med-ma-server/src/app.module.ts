@@ -13,6 +13,7 @@ import { IngestModule } from "./ingest/ingest.module";
 import { PatientsModule } from "./patients/patients.module";
 import { AiModule } from "./ai/ai.module";
 import { CoverageModule } from "./coverage/coverage.module";
+import { CodingModule } from "./coding/coding.module";
 import { RedisModule } from "./core/redis.module";
 import { S3Module } from "./core/s3.module";
 
@@ -33,6 +34,7 @@ import { S3Module } from "./core/s3.module";
     PatientsModule,
     AiModule,
     CoverageModule,
+    CodingModule,
     RedisModule,
     S3Module,
   ],

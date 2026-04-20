@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 import { AiService } from "./ai.service";
 import { LangChainModelService } from "./langchain-model.service";
 import { RouterAgent } from "./agents/router.agent";
+import { CoderAgent } from "./agents/coder.agent";
+import { CoverageModule } from "../coverage/coverage.module";
 
 import {
   PatientListTool,
@@ -21,10 +23,12 @@ import { SubAgentsService } from "./agents/sub-agents.service";
 import { PatientSeenTool } from "./tools/patient-seen.tools";
 
 @Module({
+  imports: [CoverageModule],
   providers: [
     AiService,
     LangChainModelService,
     RouterAgent,
+    CoderAgent,
     PatientListTool,
     BatchPatientListTool,
     PatientSummaryTool,
@@ -37,6 +41,6 @@ import { PatientSeenTool } from "./tools/patient-seen.tools";
     SubAgentsService,
     PatientSeenTool,
   ],
-  exports: [AiService, SubAgentsService],
+  exports: [AiService, SubAgentsService, CoderAgent],
 })
 export class AiModule {}
