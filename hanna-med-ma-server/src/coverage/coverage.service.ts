@@ -397,40 +397,33 @@ export class CoverageService {
 		});
 	}
 
-	// ─── CPT description lookup (for post-selection enrichment) ──────────
-	// Raw SQL because the Prisma client typings for cpt_codes /
-	// icd10_codes aren't always regenerated (pgvector `Unsupported`
-	// columns + Windows file locks on the Prisma engine DLL).
+	// ─── CPT / ICD description lookup ──────────────────────────────────
+	// Both tables have an Unsupported("vector(768)") embedding column
+	// but Prisma's typed client still handles the non-vector fields —
+	// it just excludes `embedding` from the generated types, which is
+	// exactly what we want (the vector lives behind the search_* paths).
 
 	async getCptInfo(cpt: string) {
-		const rows = await this.prisma.$queryRawUnsafe<
-			Array<{
-				code: string;
-				description: string;
-				longDescription: string | null;
-				statusCode: string | null;
-			}>
-		>(
-			`SELECT code, description, "longDescription", "statusCode"
-			 FROM cpt_codes WHERE code = $1 LIMIT 1`,
-			cpt,
-		);
-		return rows[0] ?? null;
+		return this.prisma.cptCode.findUnique({
+			where: { code: cpt },
+			select: {
+				code: true,
+				description: true,
+				longDescription: true,
+				statusCode: true,
+			},
+		});
 	}
 
 	async getIcd10Info(code: string) {
-		const rows = await this.prisma.$queryRawUnsafe<
-			Array<{
-				code: string;
-				shortDescription: string;
-				longDescription: string;
-				isBillable: boolean;
-			}>
-		>(
-			`SELECT code, "shortDescription", "longDescription", "isBillable"
-			 FROM icd10_codes WHERE code = $1 LIMIT 1`,
-			code,
-		);
-		return rows[0] ?? null;
+		return this.prisma.icd10Code.findUnique({
+			where: { code },
+			select: {
+				code: true,
+				shortDescription: true,
+				longDescription: true,
+				isBillable: true,
+			},
+		});
 	}
 }

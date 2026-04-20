@@ -110,25 +110,21 @@ export class CodingService {
 			? { ...proposal, noteText }
 			: { rawText: result.rawText, noteText };
 
-		// Raw SQL — the Prisma client for encounter_codings isn't always
-		// regenerated because of Windows file locks on query_engine.dll
-		// held by the IDE/language-server. Raw keeps this path working.
-		const inserted = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
-			`INSERT INTO "encounter_codings"
-			   ("encounterId","status","basedOnNoteVersion","proposal","primaryCpt",
-			    "auditRiskScore","riskBand","toolCallCount","runDurationMs",
-			    "createdAt","updatedAt")
-			 VALUES ($1,'DRAFT','SIGNED',$2::jsonb,$3,$4,$5,$6,$7,NOW(),NOW())
-			 RETURNING id`,
-			encounterId,
-			JSON.stringify(storedProposal),
-			proposal?.primaryCpt ?? null,
-			score,
-			band,
-			result.toolCalls.length,
-			durationMs,
-		);
-		const coding = { id: inserted[0].id };
+		const coding = await this.prisma.encounterCoding.create({
+			data: {
+				encounterId,
+				status: "DRAFT",
+				basedOnNoteVersion: "SIGNED",
+				proposal: storedProposal as unknown as
+					import("@prisma/client").Prisma.InputJsonValue,
+				primaryCpt: proposal?.primaryCpt ?? null,
+				auditRiskScore: score,
+				riskBand: band,
+				toolCallCount: result.toolCalls.length,
+				runDurationMs: durationMs,
+			},
+			select: { id: true },
+		});
 
 		this.logger.log(
 			`Encounter ${encounterId} coded in ${durationMs}ms — id=${coding.id}, primary=${proposal?.primaryCpt}, score=${score}`,
@@ -137,60 +133,45 @@ export class CodingService {
 		return { coding, proposal };
 	}
 
-	/**
-	 * Most recent coding for an encounter, or null if there is none yet.
-	 */
+	/** Most recent coding for an encounter, or null if there is none yet. */
 	async getLatestForEncounter(encounterId: number) {
-		const rows = await this.prisma.$queryRawUnsafe<
-			Array<Record<string, unknown>>
-		>(
-			`SELECT * FROM "encounter_codings" WHERE "encounterId" = $1
-			 ORDER BY "createdAt" DESC LIMIT 1`,
-			encounterId,
-		);
-		return rows[0] ?? null;
+		return this.prisma.encounterCoding.findFirst({
+			where: { encounterId },
+			orderBy: { createdAt: "desc" },
+		});
 	}
 
 	/** All codings for an encounter — ordered newest-first. Used for history. */
 	async listForEncounter(encounterId: number) {
-		return this.prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
-			`SELECT * FROM "encounter_codings" WHERE "encounterId" = $1
-			 ORDER BY "createdAt" DESC`,
-			encounterId,
-		);
+		return this.prisma.encounterCoding.findMany({
+			where: { encounterId },
+			orderBy: { createdAt: "desc" },
+		});
 	}
 
 	/**
-	 * Doctor/coder sign-off. Flips the latest DRAFT → APPROVED and
+	 * Doctor/coder sign-off. Flips DRAFT/UNDER_REVIEW → APPROVED and
 	 * records who approved + when.
 	 */
 	async approve(codingId: number, doctorId: number) {
-		const existing = await this.prisma.$queryRawUnsafe<
-			Array<{ id: number; status: string }>
-		>(
-			`SELECT id, status FROM "encounter_codings" WHERE id = $1 LIMIT 1`,
-			codingId,
-		);
-		if (!existing[0]) throw new NotFoundException(`Coding ${codingId} not found`);
-		if (existing[0].status === "TRANSFERRED_TO_CARETRACKER") {
+		const existing = await this.prisma.encounterCoding.findUnique({
+			where: { id: codingId },
+			select: { id: true, status: true },
+		});
+		if (!existing) throw new NotFoundException(`Coding ${codingId} not found`);
+		if (existing.status === "TRANSFERRED_TO_CARETRACKER") {
 			throw new BadRequestException(
 				`Coding ${codingId} already transferred — cannot re-approve`,
 			);
 		}
-		const updated = await this.prisma.$queryRawUnsafe<
-			Array<Record<string, unknown>>
-		>(
-			`UPDATE "encounter_codings"
-			   SET status = 'APPROVED',
-			       "approvedByDoctorId" = $2,
-			       "approvedAt" = NOW(),
-			       "updatedAt" = NOW()
-			 WHERE id = $1
-			 RETURNING *`,
-			codingId,
-			doctorId,
-		);
-		return updated[0];
+		return this.prisma.encounterCoding.update({
+			where: { id: codingId },
+			data: {
+				status: "APPROVED",
+				approvedByDoctorId: doctorId,
+				approvedAt: new Date(),
+			},
+		});
 	}
 
 	/**
@@ -198,14 +179,9 @@ export class CodingService {
 	 * today). Irreversible — subsequent regenerations create a new DRAFT.
 	 */
 	async markTransferred(codingId: number) {
-		const updated = await this.prisma.$queryRawUnsafe<
-			Array<Record<string, unknown>>
-		>(
-			`UPDATE "encounter_codings"
-			   SET status = 'TRANSFERRED_TO_CARETRACKER', "updatedAt" = NOW()
-			 WHERE id = $1 RETURNING *`,
-			codingId,
-		);
-		return updated[0];
+		return this.prisma.encounterCoding.update({
+			where: { id: codingId },
+			data: { status: "TRANSFERRED_TO_CARETRACKER" },
+		});
 	}
 }
