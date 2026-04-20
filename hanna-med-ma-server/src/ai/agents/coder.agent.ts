@@ -99,6 +99,33 @@ const finalSchema = z.object({
 		.array(z.string())
 		.default([])
 		.describe("Anything that could trigger an audit or denial"),
+	auditRiskScore: z
+		.number()
+		.int()
+		.min(0)
+		.max(100)
+		.describe(
+			"0-100 risk that this claim gets denied/audited. 0-25 = low (docs bulletproof), 26-60 = review (minor gaps), 61+ = risk (structural issues).",
+		),
+	riskBand: z
+		.enum(["LOW", "REVIEW", "RISK"])
+		.describe("Coarse band derived from auditRiskScore."),
+	riskBreakdown: z
+		.array(
+			z.object({
+				dimension: z.enum([
+					"LCD compliance",
+					"NCCI pairs",
+					"MUE",
+					"Specificity",
+					"Documentation completeness",
+				]),
+				verdict: z.enum(["ok", "partial", "fail"]),
+				note: z.string().optional(),
+			}),
+		)
+		.default([])
+		.describe("Five required dimensions matching the Defense panel rows."),
 	summary: z
 		.string()
 		.describe("One-paragraph narrative Hajira can read"),

@@ -59,6 +59,22 @@ export class S3Service implements OnModuleInit {
 	}
 
 	/**
+	 * Download an object and return its raw bytes.
+	 * Used by the AI Coder to feed signed note PDFs into pdf-parse.
+	 */
+	async downloadBuffer(key: string): Promise<Buffer> {
+		const res = await this.client.send(
+			new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+		);
+		if (!res.Body) throw new Error(`S3 object has no body: ${key}`);
+		// @aws-sdk v3 streams. transformToByteArray is the supported helper.
+		const bytes = await (res.Body as {
+			transformToByteArray: () => Promise<Uint8Array>;
+		}).transformToByteArray();
+		return Buffer.from(bytes);
+	}
+
+	/**
 	 * Generate a presigned URL to access a file.
 	 * @param key - S3 key
 	 * @param ttl - Expiration in seconds (defaults to config value)

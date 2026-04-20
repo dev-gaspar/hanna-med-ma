@@ -256,11 +256,65 @@ model Encounter {
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  codings EncounterCoding[]
 
   @@index([doctorId])
   @@index([patientId])
   @@index([noteStatus])
   @@map("encounters")
+}
+
+// ─── AI Coder proposals per encounter ───────────────────────
+//
+// One row per "pass" of the AI Coder — regenerate creates a new
+// DRAFT. The provider/coder reviews and transitions to APPROVED
+// (sign-off) → TRANSFERRED_TO_CARETRACKER (Hajira tipéa a mano).
+// Kept separately from Encounter so history is preserved even
+// after approvals/denials.
+
+enum EncounterCodingStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  TRANSFERRED_TO_CARETRACKER
+  DENIED
+}
+
+enum NoteVersionBasis {
+  DRAFT
+  SIGNED
+}
+
+model EncounterCoding {
+  id                Int                  @id @default(autoincrement())
+  encounterId       Int
+  status            EncounterCodingStatus @default(DRAFT)
+  basedOnNoteVersion NoteVersionBasis    @default(SIGNED)
+
+  // Full proposal JSON as emitted by the CoderAgent's finalize_coding tool.
+  // Keeping it verbatim lets us render the same panel later without
+  // re-running the agent and without serialising into many columns.
+  proposal          Json
+
+  // Flattened metrics for fast filtering/sorting in the coder inbox.
+  primaryCpt        String?
+  auditRiskScore    Int?                  // 0-100
+  riskBand          String?               // "LOW" | "REVIEW" | "RISK"
+  toolCallCount     Int?
+  runDurationMs     Int?
+
+  // Sign-off audit trail.
+  approvedByDoctorId Int?
+  approvedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  encounter Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+
+  @@index([encounterId])
+  @@index([status])
+  @@map("encounter_codings")
 }
 
 // ─── Patient Raw Data (Summaries, Insurance, Lab Results) ───

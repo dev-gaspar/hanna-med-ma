@@ -16,6 +16,7 @@ import { useDoctorData } from "../../contexts/DoctorDataContext";
 import { getHospital } from "../../lib/hospitals";
 import type { Patient } from "../../types";
 import { cls } from "../../lib/cls";
+import { isAdmittedRecently } from "../../lib/patientFlags";
 import { Chip } from "../../components/ui/Chip";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
@@ -393,9 +394,18 @@ function PatientRow({
 	const actionBtn =
 		"inline-flex items-center gap-1.5 h-7 px-2 rounded border border-n-200 bg-n-0 text-n-700 text-[11.5px] hover:bg-n-100 transition";
 
+	const isNew = isAdmittedRecently(patient.admittedDate);
+
 	return (
 		<li className="bg-n-0 rounded-lg border border-n-150 px-3.5 py-3">
 			<div className="flex items-start gap-2.5">
+				{/* Accent rail mirrors PatientCard: warn-colored for newly admitted */}
+				<div
+					className={cls(
+						"w-1 self-stretch rounded-full mt-0.5",
+						isNew ? "bg-[var(--warn-fg)]" : "bg-transparent",
+					)}
+				/>
 				<div className="flex-1 min-w-0">
 					<div className="flex items-center gap-2 flex-wrap">
 						<Link
@@ -404,6 +414,7 @@ function PatientRow({
 						>
 							{patient.name}
 						</Link>
+						{isNew && <Chip tone="warn">new</Chip>}
 						{isSeen && <Chip tone="ok">seen</Chip>}
 					</div>
 					<div className="mt-1 space-y-0.5">

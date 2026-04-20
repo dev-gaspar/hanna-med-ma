@@ -4,6 +4,7 @@ import { ChevronRight, Loader2 } from "lucide-react";
 import { doctorAuthService } from "../../services/doctorAuthService";
 import { useDoctorData } from "../../contexts/DoctorDataContext";
 import { HOSPITALS } from "../../lib/hospitals";
+import { isAdmittedRecently } from "../../lib/patientFlags";
 import type { EmrSystem } from "../../types";
 import { Chip } from "../../components/ui/Chip";
 
@@ -182,7 +183,12 @@ export default function TodaysRound() {
 												.toUpperCase()}
 										</div>
 										<div className="flex-1 min-w-0">
-											<div className="truncate text-n-900">{p.name}</div>
+											<div className="flex items-center gap-1.5 min-w-0">
+												<span className="truncate text-n-900">{p.name}</span>
+												{isAdmittedRecently(p.admittedDate) && (
+													<Chip tone="warn">new</Chip>
+												)}
+											</div>
 											<div className="font-mono text-[10.5px] text-n-500 truncate">
 												{p.location || "—"}
 												{p.reason ? ` · ${p.reason}` : ""}

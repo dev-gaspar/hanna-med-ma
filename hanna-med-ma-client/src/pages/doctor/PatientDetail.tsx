@@ -10,6 +10,7 @@ import {
 	CheckCircle2,
 } from "lucide-react";
 import { patientService } from "../../services/patientService";
+import { codingService } from "../../services/codingService";
 import { getHospital } from "../../lib/hospitals";
 import type {
 	EncounterDetail,
@@ -18,9 +19,11 @@ import type {
 	PatientRawDataEntry,
 	RawDataType,
 } from "../../types";
+import type { EncounterCoding } from "../../types/coding";
 import { cls } from "../../lib/cls";
 import { Chip } from "../../components/ui/Chip";
 import { Button } from "../../components/ui/Button";
+import { CodingPanel } from "./CodingPanel";
 
 const NOTE_STATUS_TONE: Record<
 	NoteStatus,
@@ -49,6 +52,7 @@ export default function PatientDetail() {
 	const [patient, setPatient] = useState<PatientDetailType | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [coding, setCoding] = useState<EncounterCoding | null>(null);
 
 	useEffect(() => {
 		if (!patientId) return;
@@ -60,6 +64,19 @@ export default function PatientDetail() {
 				const data = await patientService.getById(patientId);
 				if (cancelled) return;
 				setPatient(data);
+				// Preload the latest coding for the signed encounter, if any.
+				// No block on failure — the panel falls back to "Run AI Coder".
+				const signed = data.encounters.find(
+					(e) => e.noteStatus === "FOUND_SIGNED",
+				);
+				if (signed) {
+					try {
+						const latest = await codingService.getLatest(signed.id);
+						if (!cancelled) setCoding(latest);
+					} catch {
+						// ignore
+					}
+				}
 			} catch (e: unknown) {
 				if (cancelled) return;
 				const err = e as { response?: { status?: number } };
@@ -313,6 +330,17 @@ export default function PatientDetail() {
 							)}
 						</section>
 					)}
+
+					{/* ── AI Coder panel — shown once the note is signed ── */}
+					{latestEncounter &&
+						latestEncounter.noteStatus === "FOUND_SIGNED" && (
+							<CodingPanel
+								encounterId={latestEncounter.id}
+								coding={coding}
+								providerNoteAvailable={!!latestEncounter.providerNoteUrl}
+								onChange={setCoding}
+							/>
+						)}
 
 					{/* Encounter history — older encounters rendered compact */}
 					{patient.encounters.length > 1 && (
