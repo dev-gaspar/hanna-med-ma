@@ -10,7 +10,6 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { patientService } from "../../services/patientService";
 import { toast } from "sonner";
-import type { Message } from "../../types/chat";
 import {
 	Send,
 	Loader2,
