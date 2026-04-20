@@ -433,6 +433,7 @@ model Lcd {
 
   contractors  LcdContractor[]
   articleLinks LcdArticleLink[]
+  textChunks   LcdTextChunk[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -482,6 +483,7 @@ model LcdArticle {
   cptCodes     LcdArticleCpt[]
   icd10Codes   LcdArticleIcd10[]
   lcdLinks     LcdArticleLink[]
+  textChunks   LcdTextChunk[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -542,4 +544,70 @@ model LcdArticleIcd10 {
   @@index([icd10])
   @@index([articleId, coverage])
   @@map("lcd_article_icd10s")
+}
+
+// ─── Vector / semantic search layer ────────────────────────
+// All embeddings live in three tables with `vector(768)` columns
+// (gemini text-embedding-004 native size, well within pgvector's
+// 2000-dim HNSW cap). One row per unique code — NOT per localized
+// MPFS row or per Article crosswalk — so there's no duplication.
+
+// Full ICD-10-CM 2026 catalog. The only catalog we ingest that
+// wasn't already in the DB — CPT descriptions live in
+// fee_schedule_items / lcd_article_cpts, which the embedder
+// reads directly.
+model Icd10Code {
+  id               Int                           @id @default(autoincrement())
+  code             String                        @unique // e.g., "E11.621"
+  orderNumber      Int
+  isBillable       Boolean
+  shortDescription String                        @db.Text
+  longDescription  String                        @db.Text
+  embedding        Unsupported("vector(768)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("icd10_codes")
+}
+
+// Deduplicated CPT/HCPCS catalog with embeddings. Fed by the
+// union of fee_schedule_items + lcd_article_cpts so every code
+// the AI could possibly cite is searchable.
+model CptCode {
+  id              Int                           @id @default(autoincrement())
+  code            String                        @unique
+  description     String                        @db.Text
+  longDescription String?                       @db.Text
+  statusCode      String?
+  embedding       Unsupported("vector(768)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cpt_codes")
+}
+
+// Chunked free-text sections of LCDs and Articles so an LCD's
+// coverage rationale can be searched semantically. One row per
+// ~500-token slice; chunking is lossy on purpose (embedding a 40k-
+// token LCD as one vector loses granularity).
+model LcdTextChunk {
+  id         Int                           @id @default(autoincrement())
+  lcdId      Int?
+  articleId  Int?
+  section    String // "indication" | "codingGuidelines" | "description" | ...
+  chunkIndex Int
+  text       String                        @db.Text
+  embedding  Unsupported("vector(768)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lcd     Lcd?        @relation(fields: [lcdId], references: [id], onDelete: Cascade)
+  article LcdArticle? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([lcdId, section])
+  @@index([articleId, section])
+  @@map("lcd_text_chunks")
 }
