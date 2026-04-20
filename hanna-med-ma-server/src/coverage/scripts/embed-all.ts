@@ -2,9 +2,12 @@
  * Embeds every row that's missing an embedding across:
  *   cpt_codes · icd10_codes · lcd_text_chunks
  *
- * Uses Google Gemini text-embedding-004 at 768 dimensions
+ * Uses Google Gemini gemini-embedding-001 truncated to 768 dimensions
  * (RETRIEVAL_DOCUMENT task — documents get different embeddings
  * than queries, which materially improves recall at query time).
+ * gemini-embedding-001 is the successor to the now-retired
+ * text-embedding-004; native dim is 3072 but we truncate to 768 so
+ * pgvector's HNSW (2000-dim cap) can index it.
  *
  *   npx ts-node -r dotenv/config src/coverage/scripts/embed-all.ts
  *   npx ts-node -r dotenv/config src/coverage/scripts/embed-all.ts --only=icd10
@@ -23,10 +26,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { Client } from "pg";
 
-const MODEL = "text-embedding-004";
+const MODEL = "gemini-embedding-001";
 const DIM = 768;
 const BATCH_SIZE = 100; // embedContent accepts up to 100 inputs
-const PACE_MS = 250; // ~240 req/min — well under any quota
+const CONCURRENCY_DEFAULT = 4; // Tier 1: 3000 RPM — 4 workers is safe
+const PACE_MS = 100; // small inter-batch buffer per worker
 const MAX_RETRIES = 5;
 
 type Target = {
@@ -66,7 +70,7 @@ function parseArgs(argv: string[]) {
 		const m = a.match(/^--([^=]+)(?:=(.*))?$/);
 		if (m) out[m[1]] = m[2] ?? "true";
 	}
-	return out as { only?: string; limit?: string };
+	return out as { only?: string; limit?: string; concurrency?: string };
 }
 
 function sleep(ms: number) {
@@ -119,54 +123,98 @@ function toVectorLiteral(vec: number[]): string {
 	return "[" + vec.map((v) => v.toFixed(6)).join(",") + "]";
 }
 
+// Workers pull batches of IDs from a shared queue. Each has its own
+// Postgres connection so UPDATEs from different workers don't block
+// each other on a single shared client.
 async function processTarget(
-	client: Client,
+	databaseUrl: string,
 	ai: GoogleGenAI,
 	t: Target,
 	limit: number | null,
+	concurrency: number,
 ) {
-	const total = await client.query(
-		`SELECT COUNT(*)::int AS n FROM "${t.table}" WHERE embedding IS NULL`,
-	);
-	const pending = total.rows[0].n as number;
-	if (pending === 0) {
-		console.log(`${t.table}: already up to date.`);
-		return;
-	}
-	console.log(`\n${t.table}: ${pending} rows to embed.`);
-
-	let done = 0;
-	while (true) {
-		const batch = await client.query(
-			`SELECT "${t.idCol}" AS id, ${t.textExpr} AS text
+	const probe = new Client({ connectionString: databaseUrl });
+	await probe.connect();
+	try {
+		// Snapshot pending IDs once so workers never step on each other
+		// (WHERE embedding IS NULL would race if they both read before
+		// anyone wrote).
+		const pending = await probe.query(
+			`SELECT "${t.idCol}" AS id
 			 FROM "${t.table}"
 			 WHERE embedding IS NULL
 			 ORDER BY "${t.idCol}"
-			 LIMIT ${BATCH_SIZE}`,
+			 ${limit !== null ? `LIMIT ${limit}` : ""}`,
 		);
-		if (batch.rows.length === 0) break;
+		const ids: number[] = pending.rows.map((r) => r.id);
+		if (ids.length === 0) {
+			console.log(`${t.table}: already up to date.`);
+			return;
+		}
+		console.log(`\n${t.table}: ${ids.length} rows to embed (×${concurrency} workers).`);
 
-		const texts = batch.rows.map((r) =>
-			String(r.text || "").slice(0, 8000),
-		);
-		const vectors = await embedBatch(ai, texts);
+		let cursor = 0;
+		let done = 0;
+		const nextBatch = (): number[] | null => {
+			if (cursor >= ids.length) return null;
+			const b = ids.slice(cursor, cursor + BATCH_SIZE);
+			cursor += b.length;
+			return b;
+		};
 
-		// Write back one UPDATE per row — a single round-trip per
-		// batch would need a VALUES table which is more fragile.
-		for (let i = 0; i < batch.rows.length; i++) {
-			const id = batch.rows[i].id;
-			await client.query(
-				`UPDATE "${t.table}" SET embedding = $1::vector, "updatedAt" = NOW() WHERE "${t.idCol}" = $2`,
-				[toVectorLiteral(vectors[i]), id],
-			);
+		async function worker() {
+			const client = new Client({ connectionString: databaseUrl });
+			await client.connect();
+			try {
+				while (true) {
+					const batchIds = nextBatch();
+					if (!batchIds) return;
+
+					// Re-fetch text here so workers always hit their own
+					// connection. ids → text round-trip is cheap.
+					const rows = await client.query(
+						`SELECT "${t.idCol}" AS id, ${t.textExpr} AS text
+						 FROM "${t.table}"
+						 WHERE "${t.idCol}" = ANY($1)
+						 ORDER BY "${t.idCol}"`,
+						[batchIds],
+					);
+					const texts = rows.rows.map((r) =>
+						String(r.text || "").slice(0, 8000),
+					);
+					const vectors = await embedBatch(ai, texts);
+
+					const placeholders: string[] = [];
+					const values: unknown[] = [];
+					rows.rows.forEach((row, i) => {
+						const b = i * 2;
+						placeholders.push(`($${b + 1}::int, $${b + 2}::vector)`);
+						values.push(row.id, toVectorLiteral(vectors[i]));
+					});
+					await client.query(
+						`UPDATE "${t.table}" AS tt
+						 SET embedding = v.emb, "updatedAt" = NOW()
+						 FROM (VALUES ${placeholders.join(",")}) AS v(id, emb)
+						 WHERE tt."${t.idCol}" = v.id`,
+						values,
+					);
+
+					done += rows.rows.length;
+					process.stdout.write(`\r  ${done}/${ids.length}   `);
+					await sleep(PACE_MS);
+				}
+			} finally {
+				await client.end();
+			}
 		}
 
-		done += batch.rows.length;
-		process.stdout.write(`\r  ${done}/${pending}   `);
-		if (limit !== null && done >= limit) break;
-		await sleep(PACE_MS);
+		await Promise.all(
+			Array.from({ length: concurrency }, () => worker()),
+		);
+		process.stdout.write("\n");
+	} finally {
+		await probe.end();
 	}
-	process.stdout.write("\n");
 }
 
 async function main() {
@@ -178,22 +226,16 @@ async function main() {
 	if (!databaseUrl) throw new Error("SERVER_DATABASE_URL not set");
 
 	const ai = new GoogleGenAI({ apiKey: process.env.SERVER_GEMINI_API_KEY });
-	const client = new Client({ connectionString: databaseUrl });
-	await client.connect();
-
 	const targets = args.only
 		? TARGETS.filter((t) => t.key === args.only)
 		: TARGETS;
 	const limit = args.limit ? Number(args.limit) : null;
+	const concurrency = Number(args.concurrency || CONCURRENCY_DEFAULT);
 
-	try {
-		for (const t of targets) {
-			await processTarget(client, ai, t, limit);
-		}
-		console.log("\nDone.");
-	} finally {
-		await client.end();
+	for (const t of targets) {
+		await processTarget(databaseUrl, ai, t, limit, concurrency);
 	}
+	console.log("\nDone.");
 }
 
 main().catch((e) => {
