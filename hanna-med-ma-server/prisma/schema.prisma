@@ -289,8 +289,14 @@ model PatientRawData {
 
 // ─── Coverage / Regulatory Engine ───────────────────────────
 // The regulatory "brain" the AI Coder queries to propose codes,
-// price them, and flag audit risk. Populated from CMS sources
-// (MPFS + GPCIs). LCDs / NCCI / MUE come in later migrations.
+// price them, and flag audit risk. Populated from four CMS sources:
+//
+//   MPFS        — per-CPT localized payment     (FeeScheduleItem + Locality)
+//   NCCI PTP    — CPT pairs that bundle         (NcciEdit)
+//   MUE         — max units per CPT per day     (MueLimit)
+//   LCD + Art.  — local coverage rules + CPT/ICD crosswalks
+//                 (Lcd, LcdContractor, LcdArticle, LcdArticleContractor,
+//                  LcdArticleLink, LcdArticleCpt, LcdArticleIcd10)
 
 // Medicare GPCI locality. A locality bundles the three GPCIs
 // (work / practice expense / malpractice) that localize the
@@ -344,4 +350,196 @@ model FeeScheduleItem {
   @@unique([cpt, modifier, localityId, year])
   @@index([cpt, year])
   @@map("fee_schedule_items")
+}
+
+// NCCI PTP (Procedure-to-Procedure) edit: a pair of codes that
+// bundle into one. modifierIndicator tells us whether a proper
+// modifier (59, XE, XP, XS, XU, ...) can unbundle the pair:
+//   "0" = never allowed, "1" = allowed with modifier, "9" = N/A.
+model NcciEdit {
+  id                Int       @id @default(autoincrement())
+  column1Cpt        String    // comprehensive code
+  column2Cpt        String    // component code
+  priorTo1996       Boolean   @default(false)
+  effectiveDate     DateTime
+  deletionDate      DateTime? // null = still active
+  modifierIndicator String    // "0" | "1" | "9"
+  rationale         String?   @db.Text
+  editType          String    // "PRACTITIONER" | "HOSPITAL"
+  quarter           String    // "2026Q2"
+
+  createdAt DateTime @default(now())
+
+  // CMS keeps historical snapshots in the same quarterly release so
+  // the "current" edit and its prior revisions all land here. Query
+  // with `deletionDate IS NULL` to get the currently-enforced pair.
+  @@index([column1Cpt, deletionDate])
+  @@index([column2Cpt, deletionDate])
+  @@index([column1Cpt, column2Cpt, editType])
+  @@map("ncci_edits")
+}
+
+// Medically Unlikely Edit: max units of a CPT billable in one day.
+// mai is the adjudication indicator (1=Line, 2=DOS absolute, 3=DOS per beneficiary).
+model MueLimit {
+  id                    Int      @id @default(autoincrement())
+  cpt                   String
+  mueValue              Int
+  adjudicationIndicator String   // raw "N Description: Subcategory"
+  mai                   String   // extracted "1" | "2" | "3"
+  rationale             String?
+  serviceType           String   // "PRACTITIONER" | "OUTPATIENT" | "DME"
+  effectiveDate         DateTime
+
+  createdAt DateTime @default(now())
+
+  @@unique([cpt, serviceType, effectiveDate])
+  @@index([cpt])
+  @@map("mue_limits")
+}
+
+// Local Coverage Determination document. The free-text fields come
+// from CMS as HTML — we persist both the raw HTML and a plain-text
+// variant so future vector embeddings can index the stripped copy.
+model Lcd {
+  id                      Int       @id @default(autoincrement())
+  lcdId                   String    // e.g., "33252"
+  version                 Int
+  title                   String    @db.Text
+  displayId               String?
+  status                  String?
+  origEffectiveDate       DateTime?
+  revEffectiveDate        DateTime?
+  lastUpdated             DateTime?
+  mcdPublishDate          DateTime?
+
+  indication              String?   @db.Text
+  indicationPlain         String?   @db.Text
+  codingGuidelines        String?   @db.Text
+  codingGuidelinesPlain   String?   @db.Text
+  docReqs                 String?   @db.Text
+  docReqsPlain            String?   @db.Text
+  utilGuide               String?   @db.Text
+  utilGuidePlain          String?   @db.Text
+  summaryOfEvidence       String?   @db.Text
+  summaryOfEvidencePlain  String?   @db.Text
+  analysisOfEvidence      String?   @db.Text
+  analysisOfEvidencePlain String?   @db.Text
+  diagnosesSupport        String?   @db.Text
+  diagnosesSupportPlain   String?   @db.Text
+  bibliography            String?   @db.Text
+  bibliographyPlain       String?   @db.Text
+  keywords                String?   @db.Text
+
+  contractors  LcdContractor[]
+  articleLinks LcdArticleLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([lcdId, version])
+  @@index([status])
+  @@map("lcds")
+}
+
+// Which MACs an LCD applies to. Filter by contractorNumber "09102"
+// for First Coast Part B Florida.
+model LcdContractor {
+  id               Int     @id @default(autoincrement())
+  lcdId            Int
+  contractorNumber String
+  contractorName   String?
+  jurisdiction     String?
+
+  lcd Lcd @relation(fields: [lcdId], references: [id], onDelete: Cascade)
+
+  @@unique([lcdId, contractorNumber])
+  @@index([contractorNumber])
+  @@map("lcd_contractors")
+}
+
+// MCD Billing & Coding Article — where the CPT/ICD crosswalks live
+// since CMS moved them out of LCDs around 2019. One LCD typically
+// has one companion B&C article reachable via LcdArticleLink.
+model LcdArticle {
+  id                    Int       @id @default(autoincrement())
+  articleId             String    // e.g., "52369"
+  version               Int
+  title                 String    @db.Text
+  articleType           String?
+  displayId             String?
+  status                String?
+  origEffectiveDate     DateTime?
+  revEffectiveDate      DateTime?
+  lastUpdated           DateTime?
+
+  description           String?   @db.Text
+  descriptionPlain      String?   @db.Text
+  otherComments         String?   @db.Text
+  otherCommentsPlain    String?   @db.Text
+
+  contractors  LcdArticleContractor[]
+  cptCodes     LcdArticleCpt[]
+  icd10Codes   LcdArticleIcd10[]
+  lcdLinks     LcdArticleLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([articleId, version])
+  @@map("lcd_articles")
+}
+
+model LcdArticleContractor {
+  id               Int     @id @default(autoincrement())
+  articleId        Int
+  contractorNumber String
+  contractorName   String?
+  jurisdiction     String?
+
+  article LcdArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, contractorNumber])
+  @@index([contractorNumber])
+  @@map("lcd_article_contractors")
+}
+
+model LcdArticleLink {
+  id        Int @id @default(autoincrement())
+  lcdId     Int
+  articleId Int
+
+  lcd     Lcd        @relation(fields: [lcdId], references: [id], onDelete: Cascade)
+  article LcdArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([lcdId, articleId])
+  @@map("lcd_article_links")
+}
+
+model LcdArticleCpt {
+  id          Int     @id @default(autoincrement())
+  articleId   Int
+  cpt         String
+  description String? @db.Text
+  sequence    Int?
+
+  article LcdArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([cpt])
+  @@index([articleId])
+  @@map("lcd_article_cpts")
+}
+
+model LcdArticleIcd10 {
+  id          Int     @id @default(autoincrement())
+  articleId   Int
+  icd10       String
+  coverage    String // "COVERED" | "NONCOVERED"
+  description String? @db.Text
+
+  article LcdArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([icd10])
+  @@index([articleId, coverage])
+  @@map("lcd_article_icd10s")
 }
