@@ -226,16 +226,18 @@ export function CodingPanel({
 				</div>
 			</div>
 
-			{/* 3-column on lg+; stacks on mobile. Note | Bill | Defense. */}
-			<div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px_280px]">
+			{/* 3-column only on xl+ (≥1280px, where there's room for
+			    480+300+260 of content). Below that the panel stacks
+			    vertically so each section is readable on its own. */}
+			<div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px_260px]">
 				{/* ── Col 1 — Note with highlights ───────────────────── */}
-				<div className="border-b lg:border-b-0 lg:border-r border-n-150 flex flex-col max-h-[600px] lg:max-h-[720px]">
-					<div className="px-4 py-2.5 border-b border-n-150 flex items-center gap-2 flex-wrap">
-						<FileText className="w-3.5 h-3.5 text-n-500" />
-						<div className="font-mono text-[10px] uppercase tracking-widest text-n-500">
-							Provider note · highlighted
+				<div className="border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col max-h-[600px] xl:max-h-[720px] min-w-0">
+					<div className="px-4 py-2.5 border-b border-n-150 flex items-center gap-3 whitespace-nowrap">
+						<FileText className="w-3.5 h-3.5 text-n-500 shrink-0" />
+						<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 truncate">
+							Provider note
 						</div>
-						<div className="ml-auto flex items-center gap-2 text-[10px] font-mono text-n-500">
+						<div className="ml-auto flex items-center gap-2 text-[10px] font-mono text-n-500 shrink-0">
 							<span className="inline-flex items-center gap-1">
 								<span className="inline-block w-2 h-2 rounded-sm bg-[var(--info-bg)] border border-[var(--info-fg)]/30" />
 								CPT
@@ -265,7 +267,7 @@ export function CodingPanel({
 				</div>
 
 				{/* ── Col 2 — Suggested bill ─────────────────────────── */}
-				<div className="border-b lg:border-b-0 lg:border-r border-n-150 flex flex-col max-h-[600px] lg:max-h-[720px]">
+				<div className="border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col max-h-[600px] xl:max-h-[720px] min-w-0">
 					<div className="px-4 py-2.5 border-b border-n-150">
 						<div className="font-semibold text-[13px] text-n-900">
 							Suggested bill
@@ -392,7 +394,7 @@ export function CodingPanel({
 				</div>
 
 				{/* ── Col 3 — Defense ────────────────────────────────── */}
-				<div className="flex flex-col bg-n-50 max-h-[600px] lg:max-h-[720px]">
+				<div className="flex flex-col bg-n-50 max-h-[600px] xl:max-h-[720px] min-w-0">
 					<div className="px-4 py-2.5 border-b border-n-150 flex items-center gap-2">
 						<div className="font-semibold text-[13px] text-n-900">Defense</div>
 						<Shield className="w-3.5 h-3.5 text-n-500 ml-auto" />

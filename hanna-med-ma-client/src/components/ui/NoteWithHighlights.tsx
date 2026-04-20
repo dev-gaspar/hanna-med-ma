@@ -23,6 +23,19 @@ function indexOfCI(text: string, needle: string, from = 0): number {
 	return text.toLowerCase().indexOf(needle.toLowerCase(), from);
 }
 
+// PDF text extraction breaks lines mid-sentence and sometimes mid-word.
+// Rebuild readable paragraphs: collapse single newlines between
+// non-empty lines into spaces, keep double+ newlines as paragraph
+// breaks. Drops pure-whitespace lines.
+function cleanPdfWhitespace(s: string): string {
+	return s
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n[ \t]+/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.replace(/(?<=\S)\n(?=\S)/g, " ")
+		.trim();
+}
+
 // The agent's evidence spans are pulled verbatim from the note, but
 // CMS/RPA PDFs often have whitespace/line-break noise that doesn't
 // round-trip cleanly. We normalize both sides to a single-space form
@@ -122,18 +135,23 @@ export function NoteWithHighlights({
 	selectedCode?: string | null;
 	className?: string;
 }) {
+	// Clean the PDF-extracted text once — re-flows mid-sentence
+	// newlines so paragraphs render at the column's full width instead
+	// of word-per-line.
+	const cleaned = useMemo(() => cleanPdfWhitespace(noteText), [noteText]);
+
 	const placed = useMemo(
-		() => placeHighlights(noteText, highlights),
-		[noteText, highlights],
+		() => placeHighlights(cleaned, highlights),
+		[cleaned, highlights],
 	);
 
 	const nodes: ReactNode[] = [];
 	let cursor = 0;
 	placed.forEach((p, i) => {
 		if (p.start > cursor) {
-			nodes.push(noteText.slice(cursor, p.start));
+			nodes.push(cleaned.slice(cursor, p.start));
 		}
-		const text = noteText.slice(p.start, p.end);
+		const text = cleaned.slice(p.start, p.end);
 		const isSelected = selectedCode && p.code === selectedCode;
 		nodes.push(
 			<mark
@@ -152,8 +170,8 @@ export function NoteWithHighlights({
 		);
 		cursor = p.end;
 	});
-	if (cursor < noteText.length) {
-		nodes.push(noteText.slice(cursor));
+	if (cursor < cleaned.length) {
+		nodes.push(cleaned.slice(cursor));
 	}
 
 	return (

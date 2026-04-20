@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
 	ArrowLeft,
+	ChevronDown,
+	ChevronRight,
 	ExternalLink,
 	FileText,
 	FlaskConical,
@@ -53,6 +55,8 @@ export default function PatientDetail() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [coding, setCoding] = useState<EncounterCoding | null>(null);
+	// "Last attempt log" is diagnostic noise most days — start collapsed.
+	const [logOpen, setLogOpen] = useState(false);
 
 	useEffect(() => {
 		if (!patientId) return;
@@ -175,7 +179,8 @@ export default function PatientDetail() {
 			</div>
 
 			<div className="flex-1 overflow-y-auto custom-scrollbar">
-				<div className="max-w-5xl mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-5 lg:items-start">
+				<div className="max-w-5xl mx-auto px-4 py-4 space-y-5">
+				<div className="grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-5 lg:items-start">
 					{/* ── Left column: identity + quick actions ── */}
 					<div className="space-y-5">
 					{/* Demographics card */}
@@ -250,6 +255,34 @@ export default function PatientDetail() {
 							Lab
 						</Button>
 					</section>
+
+					{/* Last attempt log — what the RPA agent did the last time it
+					    tried to grab the signed note. Diagnostic only, collapsed
+					    by default. Lives in the left column so it sits out of the
+					    way of the encounter + coding flow in the right column. */}
+					{latestEncounter?.noteAgentSummary && (
+						<section className="bg-n-0 border border-n-150 rounded-lg">
+							<button
+								onClick={() => setLogOpen((v) => !v)}
+								className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-n-50 transition"
+								aria-expanded={logOpen}
+							>
+								{logOpen ? (
+									<ChevronDown className="w-3.5 h-3.5 text-n-500 shrink-0" />
+								) : (
+									<ChevronRight className="w-3.5 h-3.5 text-n-500 shrink-0" />
+								)}
+								<div className="label-kicker">Last attempt log</div>
+							</button>
+							{logOpen && (
+								<div className="px-4 pb-3 border-t border-n-150">
+									<p className="text-[12px] text-n-700 leading-[1.6] font-mono whitespace-pre-wrap mt-3">
+										{latestEncounter.noteAgentSummary}
+									</p>
+								</div>
+							)}
+						</section>
+					)}
 					</div>
 					{/* ── Right column: encounter + history + raw data ── */}
 					<div className="space-y-5 min-w-0">
@@ -319,28 +352,8 @@ export default function PatientDetail() {
 								/>
 							</div>
 
-							{/* Agent summary — narrative of what the RPA tried on the last attempt */}
-							{latestEncounter.noteAgentSummary && (
-								<div className="px-4 py-3 border-t border-n-150">
-									<div className="label-kicker mb-2">Last attempt log</div>
-									<p className="text-[12.5px] text-n-700 leading-[1.6] font-mono whitespace-pre-wrap">
-										{latestEncounter.noteAgentSummary}
-									</p>
-								</div>
-							)}
 						</section>
 					)}
-
-					{/* ── AI Coder panel — shown once the note is signed ── */}
-					{latestEncounter &&
-						latestEncounter.noteStatus === "FOUND_SIGNED" && (
-							<CodingPanel
-								encounterId={latestEncounter.id}
-								coding={coding}
-								providerNoteAvailable={!!latestEncounter.providerNoteUrl}
-								onChange={setCoding}
-							/>
-						)}
 
 					{/* Encounter history — older encounters rendered compact */}
 					{patient.encounters.length > 1 && (
@@ -382,6 +395,21 @@ export default function PatientDetail() {
 						</section>
 					)}
 					</div>
+				</div>
+
+				{/* ── AI Coder panel — full width so the 3-column review
+				     (note + bill + defense) has room to breathe. Sits
+				     under the 2-column patient grid so the demographics
+				     and encounter metadata stay visible as an anchor. ── */}
+				{latestEncounter &&
+					latestEncounter.noteStatus === "FOUND_SIGNED" && (
+						<CodingPanel
+							encounterId={latestEncounter.id}
+							coding={coding}
+							providerNoteAvailable={!!latestEncounter.providerNoteUrl}
+							onChange={setCoding}
+						/>
+					)}
 				</div>
 			</div>
 		</div>
