@@ -46,3 +46,6 @@ backups/
 
 # Firebase Admin SDK credentials (SENSITIVE)
 firebase/
+
+# CMS / regulatory data files — re-downloadable from cms.gov
+data/

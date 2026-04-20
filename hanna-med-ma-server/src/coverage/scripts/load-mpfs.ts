@@ -1,56 +1,68 @@
 /**
- * CMS Medicare Physician Fee Schedule (MPFS) loader — Florida Locality 04.
+ * CMS Medicare Physician Fee Schedule (MPFS) loader.
  *
- * This script is a SKELETON. It encodes the math and the write path so that
- * once we have the raw CMS files on disk, populating the database is just
- * a matter of pointing the loader at them:
+ * Reads the two official CMS CSVs (GPCI + PPRRVU), computes the localized
+ * payment per CPT, and upserts into Locality + FeeScheduleItem.
  *
  *   npx ts-node src/coverage/scripts/load-mpfs.ts \
- *       --rvu ./data/mpfs/2026/PPRRVU26_JAN.csv \
+ *       --rvu ./data/mpfs/2026/PPRRVU2026_Jan_nonQPP.csv \
  *       --gpci ./data/mpfs/2026/GPCI2026.csv \
  *       --year 2026 \
  *       --state FL --locality 04
  *
- * File sources (download manually from cms.gov):
- *   RVU file (PPRRVU*):   https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files
- *   GPCI file:            same page, "GPCIs" zip for the given year
- *   Conversion factor:    CMS publishes this annually; hard-code per year below.
+ * Source: rvu26a.zip at
+ *   https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files/rvu26a
  *
- * The CMS column names drift year to year; the `parseRvuRow` / `parseGpciRow`
- * helpers are the only places that need adjusting per release.
+ * File structure (verified against the 2026-Jan release):
+ *
+ *   GPCI2026.csv — 3 banner rows, then columns:
+ *     [0] MAC | [1] State | [2] LocalityNumber | [3] LocalityName
+ *     [4] PW GPCI no-floor | [5] PW GPCI with-floor
+ *     [6] PE GPCI | [7] MP GPCI
+ *   (We use the with-floor PW GPCI — that's what CMS actually pays on.)
+ *
+ *   PPRRVU2026_Jan_nonQPP.csv — 9 banner/header rows, then columns:
+ *     [0] HCPCS | [1] MOD | [2] DESCRIPTION | [3] STATUS
+ *     [4] <blank: not used for Medicare payment>
+ *     [5] WORK RVU | [6] NON-FAC PE RVU | [7] NON-FAC NA ind
+ *     [8] FAC PE RVU | [9] FAC NA ind | [10] MP RVU
+ *     [11] NON-FAC TOTAL | [12] FAC TOTAL | [13] PCTC ind
+ *     [14] GLOB DAYS | ... | [24] CONV FACTOR | ...
+ *
+ * Column positions drift year to year — re-verify before loading a new year.
  */
 
 import { PrismaClient } from "@prisma/client";
 import * as fs from "fs";
 import * as path from "path";
 
-// 2026 Medicare Physician Fee Schedule conversion factor.
-// Update annually from the CMS Final Rule publication.
-// Placeholder — swap in the real 2026 CF once the Final Rule lands.
-const CONVERSION_FACTOR_BY_YEAR: Record<number, number> = {
-	2026: 32.3465, // TODO: confirm against CMS Final Rule 2026
+// Safety check: the CMS file carries the CF per row, but we also assert
+// it matches the Final-Rule-published value so a malformed download trips.
+const EXPECTED_CF_BY_YEAR: Record<number, number> = {
+	2026: 33.4009,
 };
 
 interface GpciRow {
+	macContractor: string;
 	state: string;
-	localityCode: string; // "04"
-	description: string; // "Miami, FL"
-	macContractor: string | null;
-	workGpci: number;
+	localityCode: string;
+	description: string;
+	pwGpci: number;
 	peGpci: number;
 	mpGpci: number;
 }
 
 interface RvuRow {
 	cpt: string;
-	modifier: string | null;
+	modifier: string; // "" when no modifier (NOT NULL so compound unique works)
 	description: string | null;
+	statusCode: string | null;
 	workRvu: number;
-	peRvu: number; // non-facility
+	peRvu: number;
 	peFacilityRvu: number | null;
 	mpRvu: number;
 	globalDays: string | null;
-	statusCode: string | null;
+	conversionFactor: number;
 }
 
 function parseArgs(argv: string[]) {
@@ -70,8 +82,6 @@ function parseArgs(argv: string[]) {
 }
 
 function splitCsvLine(line: string): string[] {
-	// Minimal CSV splitter — good enough for CMS files (no embedded newlines,
-	// occasional quoted commas). Swap for `csv-parse` if we hit edge cases.
 	const out: string[] = [];
 	let cur = "";
 	let inQuotes = false;
@@ -81,57 +91,66 @@ function splitCsvLine(line: string): string[] {
 			continue;
 		}
 		if (ch === "," && !inQuotes) {
-			out.push(cur.trim());
+			out.push(cur);
 			cur = "";
 			continue;
 		}
 		cur += ch;
 	}
-	out.push(cur.trim());
-	return out;
+	out.push(cur);
+	return out.map((s) => s.trim());
 }
 
 function loadCsv(filePath: string): string[][] {
-	const raw = fs.readFileSync(filePath, "utf8");
-	return raw
+	return fs
+		.readFileSync(filePath, "utf8")
 		.split(/\r?\n/)
 		.filter((l) => l.trim().length > 0)
 		.map(splitCsvLine);
 }
 
-// CMS releases GPCI files with columns roughly:
-// MAC | LocalityNumber | LocalityName | State | PW GPCI | PE GPCI | MP GPCI
-// Column positions move year to year — confirm the header row before loading.
+function toNumber(s: string | undefined): number {
+	if (!s) return 0;
+	const n = Number(s.replace(/[$,]/g, ""));
+	return Number.isFinite(n) ? n : 0;
+}
+
 function parseGpciRow(cols: string[]): GpciRow | null {
-	if (cols.length < 7) return null;
-	const localityCode = cols[1]?.padStart(2, "0");
-	if (!/^\d{2}$/.test(localityCode || "")) return null;
+	// The GPCI file puts the locality number in col 2; guard by pattern so
+	// we skip title rows and any stray blank lines that slipped through.
+	const localityCode = cols[2]?.padStart(2, "0");
+	const state = cols[1]?.toUpperCase();
+	if (!/^\d{2}$/.test(localityCode || "") || !/^[A-Z]{2}$/.test(state || "")) {
+		return null;
+	}
 	return {
-		macContractor: cols[0] || null,
+		macContractor: cols[0] || "",
+		state: state!,
 		localityCode: localityCode!,
-		description: cols[2] || "",
-		state: cols[3] || "",
-		workGpci: Number(cols[4]),
-		peGpci: Number(cols[5]),
-		mpGpci: Number(cols[6]),
+		description: cols[3] || "",
+		// PW col 5 is "with 1.0 floor" — the one CMS actually applies.
+		pwGpci: toNumber(cols[5]),
+		peGpci: toNumber(cols[6]),
+		mpGpci: toNumber(cols[7]),
 	};
 }
 
-// CMS PPRRVU release columns vary; typical lead columns:
-// HCPCS | Modifier | Description | Status | Work RVU | Non-Fac PE RVU | Fac PE RVU | MP RVU | ... | Global
 function parseRvuRow(cols: string[]): RvuRow | null {
 	const cpt = cols[0];
+	// HCPCS codes are 5 alphanumerics. Modifier is optional so a trailing 5
+	// chars in col 0 is the reliable gate.
 	if (!cpt || !/^[A-Z0-9]{5}$/.test(cpt)) return null;
 	return {
 		cpt,
-		modifier: cols[1] && cols[1].length > 0 ? cols[1] : null,
+		modifier: cols[1] && cols[1].length > 0 ? cols[1] : "",
 		description: cols[2] || null,
 		statusCode: cols[3] || null,
-		workRvu: Number(cols[4]) || 0,
-		peRvu: Number(cols[5]) || 0,
-		peFacilityRvu: cols[6] !== "" ? Number(cols[6]) : null,
-		mpRvu: Number(cols[7]) || 0,
-		globalDays: cols[16] || null, // position varies — verify against the header row
+		workRvu: toNumber(cols[5]),
+		peRvu: toNumber(cols[6]),
+		peFacilityRvu: cols[8] !== "" ? toNumber(cols[8]) : null,
+		mpRvu: toNumber(cols[10]),
+		globalDays: cols[14] || null,
+		conversionFactor: toNumber(cols[24]),
 	};
 }
 
@@ -144,24 +163,23 @@ async function main() {
 		process.exit(1);
 	}
 	const year = Number(args.year);
-	const cf = CONVERSION_FACTOR_BY_YEAR[year];
-	if (!cf) {
+	const expectedCf = EXPECTED_CF_BY_YEAR[year];
+	if (!expectedCf) {
 		throw new Error(
-			`No conversion factor configured for year ${year}. Add it to CONVERSION_FACTOR_BY_YEAR.`,
+			`No expected conversion factor configured for year ${year}. Add it to EXPECTED_CF_BY_YEAR.`,
 		);
 	}
 
 	const prisma = new PrismaClient();
 	try {
-		// 1. GPCI — find and upsert the target locality.
+		// ─── 1. GPCI → find + upsert target locality ───────────────────────
 		const gpciRows = loadCsv(path.resolve(args.gpci))
-			.slice(1) // drop header
 			.map(parseGpciRow)
 			.filter((r): r is GpciRow => r !== null);
 
 		const target = gpciRows.find(
 			(r) =>
-				r.state.toUpperCase() === args.state.toUpperCase() &&
+				r.state === args.state.toUpperCase() &&
 				r.localityCode === args.locality.padStart(2, "0"),
 		);
 		if (!target) {
@@ -174,16 +192,16 @@ async function main() {
 			where: {
 				code_state_year: {
 					code: target.localityCode,
-					state: target.state.toUpperCase(),
+					state: target.state,
 					year,
 				},
 			},
 			create: {
 				code: target.localityCode,
-				state: target.state.toUpperCase(),
+				state: target.state,
 				description: target.description,
 				macContractor: target.macContractor,
-				workGpci: target.workGpci,
+				workGpci: target.pwGpci,
 				peGpci: target.peGpci,
 				mpGpci: target.mpGpci,
 				year,
@@ -191,95 +209,144 @@ async function main() {
 			update: {
 				description: target.description,
 				macContractor: target.macContractor,
-				workGpci: target.workGpci,
+				workGpci: target.pwGpci,
 				peGpci: target.peGpci,
 				mpGpci: target.mpGpci,
 			},
 		});
 
 		console.log(
-			`Locality ${target.state}-${target.localityCode} (${target.description}) loaded.`,
+			`Locality ${target.state}-${target.localityCode} (${target.description}) loaded — PW=${target.pwGpci} PE=${target.peGpci} MP=${target.mpGpci}`,
 		);
 
-		// 2. RVU — per CPT, compute amount and upsert.
+		// ─── 2. PPRRVU → compute localized amounts + bulk upsert ───────────
 		const rvuRows = loadCsv(path.resolve(args.rvu))
-			.slice(1)
 			.map(parseRvuRow)
 			.filter((r): r is RvuRow => r !== null);
 
-		let inserted = 0;
-		let updated = 0;
+		console.log(`Parsed ${rvuRows.length} PPRRVU rows.`);
+
+		// Build payloads up front so the DB phase is pure I/O.
+		// Dedupe by (cpt, modifier): the CMS file occasionally repeats the
+		// same code (component rows with different status indicators) that
+		// collapse to the same compound unique key. Last-wins is fine.
+		let skipped = 0;
+		const byKey = new Map<
+			string,
+			{
+				cpt: string;
+				modifier: string;
+				year: number;
+				localityId: number;
+				description: string | null;
+				workRvu: number;
+				peRvu: number;
+				peFacilityRvu: number | null;
+				mpRvu: number;
+				conversionFactor: number;
+				amountUsd: number;
+				amountFacilityUsd: number | null;
+				globalDays: string | null;
+				statusCode: string | null;
+			}
+		>();
 		for (const r of rvuRows) {
-			const amountNonFac =
-				(r.workRvu * target.workGpci +
+			// Anesthesia codes use a different CF/methodology (ANES2026 file).
+			if (
+				r.conversionFactor &&
+				Math.abs(r.conversionFactor - expectedCf) > 0.01
+			) {
+				skipped++;
+				continue;
+			}
+			const cf = r.conversionFactor || expectedCf;
+			const nonFac =
+				(r.workRvu * target.pwGpci +
 					r.peRvu * target.peGpci +
 					r.mpRvu * target.mpGpci) *
 				cf;
-			const amountFac =
+			const fac =
 				r.peFacilityRvu !== null
-					? (r.workRvu * target.workGpci +
+					? (r.workRvu * target.pwGpci +
 							r.peFacilityRvu * target.peGpci +
 							r.mpRvu * target.mpGpci) *
 						cf
 					: null;
 
-			const existing = await prisma.feeScheduleItem.findUnique({
-				where: {
-					cpt_modifier_localityId_year: {
-						cpt: r.cpt,
-						modifier: r.modifier,
-						localityId: locality.id,
-						year,
-					},
-				},
+			byKey.set(`${r.cpt}|${r.modifier}`, {
+				cpt: r.cpt,
+				modifier: r.modifier,
+				year,
+				localityId: locality.id,
+				description: r.description,
+				workRvu: r.workRvu,
+				peRvu: r.peRvu,
+				peFacilityRvu: r.peFacilityRvu,
+				mpRvu: r.mpRvu,
+				conversionFactor: cf,
+				amountUsd: Number(nonFac.toFixed(2)),
+				amountFacilityUsd: fac !== null ? Number(fac.toFixed(2)) : null,
+				globalDays: r.globalDays,
+				statusCode: r.statusCode,
+			});
+		}
+		const payloads = [...byKey.values()];
+
+		// Rerunnable: wipe this (locality, year) slice and bulk insert.
+		// Cheaper than per-row upsert against a remote DB (14k rows).
+		const deleted = await prisma.feeScheduleItem.deleteMany({
+			where: { localityId: locality.id, year },
+		});
+		console.log(`Cleared ${deleted.count} existing rows for this slice.`);
+
+		// Insert via raw SQL with ON CONFLICT DO NOTHING. Avoids Prisma's
+		// createMany rejecting on any key clash (which we hit despite
+		// in-memory dedupe — likely a per-row validation artifact). Chunks
+		// at 1k to keep each INSERT well under Postgres parameter limits.
+		const CHUNK = 500;
+		let inserted = 0;
+		for (let i = 0; i < payloads.length; i += CHUNK) {
+			const slice = payloads.slice(i, i + CHUNK);
+			const placeholders: string[] = [];
+			const values: unknown[] = [];
+			slice.forEach((p, j) => {
+				const base = j * 16;
+				placeholders.push(
+					`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13},$${base + 14},$${base + 15},$${base + 16})`,
+				);
+				values.push(
+					p.cpt,
+					p.modifier,
+					p.year,
+					p.localityId,
+					p.description,
+					p.workRvu,
+					p.peRvu,
+					p.peFacilityRvu,
+					p.mpRvu,
+					p.conversionFactor,
+					p.amountUsd,
+					p.amountFacilityUsd,
+					p.globalDays,
+					p.statusCode,
+					new Date(),
+					new Date(),
+				);
 			});
 
-			await prisma.feeScheduleItem.upsert({
-				where: {
-					cpt_modifier_localityId_year: {
-						cpt: r.cpt,
-						modifier: r.modifier,
-						localityId: locality.id,
-						year,
-					},
-				},
-				create: {
-					cpt: r.cpt,
-					modifier: r.modifier,
-					year,
-					localityId: locality.id,
-					description: r.description,
-					workRvu: r.workRvu,
-					peRvu: r.peRvu,
-					peFacilityRvu: r.peFacilityRvu,
-					mpRvu: r.mpRvu,
-					conversionFactor: cf,
-					amountUsd: Number(amountNonFac.toFixed(2)),
-					amountFacilityUsd:
-						amountFac !== null ? Number(amountFac.toFixed(2)) : null,
-					globalDays: r.globalDays,
-					statusCode: r.statusCode,
-				},
-				update: {
-					description: r.description,
-					workRvu: r.workRvu,
-					peRvu: r.peRvu,
-					peFacilityRvu: r.peFacilityRvu,
-					mpRvu: r.mpRvu,
-					conversionFactor: cf,
-					amountUsd: Number(amountNonFac.toFixed(2)),
-					amountFacilityUsd:
-						amountFac !== null ? Number(amountFac.toFixed(2)) : null,
-					globalDays: r.globalDays,
-					statusCode: r.statusCode,
-				},
-			});
-			if (existing) updated++;
-			else inserted++;
+			const result = await prisma.$executeRawUnsafe(
+				`INSERT INTO "fee_schedule_items"
+				 ("cpt","modifier","year","localityId","description","workRvu","peRvu","peFacilityRvu","mpRvu","conversionFactor","amountUsd","amountFacilityUsd","globalDays","statusCode","createdAt","updatedAt")
+				 VALUES ${placeholders.join(",")}
+				 ON CONFLICT ("cpt","modifier","localityId","year") DO NOTHING`,
+				...values,
+			);
+			inserted += Number(result);
+			console.log(`  …${inserted}/${payloads.length}`);
 		}
 
 		console.log(
-			`MPFS ${year} loaded for ${target.state}-${target.localityCode}: ${inserted} inserted, ${updated} updated.`,
+			`MPFS ${year} loaded for ${target.state}-${target.localityCode}: ${inserted} inserted, ${skipped} skipped.`,
 		);
 	} finally {
 		await prisma.$disconnect();

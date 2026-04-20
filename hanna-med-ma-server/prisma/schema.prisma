@@ -320,7 +320,7 @@ model Locality {
 model FeeScheduleItem {
   id                Int     @id @default(autoincrement())
   cpt               String
-  modifier          String? // e.g., "26" professional, "TC" technical
+  modifier          String  @default("") // "" when no modifier, or e.g., "26" professional, "TC" technical
   year              Int
   localityId        Int
   description       String?

@@ -25,7 +25,8 @@ export class CoverageService {
 	}) {
 		const { cpt, locality, year } = params;
 		const state = (params.state || "FL").toUpperCase();
-		const modifier = params.modifier || null;
+		// Empty string stands in for "no modifier" so the compound unique works.
+		const modifier = params.modifier || "";
 
 		const loc = await this.prisma.locality.findUnique({
 			where: { code_state_year: { code: locality, state, year } },
@@ -36,22 +37,30 @@ export class CoverageService {
 			);
 		}
 
-		// Exact modifier match first; fall back to no-modifier row if none.
+		// Exact modifier first; fall back to the no-modifier ("") row.
 		const row =
-			(modifier &&
-				(await this.prisma.feeScheduleItem.findUnique({
-					where: {
-						cpt_modifier_localityId_year: {
-							cpt,
-							modifier,
-							localityId: loc.id,
-							year,
-						},
+			(await this.prisma.feeScheduleItem.findUnique({
+				where: {
+					cpt_modifier_localityId_year: {
+						cpt,
+						modifier,
+						localityId: loc.id,
+						year,
 					},
-				}))) ||
-			(await this.prisma.feeScheduleItem.findFirst({
-				where: { cpt, localityId: loc.id, year, modifier: null },
-			}));
+				},
+			})) ||
+			(modifier === ""
+				? null
+				: await this.prisma.feeScheduleItem.findUnique({
+						where: {
+							cpt_modifier_localityId_year: {
+								cpt,
+								modifier: "",
+								localityId: loc.id,
+								year,
+							},
+						},
+					}));
 
 		if (!row) {
 			throw new NotFoundException(
