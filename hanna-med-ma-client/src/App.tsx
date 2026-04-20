@@ -20,36 +20,50 @@ import ProtectedRoute from "./components/ProtectedRoute";
 // Doctor Pages
 import DoctorLogin from "./pages/doctor/DoctorLogin";
 import DoctorChat from "./pages/doctor/DoctorChat";
+import TodaysRound from "./pages/doctor/TodaysRound";
+import PatientListPage from "./pages/doctor/PatientListPage";
+import PatientDetail from "./pages/doctor/PatientDetail";
+import DoctorMe from "./pages/doctor/DoctorMe";
 
 // Doctor Components
 import DoctorProtectedRoute from "./components/doctor/DoctorProtectedRoute";
+import DoctorLayout from "./components/doctor/DoctorLayout";
 
 function App() {
 	const { theme } = useTheme();
 
 	return (
 		<BrowserRouter>
-			<Toaster position="top-center" theme={theme} richColors closeButton duration={3000} />
+			<Toaster
+				position="top-center"
+				theme={theme}
+				richColors
+				closeButton
+				duration={3000}
+			/>
 			<Routes>
 				{/* Public Routes */}
 				<Route path="/" element={<LandingPage />} />
 
-				{/* Doctor Portal Routes */}
+				{/* Doctor Portal */}
 				<Route path="/doctor/login" element={<DoctorLogin />} />
 				<Route
-					path="/doctor/chat"
+					path="/doctor"
 					element={
 						<DoctorProtectedRoute>
-							<DoctorChat />
+							<DoctorLayout />
 						</DoctorProtectedRoute>
 					}
-				/>
-				<Route
-					path="/doctor"
-					element={<Navigate to="/doctor/chat" replace />}
-				/>
+				>
+					<Route index element={<Navigate to="round" replace />} />
+					<Route path="round" element={<TodaysRound />} />
+					<Route path="hospital/:system" element={<PatientListPage />} />
+					<Route path="patient/:id" element={<PatientDetail />} />
+					<Route path="chat" element={<DoctorChat />} />
+					<Route path="me" element={<DoctorMe />} />
+				</Route>
 
-				{/* Admin Portal Routes */}
+				{/* Admin Portal */}
 				<Route path="/admin/login" element={<Login />} />
 				<Route
 					path="/admin/dashboard"
@@ -66,7 +80,7 @@ function App() {
 					<Route path="credentials" element={<Credentials />} />
 				</Route>
 
-				{/* Legacy redirects for backwards compatibility */}
+				{/* Legacy redirects */}
 				<Route path="/login" element={<Navigate to="/admin/login" replace />} />
 				<Route
 					path="/dashboard"

@@ -1,15 +1,20 @@
 import React from "react";
 
 /**
- * Parse inline formatting: *bold*, _italic_, ~strikethrough~, `code`
- * Recursive to support nested styles like bold-italic.
+ * Parse inline formatting: **bold**, *italic*, _italic_, ~strikethrough~, `code`.
+ *
+ * - Standard Markdown: `**bold**` wins over `*italic*` (we try the double-asterisk
+ *   pattern first, then fall back to single-asterisk which we treat as italic).
+ * - Legacy support: some older sub-agent outputs use `*text*` as bold. Rendered as
+ *   italic now is acceptable — visually close and doesn't destroy semantics.
+ *
+ * Recursive so styles can nest (e.g. bold + italic).
  */
 export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 	const result: React.ReactNode[] = [];
 	let remaining = text;
 	let keyIndex = 0;
 
-	// Pattern order matters: check longer patterns first
 	const patterns: {
 		regex: RegExp;
 		render: (match: string, content: string) => React.ReactNode;
@@ -20,26 +25,35 @@ export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 			render: (_, content) => (
 				<code
 					key={`code-${keyIndex++}`}
-					className="bg-slate-200 dark:bg-slate-600 px-1.5 py-0.5 rounded text-xs font-mono"
+					className="bg-n-100 text-n-800 px-1.5 py-0.5 rounded text-[11.5px] font-mono"
 				>
 					{content}
 				</code>
 			),
 		},
-		// Bold: *text*
+		// Bold: **text** (standard Markdown) — must run BEFORE single-asterisk italic
 		{
-			regex: /\*([^*]+)\*/,
+			regex: /\*\*([^*]+(?:\*(?!\*)[^*]*)*)\*\*/,
 			render: (_, content) => (
-				<strong key={`bold-${keyIndex++}`} className="font-bold">
+				<strong key={`bold-${keyIndex++}`} className="font-semibold">
 					{parseInlineFormatting(content)}
 				</strong>
 			),
 		},
-		// Italic: _text_
+		// Italic: *text*
 		{
-			regex: /_([^_]+)_/,
+			regex: /(?<!\*)\*([^*\n]+)\*(?!\*)/,
 			render: (_, content) => (
 				<em key={`italic-${keyIndex++}`} className="italic">
+					{parseInlineFormatting(content)}
+				</em>
+			),
+		},
+		// Italic underscore: _text_
+		{
+			regex: /(?<![A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])/,
+			render: (_, content) => (
+				<em key={`italic-u-${keyIndex++}`} className="italic text-n-500">
 					{parseInlineFormatting(content)}
 				</em>
 			),
@@ -72,23 +86,19 @@ export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 		}
 
 		if (earliestMatch) {
-			// Add text before match
 			if (earliestMatch.index > 0) {
 				result.push(remaining.slice(0, earliestMatch.index));
 			}
-			// Add formatted element
 			result.push(
 				earliestMatch.pattern.render(
 					earliestMatch.match[0],
 					earliestMatch.match[1],
 				),
 			);
-			// Continue with remaining text
 			remaining = remaining.slice(
 				earliestMatch.index + earliestMatch.match[0].length,
 			);
 		} else {
-			// No more matches
 			result.push(remaining);
 			break;
 		}
@@ -98,8 +108,18 @@ export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 };
 
 /**
- * Parse WhatsApp-style formatting into React elements
- * Supports: *bold*, _italic_, ~strikethrough~, `code`, ```monospace```, lists, quotes
+ * Parse Markdown-flavoured free-form text into React elements.
+ *
+ * Supports:
+ *   - `#`, `##`, `###`, `####` headings
+ *   - `**bold**`, `*italic*`, `_italic_`, `~strike~`, `` `code` ``
+ *   - Bullet lists (`- item` or `* item`), numbered lists (`1. item`)
+ *   - Blockquotes (`> text`)
+ *   - Horizontal rule (`---` or `***`)
+ *   - Fenced code blocks (```lang ... ```)
+ *   - Blank lines between blocks
+ *
+ * Headings render in our Newsreader serif so they feel clinical, not marketing.
  */
 export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 	const lines = text.split("\n");
@@ -108,18 +128,42 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 		null;
 	let codeBlockBuffer: string[] | null = null;
 	let quoteBuffer: string[] | null = null;
+	let paragraphBuffer: string[] | null = null;
 	let lineKey = 0;
+
+	const flushParagraph = () => {
+		if (paragraphBuffer && paragraphBuffer.length > 0) {
+			const joined = paragraphBuffer.join(" ").trim();
+			if (joined) {
+				result.push(
+					<p
+						key={`p-${lineKey}`}
+						className="leading-[1.65] [&:not(:last-child)]:mb-2"
+					>
+						{parseInlineFormatting(joined)}
+					</p>,
+				);
+			}
+			paragraphBuffer = null;
+		}
+	};
 
 	const flushListBuffer = () => {
 		if (listBuffer) {
 			const ListTag = listBuffer.type === "numbered" ? "ol" : "ul";
+			const items = listBuffer.items;
+			const kind = listBuffer.type;
 			result.push(
 				<ListTag
 					key={`list-${lineKey}`}
-					className={`${listBuffer.type === "numbered" ? "list-decimal" : "list-disc"} ml-4 my-2`}
+					className={
+						kind === "numbered"
+							? "list-decimal ml-5 my-2 space-y-0.5 marker:text-n-400"
+							: "list-disc ml-5 my-2 space-y-0.5 marker:text-n-400"
+					}
 				>
-					{listBuffer.items.map((item, i) => (
-						<li key={i} className="mb-1">
+					{items.map((item, i) => (
+						<li key={i} className="leading-[1.6]">
 							{parseInlineFormatting(item)}
 						</li>
 					))}
@@ -131,15 +175,16 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 
 	const flushQuoteBuffer = () => {
 		if (quoteBuffer) {
+			const q = quoteBuffer;
 			result.push(
 				<blockquote
 					key={`quote-${lineKey}`}
-					className="border-l-4 border-slate-400 dark:border-slate-500 pl-3 my-2 italic text-slate-600 dark:text-slate-300"
+					className="border-l-2 border-n-300 pl-3 my-2 italic text-n-600"
 				>
-					{quoteBuffer.map((line, i) => (
+					{q.map((line, i) => (
 						<span key={i}>
 							{parseInlineFormatting(line)}
-							{i < quoteBuffer!.length - 1 && <br />}
+							{i < q.length - 1 && <br />}
 						</span>
 					))}
 				</blockquote>,
@@ -153,7 +198,7 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 			result.push(
 				<pre
 					key={`code-${lineKey}`}
-					className="bg-slate-800 dark:bg-slate-900 text-green-400 p-3 rounded-lg my-2 overflow-x-auto font-mono text-xs"
+					className="bg-n-50 border border-n-150 text-n-800 p-3 rounded-md my-2 overflow-x-auto font-mono text-[11.5px] leading-[1.55]"
 				>
 					<code>{codeBlockBuffer.join("\n")}</code>
 				</pre>,
@@ -162,15 +207,20 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 		}
 	};
 
+	const flushAll = () => {
+		flushParagraph();
+		flushListBuffer();
+		flushQuoteBuffer();
+	};
+
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		lineKey = i;
 
-		// Code block handling (```)
+		// Fenced code block toggle (```)
 		if (line.trim().startsWith("```")) {
 			if (codeBlockBuffer === null) {
-				flushListBuffer();
-				flushQuoteBuffer();
+				flushAll();
 				codeBlockBuffer = [];
 			} else {
 				flushCodeBlock();
@@ -183,9 +233,41 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 			continue;
 		}
 
-		// Bullet list: * item or - item
-		const bulletMatch = line.match(/^[\*\-]\s+(.+)$/);
+		// Headings: # / ## / ### / ####
+		const headingMatch = line.match(/^(#{1,4})\s+(.+?)\s*#*\s*$/);
+		if (headingMatch) {
+			flushAll();
+			const level = headingMatch[1].length;
+			const content = headingMatch[2];
+			const common = "font-serif text-n-900 tracking-tight";
+			const byLevel: Record<number, string> = {
+				1: "text-[20px] leading-[1.2] mt-3 mb-2 font-medium",
+				2: "text-[17px] leading-[1.25] mt-3 mb-1.5 font-medium",
+				3: "text-[15px] leading-[1.3] mt-2.5 mb-1 font-medium",
+				4: "text-[13.5px] leading-[1.35] mt-2 mb-1 font-semibold uppercase tracking-wider text-n-600 font-sans",
+			};
+			const Tag = (`h${Math.min(level + 1, 4)}` as "h2" | "h3" | "h4");
+			result.push(
+				<Tag key={`h-${i}`} className={`${common} ${byLevel[level]}`}>
+					{parseInlineFormatting(content)}
+				</Tag>,
+			);
+			continue;
+		}
+
+		// Horizontal rule
+		if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line.trim())) {
+			flushAll();
+			result.push(
+				<hr key={`hr-${i}`} className="my-3 border-t border-n-150" />,
+			);
+			continue;
+		}
+
+		// Bullet list: - item or * item (ensure space after marker)
+		const bulletMatch = line.match(/^\s*[-*]\s+(.+)$/);
 		if (bulletMatch) {
+			flushParagraph();
 			flushQuoteBuffer();
 			if (listBuffer?.type !== "bullet") {
 				flushListBuffer();
@@ -196,8 +278,9 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 		}
 
 		// Numbered list: 1. item
-		const numberedMatch = line.match(/^\d+\.\s+(.+)$/);
+		const numberedMatch = line.match(/^\s*\d+\.\s+(.+)$/);
 		if (numberedMatch) {
+			flushParagraph();
 			flushQuoteBuffer();
 			if (listBuffer?.type !== "numbered") {
 				flushListBuffer();
@@ -210,35 +293,28 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 		// Quote: > text
 		const quoteMatch = line.match(/^>\s*(.*)$/);
 		if (quoteMatch) {
+			flushParagraph();
 			flushListBuffer();
-			if (!quoteBuffer) {
-				quoteBuffer = [];
-			}
+			if (!quoteBuffer) quoteBuffer = [];
 			quoteBuffer.push(quoteMatch[1]);
 			continue;
 		}
 
-		// Flush any pending buffers
+		// Blank line = block separator
+		if (!line.trim()) {
+			flushAll();
+			continue;
+		}
+
+		// Otherwise accumulate into current paragraph.
 		flushListBuffer();
 		flushQuoteBuffer();
-
-		// Regular line with inline formatting
-		if (line.trim()) {
-			result.push(
-				<span key={`line-${i}`}>
-					{parseInlineFormatting(line)}
-					{i < lines.length - 1 && <br />}
-				</span>,
-			);
-		} else if (i < lines.length - 1) {
-			result.push(<br key={`br-${i}`} />);
-		}
+		if (!paragraphBuffer) paragraphBuffer = [];
+		paragraphBuffer.push(line);
 	}
 
-	// Flush remaining buffers
 	flushCodeBlock();
-	flushListBuffer();
-	flushQuoteBuffer();
+	flushAll();
 
 	return result;
 };

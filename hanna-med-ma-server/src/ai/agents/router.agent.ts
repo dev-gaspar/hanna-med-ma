@@ -70,7 +70,16 @@ export class RouterAgent {
 
     let finalResult = "";
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    // Gemini occasionally returns an empty priming chunk and closes the stream
+    // without generating content or calling any tool. A small linear backoff
+    // across 3 attempts absorbs this transient flakiness.
+    const MAX_ATTEMPTS = 3;
+    const BACKOFF_MS = 350;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        await new Promise((r) => setTimeout(r, BACKOFF_MS * (attempt - 1)));
+      }
       let fullText = "";
       let streamedFromTools = "";
       let isMuted = false;
@@ -109,7 +118,7 @@ export class RouterAgent {
 
       if (attempt > 1) {
         this.logger.warn(
-          `Retrying LangGraph agent stream for doctor ${doctorContext.doctorId} (attempt ${attempt})`,
+          `Retrying LangGraph agent stream for doctor ${doctorContext.doctorId} (attempt ${attempt}/${MAX_ATTEMPTS})`,
         );
       } else {
         this.logger.log(
@@ -209,7 +218,7 @@ export class RouterAgent {
           `LangGraph agent error: ${error.message}`,
           error.stack,
         );
-        if (attempt === 2) throw error;
+        if (attempt === MAX_ATTEMPTS) throw error;
       }
 
       const combinedResult = (streamedFromTools + "\n" + fullText).trim();

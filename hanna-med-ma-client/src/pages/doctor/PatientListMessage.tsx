@@ -127,33 +127,36 @@ export const PatientListMessage = ({
 	let patientIdx = 0;
 
 	return (
-		<div className="space-y-1 py-1">
+		<div className="space-y-3 py-1">
 			{data.sections.map((section, si) => (
-				<div key={`s-${si}`}>
-					<div className="text-[13px] font-bold text-slate-800 dark:text-white px-2.5 pt-3 pb-1">
+				<div key={`s-${si}`} className="space-y-1.5">
+					<div className="font-mono text-[10.5px] uppercase tracking-widest text-n-500 px-0.5 pt-2">
 						{parseInlineFormatting(section.header)}
 					</div>
-					{section.patients.map((patient) => {
-						const idx = patientIdx++;
-						return (
-							<PatientCard
-								key={`p-${patient.id}`}
-								patient={patient}
-								isSeen={!!data.isSeen}
-								selection={selection}
-								index={idx}
-								onAction={onAction}
-								onMarkSeen={onMarkSeen}
-								isMarkingLoading={markingLoading?.has(patient.id)}
-							/>
-						);
-					})}
+					<div className="space-y-1.5">
+						{section.patients.map((patient) => {
+							const idx = patientIdx++;
+							return (
+								<PatientCard
+									key={`p-${patient.id}`}
+									patient={patient}
+									isSeen={!!data.isSeen}
+									selection={selection}
+									index={idx}
+									onAction={onAction}
+									onMarkSeen={onMarkSeen}
+									isMarkingLoading={markingLoading?.has(patient.id)}
+								/>
+							);
+						})}
+					</div>
 				</div>
 			))}
-			<div className="text-[11px] text-slate-500 dark:text-slate-400 px-2.5 pt-2">
-				{parseInlineFormatting(
-					`_${data.count} ${data.isSeen ? "seen patients" : "patients"} — Updated at: ${data.lastUpdated}_`,
-				)}
+			<div className="pt-1 border-t border-n-150 flex items-center gap-2 font-mono text-[10.5px] text-n-500">
+				<span className="tabular-nums">{data.count}</span>
+				<span>{data.isSeen ? "seen" : "patients"}</span>
+				<span className="text-n-300">·</span>
+				<span>updated {data.lastUpdated}</span>
 			</div>
 		</div>
 	);

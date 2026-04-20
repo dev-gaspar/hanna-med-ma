@@ -10,6 +10,7 @@ import { ChatModule } from "./chat/chat.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { RpaModule } from "./rpa/rpa.module";
 import { IngestModule } from "./ingest/ingest.module";
+import { PatientsModule } from "./patients/patients.module";
 import { AiModule } from "./ai/ai.module";
 import { RedisModule } from "./core/redis.module";
 import { S3Module } from "./core/s3.module";
@@ -28,6 +29,7 @@ import { S3Module } from "./core/s3.module";
     NotificationsModule,
     RpaModule,
     IngestModule,
+    PatientsModule,
     AiModule,
     RedisModule,
     S3Module,

@@ -1,8 +1,16 @@
 import { parseInlineFormatting } from "../../lib/chatUtils";
-import { FileText, Landmark, FlaskConical, CheckCircle2, Loader2 } from "lucide-react";
+import { cls } from "../../lib/cls";
+import {
+	FileText,
+	Shield,
+	FlaskConical,
+	CheckCircle2,
+	Loader2,
+} from "lucide-react";
 import type { SelectedItem } from "./DoctorChat";
 import type { PatientItem } from "./PatientListMessage";
 import { formatPatientText } from "./PatientListMessage";
+import { Chip } from "../../components/ui/Chip";
 
 interface PatientCardProps {
 	patient: PatientItem;
@@ -20,6 +28,11 @@ interface PatientCardProps {
 	isMarkingLoading?: boolean;
 }
 
+interface DetailLine {
+	label: string;
+	value: string;
+}
+
 export const PatientCard = ({
 	patient,
 	isSeen,
@@ -29,24 +42,23 @@ export const PatientCard = ({
 	onMarkSeen,
 	isMarkingLoading,
 }: PatientCardProps) => {
-	const nameDisplay = patient.isNew ? `*${patient.name} (NEW)*` : patient.name;
 	const selectionId = `patient-${patient.id}-${index}`;
 	const isSelected = selection.selectedId === selectionId;
 
-	// Build detail lines from structured data
-	const detailLines: string[] = [];
+	const details: DetailLine[] = [];
 	if (isSeen) {
-		if (patient.billingEmrStatus) detailLines.push(`├ EMR Status: ${patient.billingEmrStatus}`);
-		if (patient.billingEmrPatientId) detailLines.push(`├ EMR ID: ${patient.billingEmrPatientId}`);
-		if (patient.seenAt) detailLines.push(`├ Marked Seen: ${patient.seenAt}`);
+		if (patient.billingEmrStatus)
+			details.push({ label: "EMR status", value: patient.billingEmrStatus });
+		if (patient.billingEmrPatientId)
+			details.push({ label: "EMR id", value: patient.billingEmrPatientId });
+		if (patient.seenAt)
+			details.push({ label: "Marked seen", value: patient.seenAt });
 	} else {
-		if (patient.reason) detailLines.push(`├ Reason: ${patient.reason}`);
-		if (patient.location) detailLines.push(`├ Location: ${patient.location}`);
-		if (patient.admittedDate) detailLines.push(`├ Admitted: ${patient.admittedDate}`);
-	}
-	// Replace last ├ with └
-	if (detailLines.length > 0) {
-		detailLines[detailLines.length - 1] = detailLines[detailLines.length - 1].replace("├", "└");
+		if (patient.reason) details.push({ label: "Reason", value: patient.reason });
+		if (patient.location)
+			details.push({ label: "Location", value: patient.location });
+		if (patient.admittedDate)
+			details.push({ label: "Admitted", value: patient.admittedDate });
 	}
 
 	const copyText = formatPatientText(patient, isSeen);
@@ -66,85 +78,103 @@ export const PatientCard = ({
 	};
 
 	const actionBtnClass =
-		"p-1 rounded-md transition-colors duration-150 flex items-center gap-1";
+		"inline-flex items-center gap-1.5 h-7 px-2 rounded border border-n-200 bg-n-0 text-n-700 text-[11.5px] hover:bg-n-100 transition";
 
 	return (
 		<div
 			onClick={handleClick}
-			className={`group/card relative rounded-xl p-2.5 cursor-pointer select-none transition-all duration-200 ${
+			className={cls(
+				"group/card relative rounded-lg px-3 py-2.5 cursor-pointer select-none transition-all border",
 				isSelected
-					? "ring-2 ring-indigo-500/50 dark:ring-indigo-400/50 bg-white dark:bg-slate-700 shadow-sm"
-					: "md:hover:bg-white/60 md:dark:hover:bg-slate-800/60"
-			}`}
+					? "bg-p-50 border-p-500"
+					: "bg-n-0 border-n-150 md:hover:border-n-200 md:hover:bg-n-50",
+			)}
 		>
-			<div className="flex items-center gap-1.5 mb-1">
-				<span className="text-xs font-bold text-slate-800 dark:text-white truncate flex-1 min-w-0">
-					{parseInlineFormatting(nameDisplay)}
-				</span>
-
-				<div className="shrink-0 hidden md:flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity duration-150">
-					<button
-						onClick={(e) => {
-							e.stopPropagation();
-							onAction?.("summary", patient.name);
-						}}
-						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30`}
-					>
-						<FileText className="w-4 h-4" />
-						<span className="text-[10px] font-medium">Summary</span>
-					</button>
-					<button
-						onClick={(e) => {
-							e.stopPropagation();
-							onAction?.("insurance", patient.name);
-						}}
-						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/30`}
-					>
-						<Landmark className="w-4 h-4" />
-						<span className="text-[10px] font-medium">Insurance</span>
-					</button>
-					<button
-						onClick={(e) => {
-							e.stopPropagation();
-							onAction?.("lab", patient.name);
-						}}
-						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30`}
-					>
-						<FlaskConical className="w-4 h-4" />
-						<span className="text-[10px] font-medium">Lab</span>
-					</button>
-
-					<div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-					<button
-						onClick={(e) => {
-							e.stopPropagation();
-							onMarkSeen?.(patient.id);
-						}}
-						disabled={isMarkingLoading}
-						className={`${actionBtnClass} text-slate-500 dark:text-slate-300 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30`}
-						title="Seen"
-					>
-						{isMarkingLoading ? (
-							<Loader2 className="w-4 h-4 animate-spin" />
-						) : (
-							<CheckCircle2 className="w-4 h-4" />
-						)}
-						<span className="text-[10px] font-medium">
-							Seen
+			<div className="flex items-start gap-2">
+				<div
+					className={cls(
+						"w-1 self-stretch rounded-full mt-0.5",
+						patient.isNew ? "bg-[var(--warn-fg)]" : "bg-transparent",
+					)}
+				/>
+				<div className="flex-1 min-w-0">
+					<div className="flex items-center gap-2 mb-0.5">
+						<span className="text-[13.5px] font-semibold text-n-900 truncate flex-1 min-w-0">
+							{parseInlineFormatting(patient.name)}
 						</span>
-					</button>
+						{patient.isNew && <Chip tone="warn">new</Chip>}
+						{isSeen && <Chip tone="ok">seen</Chip>}
+					</div>
+
+					{details.length > 0 && (
+						<div className="space-y-0.5 mt-1.5">
+							{details.map((d, i) => (
+								<div
+									key={i}
+									className="flex items-baseline gap-2 text-[11.5px] leading-snug"
+								>
+									<span className="label-kicker w-[72px] shrink-0">
+										{d.label}
+									</span>
+									<span className="font-mono text-n-700 truncate">
+										{parseInlineFormatting(d.value)}
+									</span>
+								</div>
+							))}
+						</div>
+					)}
+
+					<div className="hidden md:flex items-center gap-1.5 mt-2.5 opacity-0 group-hover/card:opacity-100 transition-opacity">
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onAction?.("summary", patient.name);
+							}}
+							className={actionBtnClass}
+						>
+							<FileText className="w-3.5 h-3.5" />
+							<span>Summary</span>
+						</button>
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onAction?.("insurance", patient.name);
+							}}
+							className={actionBtnClass}
+						>
+							<Shield className="w-3.5 h-3.5" />
+							<span>Insurance</span>
+						</button>
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onAction?.("lab", patient.name);
+							}}
+							className={actionBtnClass}
+						>
+							<FlaskConical className="w-3.5 h-3.5" />
+							<span>Lab</span>
+						</button>
+						{!isSeen && (
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									onMarkSeen?.(patient.id);
+								}}
+								disabled={isMarkingLoading}
+								className="ml-auto inline-flex items-center gap-1.5 h-7 px-2.5 rounded bg-p-600 text-white text-[11.5px] hover:bg-p-700 disabled:opacity-40 transition"
+							>
+								{isMarkingLoading ? (
+									<Loader2 className="w-3.5 h-3.5 animate-spin" />
+								) : (
+									<CheckCircle2 className="w-3.5 h-3.5" />
+								)}
+								<span>Mark seen</span>
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
-
-			{detailLines.map((line, i) => (
-				<div
-					key={i}
-					className="text-[11px] text-slate-600 dark:text-slate-400 font-mono leading-snug"
-				>
-					{parseInlineFormatting(line)}
-				</div>
-			))}
 		</div>
 	);
 };

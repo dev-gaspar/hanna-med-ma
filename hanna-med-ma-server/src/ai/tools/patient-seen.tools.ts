@@ -91,7 +91,7 @@ export class PatientSeenTool {
 		}
 
 		const sections = Array.from(grouped.entries()).map(([system, group]) => ({
-			header: `🏥 ${HOSPITAL_LABELS[system] || system}`,
+			header: HOSPITAL_LABELS[system] || system,
 			patients: group.map((e) => ({
 				id: e.patient.id,
 				name: e.patient.name,

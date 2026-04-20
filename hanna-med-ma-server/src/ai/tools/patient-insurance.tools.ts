@@ -3,7 +3,11 @@ import { RawDataType } from "@prisma/client";
 import { PrismaService } from "../../core/prisma.service";
 import { formatForDisplay } from "../../core/date.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
-import { normalizeName } from "../../core/patient-name.util";
+import {
+	normalizeName,
+	rankAndFilterPatients,
+	tokenizeName,
+} from "../../core/patient-name.util";
 
 @Injectable()
 export class PatientInsuranceTool {
@@ -25,13 +29,16 @@ export class PatientInsuranceTool {
   ): Promise<string> {
     const { hospital_type, patient_name, specific_question } = args;
 
-    const lastName = normalizeName(patient_name).split(" ")[0];
+    // Pull a candidate pool using a loose prefix on the first token (DB-side),
+    // then apply word-boundary ranking in memory so "perez" doesn't match
+    // "fuentesperez" and an exact-name query wins over partial ones.
+    const firstToken = tokenizeName(patient_name)[0] || normalizeName(patient_name);
 
-    const patients = await this.prisma.patient.findMany({
+    const candidates = await this.prisma.patient.findMany({
       where: {
         doctorLinks: { some: { doctorId: doctorContext.doctorId, isActive: true } },
         emrSystem: hospital_type as any,
-        normalizedName: { contains: lastName },
+        normalizedName: { contains: firstToken },
       },
       include: {
         rawData: {
@@ -42,6 +49,8 @@ export class PatientInsuranceTool {
       },
       orderBy: { updatedAt: "desc" },
     });
+
+    const patients = rankAndFilterPatients(candidates, patient_name);
 
     if (patients.length === 0) {
       return JSON.stringify({

@@ -1,209 +1,266 @@
 import { Link } from "react-router-dom";
-import {
-	Sparkles,
-	Shield,
-	Stethoscope,
-	MessageSquare,
-	Activity,
-	Clock,
-	ArrowRight,
-} from "lucide-react";
+import { ArrowRight, Lock, Play, Shield, Sparkles } from "lucide-react";
+import { Button } from "../components/ui/Button";
+import ThemeToggle from "../components/ThemeToggle";
 
 const features = [
 	{
-		icon: MessageSquare,
-		title: "AI Chat Assistant",
-		description:
-			"Natural language interface for patient queries and clinical support.",
-		color: "bg-blue-500",
+		kicker: "01 · Your census",
+		title: "Every patient, every hospital, in one place.",
+		body: "Your daily list across every hospital you cover refreshes on its own — no logging in, no clicking through charts.",
 	},
 	{
-		icon: Stethoscope,
-		title: "EMR Integration",
-		description:
-			"Seamless connection with your existing electronic medical records.",
-		color: "bg-purple-500",
+		kicker: "02 · Ask anything",
+		title: "A clinical assistant that knows your patients.",
+		body: "Ask about a patient's summary, insurance or labs in plain language. Answers come from the actual chart, not a guess.",
 	},
 	{
-		icon: Activity,
-		title: "Patient Summaries",
-		description: "Quick AI-generated summaries of patient history and status.",
-		color: "bg-green-500",
+		kicker: "03 · One tap, seen",
+		title: "Mark a visit done, the rest runs itself.",
+		body: "Tap seen, pick consult or follow-up, pick the date. The note is collected in the background so billing can move.",
 	},
-	{
-		icon: Shield,
-		title: "HIPAA Compliant",
-		description: "Enterprise-grade security with full HIPAA compliance.",
-		color: "bg-cyan-500",
-	},
-];
-
-const benefits = [
-	"Reduce administrative workload by 60%",
-	"Instant patient data lookups",
-	"24/7 AI-powered assistance",
-	"Secure and encrypted communications",
 ];
 
 export default function LandingPage() {
 	return (
-		<div className="min-h-screen bg-white dark:bg-slate-900">
-			{/* Navbar */}
-			<nav className="fixed top-0 w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-gray-100 dark:border-slate-800 z-50">
-				<div className="max-w-5xl mx-auto px-4 flex items-center justify-between h-16">
-					<div className="flex items-center gap-3">
-						<div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-							<Stethoscope className="w-5 h-5 text-white" />
-						</div>
-						<span className="text-sm font-bold text-gray-900 dark:text-white">
-							Hanna-Med MA
-						</span>
+		<div className="min-h-screen bg-n-0 text-n-900">
+			{/* Top nav */}
+			<nav className="h-14 px-6 border-b border-n-150 bg-n-0 flex items-center justify-between">
+				<Link to="/" className="flex items-center gap-2">
+					<div className="w-7 h-7 rounded bg-p-700 grid place-items-center font-serif text-white text-[13px]">
+						H
 					</div>
-					<div className="flex items-center gap-2">
-						<Link
-							to="/doctor/login"
-							className="text-xs text-gray-600 dark:text-gray-400 hover:text-primary transition-colors"
-						>
-							Doctor Portal
-						</Link>
-					</div>
+					<span className="font-serif text-[15px] text-n-900">Hanna-Med</span>
+				</Link>
+				<div className="flex items-center gap-2">
+					<ThemeToggle />
+					<Link to="/doctor/login">
+						<Button tone="primary" size="sm">
+							Sign in
+						</Button>
+					</Link>
 				</div>
 			</nav>
 
 			{/* Hero */}
-			<section className="pt-28 pb-12 md:pt-32 md:pb-16 bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
-				<div className="max-w-3xl mx-auto px-4 text-center">
-					<div className="inline-flex items-center px-3 py-1 bg-primary/10 rounded-full text-primary text-xs font-medium mb-4">
-						<Sparkles className="w-3 h-3 mr-1.5" /> AI-Powered Medical Assistant
-					</div>
-					<h1 className="text-3xl md:text-5xl font-bold text-gray-900 dark:text-white mb-3 leading-tight">
-						Intelligent Medical
-						<span className="text-primary"> Management</span>
-					</h1>
-					<p className="text-sm md:text-base text-gray-600 dark:text-gray-400 mb-6 max-w-xl mx-auto">
-						Streamline your clinical workflow with AI-powered patient summaries,
-						real-time insights, and seamless EMR integration.
-					</p>
-					<div className="flex flex-col sm:flex-row gap-3 justify-center">
-						<Link
-							to="/doctor/login"
-							className="btn-primary px-5 py-2.5 text-center inline-flex items-center justify-center gap-2"
+			<section className="border-b border-n-150">
+				<div className="max-w-5xl mx-auto px-6 py-16 md:py-24 grid md:grid-cols-[1.15fr_1fr] gap-10 items-start">
+					<div>
+						<div className="font-mono text-[10.5px] uppercase tracking-widest text-n-500 mb-5">
+							Medical assistant · multi-hospital
+						</div>
+						<h1
+							className="font-serif text-[36px] md:text-[52px] leading-[1.05] tracking-tight text-n-900 mb-5"
+							style={{ textWrap: "pretty" as any }}
 						>
-							Access Portal <ArrowRight className="w-4 h-4" />
-						</Link>
+							The charting your hospital does,{" "}
+							<span className="text-n-500 italic">without</span> the charting.
+						</h1>
+						<p className="text-[14.5px] text-n-700 leading-[1.65] max-w-lg mb-7">
+							Hanna-Med rounds with you. Pulls your census, reads the notes,
+							keeps the record — so the visit can stay about the patient.
+						</p>
+						<div className="flex flex-wrap gap-2">
+							<Link to="/doctor/login">
+								<Button
+									tone="primary"
+									size="lg"
+									trailing={<ArrowRight className="w-4 h-4" />}
+								>
+									Open the portal
+								</Button>
+							</Link>
+							<Button
+								tone="ghost"
+								size="lg"
+								leading={<Play className="w-3.5 h-3.5" />}
+							>
+								Watch the demo
+							</Button>
+						</div>
+						<div className="mt-10 pt-6 border-t border-n-150 flex flex-wrap items-center gap-5 text-[10.5px] font-mono text-n-500 uppercase tracking-widest">
+							<span className="flex items-center gap-1.5">
+								<Lock className="w-3 h-3" />
+								HIPAA compliant
+							</span>
+							<span className="flex items-center gap-1.5">
+								<Shield className="w-3 h-3" />
+								Private &amp; encrypted
+							</span>
+							<span className="flex items-center gap-1.5">
+								<Sparkles className="w-3 h-3" />
+								Built with doctors
+							</span>
+						</div>
 					</div>
 
-					{/* Trust badges */}
-					<div className="mt-8 flex flex-wrap justify-center gap-6 text-xs text-gray-500 dark:text-gray-400">
-						<div className="flex items-center gap-1.5">
-							<Shield className="w-3.5 h-3.5 text-green-500" />
-							<span>HIPAA Compliant</span>
-						</div>
-						<div className="flex items-center gap-1.5">
-							<Sparkles className="w-3.5 h-3.5 text-yellow-500" />
-							<span>AI-Powered</span>
-						</div>
-						<div className="flex items-center gap-1.5">
-							<Clock className="w-3.5 h-3.5 text-blue-500" />
-							<span>24/7 Available</span>
+					{/* Visual: neutral census mock */}
+					<div className="bg-n-50 border border-n-150 rounded-lg p-6 relative overflow-hidden">
+						<div
+							className="absolute inset-0 opacity-[0.04] pointer-events-none"
+							style={{
+								backgroundImage:
+									"linear-gradient(var(--n-900) 1px, transparent 1px), linear-gradient(90deg, var(--n-900) 1px, transparent 1px)",
+								backgroundSize: "24px 24px",
+							}}
+						/>
+						<div className="relative bg-n-0 rounded-lg border border-n-150 shadow-pop overflow-hidden">
+							<div className="px-4 h-10 border-b border-n-150 flex items-center justify-between">
+								<div className="font-mono text-[10.5px] uppercase tracking-widest text-n-600">
+									Baptist · 8th · today
+								</div>
+								<span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--ok-fg)]">
+									<span className="w-1.5 h-1.5 rounded-full bg-[var(--ok-fg)]" />
+									synced
+								</span>
+							</div>
+							{[
+								{
+									name: "Bayona, Arturo N.",
+									meta: "rm 214 · non-healing ulcer",
+									tag: "unseen",
+								},
+								{
+									name: "Reyes, Maria",
+									meta: "rm 208 · diabetes f/u",
+									tag: "seen",
+								},
+								{
+									name: "Kim, Daniel",
+									meta: "rm 216 · cellulitis",
+									tag: "unseen",
+								},
+								{
+									name: "Valdés, Esther",
+									meta: "rm 203 · neuropathy",
+									tag: "seen",
+								},
+								{
+									name: "Ortiz, Samuel",
+									meta: "rm 221 · osteomyelitis r/o",
+									tag: "unseen",
+								},
+							].map((p, i) => (
+								<div
+									key={i}
+									className={`px-4 py-3 border-b border-n-150 last:border-0 flex items-center gap-3 text-[12.5px] ${
+										i === 2 ? "bg-p-50" : ""
+									}`}
+								>
+									<div className="flex-1 min-w-0">
+										<div className="font-medium text-n-900 truncate">
+											{p.name}
+										</div>
+										<div className="font-mono text-[10.5px] text-n-500 mt-0.5 truncate">
+											{p.meta}
+										</div>
+									</div>
+									{p.tag === "seen" ? (
+										<span className="inline-flex items-center px-2 py-[3px] rounded bg-[var(--ok-bg)] text-[var(--ok-fg)] text-[10px] uppercase tracking-wider font-mono">
+											seen
+										</span>
+									) : (
+										<span className="inline-flex items-center px-2 py-[3px] rounded bg-n-100 text-n-700 text-[10px] uppercase tracking-wider font-mono">
+											unseen
+										</span>
+									)}
+								</div>
+							))}
 						</div>
 					</div>
 				</div>
 			</section>
 
 			{/* Features */}
-			<section className="py-12 md:py-16 bg-white dark:bg-slate-900">
-				<div className="max-w-5xl mx-auto px-4">
-					<div className="text-center mb-8">
-						<h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-2">
-							Key Features
-						</h2>
-						<p className="text-sm text-gray-600 dark:text-gray-400 max-w-lg mx-auto">
-							Powerful features designed to enhance your clinical practice.
+			<section>
+				<div className="max-w-5xl mx-auto grid md:grid-cols-3 border-b border-n-150">
+					{features.map((f, i) => (
+						<div
+							key={i}
+							className={`p-8 ${i < 2 ? "md:border-r border-n-150" : ""} ${i > 0 ? "border-t md:border-t-0 border-n-150" : ""}`}
+						>
+							<div className="font-mono text-[10.5px] uppercase tracking-widest text-n-500 mb-3">
+								{f.kicker}
+							</div>
+							<div
+								className="font-serif text-[22px] text-n-900 tracking-tight mb-3"
+								style={{ textWrap: "pretty" as any }}
+							>
+								{f.title}
+							</div>
+							<div className="text-[13px] text-n-600 leading-[1.65]">
+								{f.body}
+							</div>
+						</div>
+					))}
+				</div>
+			</section>
+
+			{/* Value strip — speaks to the doctor, not the engineer */}
+			<section className="max-w-5xl mx-auto px-6 py-14">
+				<div className="grid md:grid-cols-[1fr_1.1fr] gap-10 items-start">
+					<div>
+						<div className="font-mono text-[10.5px] uppercase tracking-widest text-n-500 mb-4">
+							What it does for you
+						</div>
+						<h3
+							className="font-serif text-[22px] md:text-[26px] text-n-900 tracking-tight leading-[1.25] max-w-md"
+							style={{ textWrap: "pretty" as any }}
+						>
+							Less time logging in. More time with the patient.
+						</h3>
+						<p className="text-[13.5px] text-n-700 leading-[1.7] mt-4 max-w-md">
+							Hanna-Med keeps the record up to date in the background. Open the
+							app and your list for the day is ready, your notes are tracked, and
+							the assistant answers any question you have in seconds.
 						</p>
 					</div>
-					<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-						{features.map((feature, index) => {
-							const Icon = feature.icon;
-							return (
-								<div
-									key={index}
-									className="card hover:shadow-md transition-shadow"
-								>
-									<div
-										className={`w-10 h-10 ${feature.color} rounded-lg flex items-center justify-center mb-3`}
-									>
-										<Icon className="w-5 h-5 text-white" />
-									</div>
-									<h3 className="text-sm font-bold text-gray-900 dark:text-white mb-1">
-										{feature.title}
-									</h3>
-									<p className="text-xs text-gray-600 dark:text-gray-400">
-										{feature.description}
-									</p>
+					<div className="border border-n-150 rounded-lg bg-n-50 p-6">
+						<div className="font-mono text-[10.5px] uppercase tracking-widest text-n-500 mb-4">
+							Built for the daily round
+						</div>
+						<div className="grid grid-cols-3 gap-5">
+							<div>
+								<div className="font-serif text-[32px] text-n-900 leading-none">
+									Zero
 								</div>
-							);
-						})}
-					</div>
-				</div>
-			</section>
-
-			{/* Benefits */}
-			<section className="py-12 md:py-16 bg-gradient-to-br from-primary to-blue-600">
-				<div className="max-w-3xl mx-auto px-4 text-center">
-					<h2 className="text-2xl md:text-3xl font-bold text-white mb-3">
-						Transform Your Clinical Workflow
-					</h2>
-					<p className="text-sm text-blue-100 mb-6 max-w-lg mx-auto">
-						Join physicians who have streamlined their workflow with Hanna-Med.
-					</p>
-					<div className="grid sm:grid-cols-2 gap-3 max-w-md mx-auto text-left">
-						{benefits.map((benefit, index) => (
-							<div key={index} className="flex items-center gap-2">
-								<Shield className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />
-								<span className="text-sm text-white">{benefit}</span>
+								<div className="text-[11.5px] text-n-600 mt-2 leading-[1.55]">
+									extra EMR logins per morning
+								</div>
 							</div>
-						))}
-					</div>
-				</div>
-			</section>
-
-			{/* CTA */}
-			<section className="py-12 md:py-16 bg-background-secondary dark:bg-slate-800">
-				<div className="max-w-3xl mx-auto px-4 text-center">
-					<h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-3">
-						Ready to Get Started?
-					</h2>
-					<p className="text-sm text-gray-600 dark:text-gray-400 mb-5 max-w-lg mx-auto">
-						Start using Hanna-Med today and experience the future of clinical
-						workflow management.
-					</p>
-					<div className="flex flex-col sm:flex-row gap-3 justify-center">
-						<Link
-							to="/doctor/login"
-							className="btn-primary px-6 py-2.5 text-center"
-						>
-							Start Now
-						</Link>
+							<div>
+								<div className="font-serif text-[32px] text-n-900 leading-none">
+									One tap
+								</div>
+								<div className="text-[11.5px] text-n-600 mt-2 leading-[1.55]">
+									to mark a patient as seen
+								</div>
+							</div>
+							<div>
+								<div className="font-serif text-[32px] text-n-900 leading-none">
+									24/7
+								</div>
+								<div className="text-[11.5px] text-n-600 mt-2 leading-[1.55]">
+									assistant ready for clinical questions
+								</div>
+							</div>
+						</div>
 					</div>
 				</div>
 			</section>
 
 			{/* Footer */}
-			<footer className="py-6 border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
-				<div className="max-w-5xl mx-auto px-4 text-center">
-					<p className="text-xs text-gray-500 dark:text-gray-400">
-						© {new Date().getFullYear()} Hanna-Med MA. All rights reserved.
-						HIPAA Compliant.
-					</p>
-					<div className="mt-2">
-						<Link
-							to="/admin/login"
-							className="text-[10px] text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
-						>
-							Admin Access
-						</Link>
+			<footer className="border-t border-n-150">
+				<div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
+					<div className="font-mono text-[10.5px] text-n-500">
+						© {new Date().getFullYear()} Hanna-Med · Miami, FL
 					</div>
+					<Link
+						to="/admin/login"
+						className="font-mono text-[10.5px] text-n-500 hover:text-n-900 transition"
+					>
+						Admin access
+					</Link>
 				</div>
 			</footer>
 		</div>

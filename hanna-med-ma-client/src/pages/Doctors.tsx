@@ -1,47 +1,39 @@
 import { useEffect, useState } from "react";
-import {
-	Plus,
-	Pencil,
-	Trash2,
-	Building2,
-	Bell,
-	Send,
-	Check,
-} from "lucide-react";
+import { Plus, Pencil, Trash2, Bell, Send, Check, Loader2 } from "lucide-react";
 import { doctorService } from "../services/doctorService";
 import type { Doctor, CreateDoctorDto, UpdateDoctorDto } from "../types";
 import Modal from "../components/Modal";
+import { Button } from "../components/ui/Button";
+import { Chip } from "../components/ui/Chip";
+import { cls } from "../lib/cls";
 
-// All available EMR systems with display metadata
-const ALL_EMR_SYSTEMS = [
-	{ key: "JACKSON", label: "Jackson Health", color: "blue" },
-	{ key: "STEWARD", label: "Steward Health", color: "green" },
-	{ key: "BAPTIST", label: "Baptist Health", color: "purple" },
-] as const;
-
-const EMR_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-	JACKSON: {
-		bg: "bg-blue-100 dark:bg-blue-900/30",
-		text: "text-blue-700 dark:text-blue-300",
-		dot: "bg-blue-500",
-	},
-	STEWARD: {
-		bg: "bg-green-100 dark:bg-green-900/30",
-		text: "text-green-700 dark:text-green-300",
-		dot: "bg-green-500",
-	},
-	BAPTIST: {
-		bg: "bg-purple-100 dark:bg-purple-900/30",
-		text: "text-purple-700 dark:text-purple-300",
-		dot: "bg-purple-500",
-	},
+const EMR_META: Record<string, { label: string; hue: string }> = {
+	JACKSON: { label: "Jackson", hue: "#c06a1f" },
+	STEWARD: { label: "Stewart", hue: "#6d4f8f" },
+	BAPTIST: { label: "Baptist", hue: "#2a6f84" },
 };
+
+const ALL_EMR_SYSTEMS = Object.keys(EMR_META) as Array<keyof typeof EMR_META>;
+
+function EmrPill({ system }: { system: string }) {
+	const meta = EMR_META[system] ?? { label: system, hue: "#5e5e5e" };
+	return (
+		<span className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded border border-n-200 text-n-700 text-[10.5px] font-mono uppercase tracking-wider">
+			<span
+				className="w-1.5 h-1.5 rounded-full"
+				style={{ background: meta.hue }}
+			/>
+			{meta.label}
+		</span>
+	);
+}
 
 export default function Doctors() {
 	const [doctors, setDoctors] = useState<Doctor[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null);
+	const [submitting, setSubmitting] = useState(false);
 	const [formData, setFormData] = useState<CreateDoctorDto>({
 		name: "",
 		username: "",
@@ -50,7 +42,6 @@ export default function Doctors() {
 		emrSystems: [],
 	});
 
-	// Notification state
 	const [selectedDoctorIds, setSelectedDoctorIds] = useState<Set<number>>(
 		new Set(),
 	);
@@ -104,13 +95,6 @@ export default function Doctors() {
 	const handleCloseModal = () => {
 		setIsModalOpen(false);
 		setEditingDoctor(null);
-		setFormData({
-			name: "",
-			username: "",
-			password: "",
-			specialty: "",
-			emrSystems: [],
-		});
 	};
 
 	const toggleEmrSystem = (systemKey: string) => {
@@ -123,6 +107,7 @@ export default function Doctors() {
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
+		setSubmitting(true);
 		try {
 			if (editingDoctor) {
 				const updateData: UpdateDoctorDto = {
@@ -134,36 +119,27 @@ export default function Doctors() {
 				};
 				await doctorService.update(editingDoctor.id, updateData);
 			} else {
-				const createData: CreateDoctorDto = {
-					name: formData.name,
-					username: formData.username,
-					password: formData.password,
-					specialty: formData.specialty,
-					emrSystems: formData.emrSystems,
-				};
-				await doctorService.create(createData);
+				await doctorService.create(formData as CreateDoctorDto);
 			}
 			await fetchDoctors();
 			handleCloseModal();
 		} catch (error) {
 			console.error("Error saving doctor:", error);
-			alert("Error saving doctor");
+		} finally {
+			setSubmitting(false);
 		}
 	};
 
 	const handleDelete = async (id: number) => {
-		if (window.confirm("Are you sure you want to delete this doctor?")) {
-			try {
-				await doctorService.delete(id);
-				await fetchDoctors();
-			} catch (error) {
-				console.error("Error deleting doctor:", error);
-				alert("Error deleting doctor");
-			}
+		if (!window.confirm("Delete this doctor?")) return;
+		try {
+			await doctorService.delete(id);
+			await fetchDoctors();
+		} catch (error) {
+			console.error("Error deleting doctor:", error);
 		}
 	};
 
-	// --- Selection helpers ---
 	const toggleSelectDoctor = (id: number) => {
 		setSelectedDoctorIds((prev) => {
 			const next = new Set(prev);
@@ -181,7 +157,6 @@ export default function Doctors() {
 		}
 	};
 
-	// --- Notification modal ---
 	const openNotifyModal = () => {
 		setNotifyTitle("");
 		setNotifyBody("");
@@ -193,27 +168,22 @@ export default function Doctors() {
 		e.preventDefault();
 		setIsSendingNotification(true);
 		setNotifyResult(null);
-
 		try {
 			const ids =
 				selectedDoctorIds.size > 0 ? Array.from(selectedDoctorIds) : undefined;
-
 			const result = await doctorService.sendNotification(
 				notifyTitle,
 				notifyBody,
 				ids,
 			);
-
 			setNotifyResult({
 				success: result.success,
 				message: result.message,
 			});
-
-			// Auto-close after success
 			setTimeout(() => {
 				setIsNotifyModalOpen(false);
 				setSelectedDoctorIds(new Set());
-			}, 2000);
+			}, 1800);
 		} catch (error) {
 			console.error("Error sending notification:", error);
 			setNotifyResult({
@@ -225,169 +195,142 @@ export default function Doctors() {
 		}
 	};
 
-	if (loading) {
-		return (
-			<div className="flex items-center justify-center h-64">
-				<div className="text-gray-600">Loading...</div>
-			</div>
-		);
-	}
-
 	return (
-		<div>
-			<div className="flex justify-between items-center mb-4">
+		<div className="max-w-6xl">
+			<div className="flex items-end justify-between gap-4 pb-4 mb-5 border-b border-n-150">
 				<div>
-					<h1 className="text-xl font-bold text-gray-900 dark:text-white">
-						Doctors Management
-					</h1>
-					<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-						Manage doctors and their EMR system access
+					<div className="label-kicker mb-1.5">Administration</div>
+					<div className="flex items-center gap-3">
+						<h1 className="font-serif text-[24px] text-n-900 leading-tight">
+							Doctors
+						</h1>
+						<Chip>{doctors.length}</Chip>
+					</div>
+					<p className="text-[12.5px] text-n-500 mt-1.5">
+						Providers with portal access and EMR assignments.
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
-					<button
+					<Button
+						tone="ghost"
+						size="sm"
 						onClick={openNotifyModal}
-						className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+						leading={<Bell className="w-3.5 h-3.5" />}
 					>
-						<Bell className="w-4 h-4" />
 						{selectedDoctorIds.size > 0
-							? `Notify (${selectedDoctorIds.size})`
-							: "Notify All"}
-					</button>
-					<button
+							? `Notify · ${selectedDoctorIds.size}`
+							: "Notify all"}
+					</Button>
+					<Button
+						tone="primary"
+						size="sm"
 						onClick={() => handleOpenModal()}
-						className="btn-primary flex items-center gap-2"
+						leading={<Plus className="w-3.5 h-3.5" />}
 					>
-						<Plus className="w-4 h-4" />
-						Add Doctor
-					</button>
+						Add doctor
+					</Button>
 				</div>
 			</div>
 
-			<div className="card">
-				<div className="overflow-x-auto">
-					<table className="w-full">
-						<thead>
-							<tr className="border-b border-gray-200 dark:border-slate-700">
-								<th className="py-2 px-3 w-10">
-									<input
-										type="checkbox"
-										checked={
-											doctors.length > 0 &&
-											selectedDoctorIds.size === doctors.length
-										}
-										onChange={toggleSelectAll}
-										className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-violet-600 focus:ring-violet-500 cursor-pointer"
-									/>
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Name
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Specialty
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									EMR Systems
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Username
-								</th>
-								<th className="text-right py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Actions
-								</th>
-							</tr>
-						</thead>
-						<tbody>
-							{doctors.map((doctor) => (
-								<tr
-									key={doctor.id}
-									className="border-b border-gray-100 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
-								>
-									<td className="py-2 px-3">
-										<input
-											type="checkbox"
-											checked={selectedDoctorIds.has(doctor.id)}
-											onChange={() => toggleSelectDoctor(doctor.id)}
-											className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-violet-600 focus:ring-violet-500 cursor-pointer"
-										/>
-									</td>
-									<td className="py-2 px-3 text-sm font-medium dark:text-white">
-										{doctor.name}
-									</td>
-									<td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">
-										{doctor.specialty || "-"}
-									</td>
-									<td className="py-2 px-3">
-										<div className="flex flex-wrap gap-1">
-											{(doctor.emrSystems || []).length > 0 ? (
-												doctor.emrSystems.map((sys) => {
-													const colors = EMR_COLORS[sys] || {
-														bg: "bg-gray-100 dark:bg-gray-700",
-														text: "text-gray-700 dark:text-gray-300",
-														dot: "bg-gray-500",
-													};
-													return (
-														<span
-															key={sys}
-															className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${colors.bg} ${colors.text}`}
-														>
-															<span
-																className={`w-1.5 h-1.5 rounded-full ${colors.dot}`}
-															/>
-															{sys}
-														</span>
-													);
-												})
-											) : (
-												<span className="text-xs text-gray-400">
-													No systems
-												</span>
-											)}
-										</div>
-									</td>
-									<td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">
-										{doctor.username}
-									</td>
-									<td className="py-2 px-3">
-										<div className="flex justify-end gap-1">
-											<button
-												onClick={() => handleOpenModal(doctor)}
-												className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-												title="Edit"
-											>
-												<Pencil className="w-3.5 h-3.5" />
-											</button>
-											<button
-												onClick={() => handleDelete(doctor.id)}
-												className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-												title="Delete"
-											>
-												<Trash2 className="w-3.5 h-3.5" />
-											</button>
-										</div>
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-					{doctors.length === 0 && (
-						<div className="text-center py-8 text-gray-500">
-							No doctors found
-						</div>
-					)}
+			<div className="border border-n-150 rounded-lg bg-n-0 overflow-hidden">
+				<div className="grid grid-cols-[30px_1.4fr_1fr_1.5fr_1fr_80px] px-4 h-10 border-b border-n-150 bg-n-50 items-center">
+					<div>
+						<input
+							type="checkbox"
+							checked={
+								doctors.length > 0 &&
+								selectedDoctorIds.size === doctors.length
+							}
+							onChange={toggleSelectAll}
+							className="w-3.5 h-3.5 accent-p-600 cursor-pointer"
+						/>
+					</div>
+					<div className="label-kicker">Name</div>
+					<div className="label-kicker">Specialty</div>
+					<div className="label-kicker">EMR systems</div>
+					<div className="label-kicker">Username</div>
+					<div className="label-kicker text-right">Actions</div>
 				</div>
+
+				{loading ? (
+					<div className="flex items-center justify-center gap-2 py-10 text-n-500">
+						<Loader2 className="w-4 h-4 animate-spin" />
+						<span className="font-mono text-[11px] uppercase tracking-widest">
+							Loading
+						</span>
+					</div>
+				) : doctors.length === 0 ? (
+					<div className="py-10 text-center font-mono text-[11.5px] text-n-500">
+						No doctors yet.
+					</div>
+				) : (
+					doctors.map((doctor) => (
+						<div
+							key={doctor.id}
+							className="grid grid-cols-[30px_1.4fr_1fr_1.5fr_1fr_80px] px-4 py-3 border-b border-n-150 last:border-0 items-center hover:bg-n-50 transition"
+						>
+							<div>
+								<input
+									type="checkbox"
+									checked={selectedDoctorIds.has(doctor.id)}
+									onChange={() => toggleSelectDoctor(doctor.id)}
+									className="w-3.5 h-3.5 accent-p-600 cursor-pointer"
+								/>
+							</div>
+							<div className="min-w-0">
+								<div className="text-[13.5px] font-medium text-n-900 truncate">
+									{doctor.name}
+								</div>
+								<div className="font-mono text-[10.5px] text-n-500 truncate">
+									id {doctor.id}
+								</div>
+							</div>
+							<div className="text-[13px] text-n-700">
+								{doctor.specialty || (
+									<span className="text-n-400">—</span>
+								)}
+							</div>
+							<div className="flex items-center gap-1 flex-wrap">
+								{(doctor.emrSystems || []).length > 0 ? (
+									doctor.emrSystems.map((sys) => (
+										<EmrPill key={sys} system={sys} />
+									))
+								) : (
+									<span className="text-n-400 text-[11.5px]">—</span>
+								)}
+							</div>
+							<div className="font-mono text-[11.5px] text-n-600 truncate">
+								{doctor.username}
+							</div>
+							<div className="flex justify-end gap-0.5">
+								<button
+									onClick={() => handleOpenModal(doctor)}
+									className="inline-flex items-center justify-center w-7 h-7 rounded-md text-n-500 hover:text-n-900 hover:bg-n-100 transition"
+									title="Edit"
+								>
+									<Pencil className="w-3.5 h-3.5" />
+								</button>
+								<button
+									onClick={() => handleDelete(doctor.id)}
+									className="inline-flex items-center justify-center w-7 h-7 rounded-md text-n-500 hover:text-[var(--dnr-fg)] hover:bg-[var(--dnr-bg)] transition"
+									title="Delete"
+								>
+									<Trash2 className="w-3.5 h-3.5" />
+								</button>
+							</div>
+						</div>
+					))
+				)}
 			</div>
 
 			<Modal
 				isOpen={isModalOpen}
 				onClose={handleCloseModal}
-				title={editingDoctor ? "Edit Doctor" : "Add New Doctor"}
+				title={editingDoctor ? "Edit doctor" : "Add doctor"}
 			>
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Name *
-						</label>
+						<label className="label-kicker block mb-1.5">Name *</label>
 						<input
 							type="text"
 							value={formData.name}
@@ -399,11 +342,8 @@ export default function Doctors() {
 							required
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Username *
-						</label>
+						<label className="label-kicker block mb-1.5">Username *</label>
 						<input
 							type="text"
 							value={formData.username}
@@ -416,9 +356,8 @@ export default function Doctors() {
 							disabled={!!editingDoctor}
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+						<label className="label-kicker block mb-1.5">
 							Password {!editingDoctor && "*"}
 						</label>
 						<input
@@ -433,17 +372,9 @@ export default function Doctors() {
 							}
 							required={!editingDoctor}
 						/>
-						{editingDoctor && (
-							<p className="text-xs text-gray-500 mt-1">
-								Leave blank to keep the current password
-							</p>
-						)}
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Specialty
-						</label>
+						<label className="label-kicker block mb-1.5">Specialty</label>
 						<input
 							type="text"
 							value={formData.specialty}
@@ -451,135 +382,119 @@ export default function Doctors() {
 								setFormData({ ...formData, specialty: e.target.value })
 							}
 							className="input-field"
-							placeholder="Cardiology, Neurology, etc."
+							placeholder="Podiatry, vascular, internal medicine…"
 						/>
 					</div>
 
-					{/* EMR Systems Access */}
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-							EMR Systems Access
+						<label className="label-kicker block mb-2">
+							EMR systems access
 						</label>
-						<div className="grid grid-cols-1 gap-2">
+						<div className="grid grid-cols-1 gap-1.5">
 							{ALL_EMR_SYSTEMS.map((system) => {
 								const isSelected = (formData.emrSystems || []).includes(
-									system.key,
+									system,
 								);
-								const colors = EMR_COLORS[system.key];
+								const meta = EMR_META[system];
 								return (
 									<button
-										key={system.key}
+										key={system}
 										type="button"
-										onClick={() => toggleEmrSystem(system.key)}
-										className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-all ${
+										onClick={() => toggleEmrSystem(system)}
+										className={cls(
+											"flex items-center gap-3 px-3 h-11 rounded-md border transition",
 											isSelected
-												? `${colors.bg} border-current ${colors.text}`
-												: "border-gray-200 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-500"
-										}`}
+												? "border-p-500 bg-p-50"
+												: "border-n-200 hover:bg-n-50",
+										)}
 									>
-										<div
-											className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+										<span
+											className="w-2 h-2 rounded-full shrink-0"
+											style={{ background: meta.hue }}
+										/>
+										<span className="flex-1 text-left text-[13px] font-medium text-n-900">
+											{meta.label}
+										</span>
+										<span
+											className={cls(
+												"w-4 h-4 rounded-sm border flex items-center justify-center transition",
 												isSelected
-													? `${colors.bg}`
-													: "bg-gray-100 dark:bg-slate-700"
-											}`}
-										>
-											<Building2
-												className={`w-4 h-4 ${
-													isSelected
-														? colors.text
-														: "text-gray-400 dark:text-gray-500"
-												}`}
-											/>
-										</div>
-										<div className="flex-1 text-left">
-											<span className="text-sm font-medium">
-												{system.label}
-											</span>
-										</div>
-										<div
-											className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
-												isSelected
-													? `${colors.dot} border-transparent`
-													: "border-gray-300 dark:border-slate-500"
-											}`}
+													? "bg-p-600 border-p-600"
+													: "border-n-300",
+											)}
 										>
 											{isSelected && (
-												<svg
-													className="w-3 h-3 text-white"
-													fill="none"
-													viewBox="0 0 24 24"
-													stroke="currentColor"
-													strokeWidth={3}
-												>
-													<path
-														strokeLinecap="round"
-														strokeLinejoin="round"
-														d="M5 13l4 4L19 7"
-													/>
-												</svg>
+												<Check className="w-2.5 h-2.5 text-white" />
 											)}
-										</div>
+										</span>
 									</button>
 								);
 							})}
 						</div>
-						<p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5">
-							Select which EMR systems this doctor has access to. Credentials
-							are configured separately for systems that require them.
+						<p className="text-[10.5px] font-mono text-n-500 mt-2 leading-relaxed">
+							Credentials are configured separately for systems that require
+							them.
 						</p>
 					</div>
 
-					<div className="flex gap-3 pt-4">
-						<button
+					<div className="flex gap-2 pt-2">
+						<Button
 							type="button"
+							tone="ghost"
+							size="md"
 							onClick={handleCloseModal}
-							className="btn-secondary flex-1"
+							className="flex-1"
 						>
 							Cancel
-						</button>
-						<button type="submit" className="btn-primary flex-1">
-							{editingDoctor ? "Update" : "Create"}
-						</button>
+						</Button>
+						<Button
+							type="submit"
+							tone="primary"
+							size="md"
+							disabled={submitting}
+							className="flex-1"
+						>
+							{submitting ? (
+								<>
+									<Loader2 className="w-4 h-4 animate-spin" />
+									<span>Saving…</span>
+								</>
+							) : editingDoctor ? (
+								"Update"
+							) : (
+								"Create"
+							)}
+						</Button>
 					</div>
 				</form>
 			</Modal>
 
-			{/* Notification Modal */}
 			<Modal
 				isOpen={isNotifyModalOpen}
 				onClose={() => setIsNotifyModalOpen(false)}
 				title={
 					selectedDoctorIds.size > 0
-						? `Send Notification (${selectedDoctorIds.size} doctor${selectedDoctorIds.size > 1 ? "s" : ""})`
-						: "Send Notification to All Doctors"
+						? `Send notification · ${selectedDoctorIds.size}`
+						: "Send notification to all"
 				}
 			>
 				<form onSubmit={handleSendNotification} className="space-y-4">
-					{/* Selected doctors preview */}
-					{selectedDoctorIds.size > 0 && (
-						<div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
-							<p className="text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5">
-								Recipients:
-							</p>
-							<div className="flex flex-wrap gap-1">
+					{selectedDoctorIds.size > 0 ? (
+						<div className="border border-n-150 rounded-md p-3 bg-n-50">
+							<div className="label-kicker mb-2">Recipients</div>
+							<div className="flex flex-wrap gap-1.5">
 								{doctors
 									.filter((d) => selectedDoctorIds.has(d.id))
 									.map((d) => (
-										<span
-											key={d.id}
-											className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 dark:bg-violet-800/40 text-violet-700 dark:text-violet-300"
-										>
+										<Chip key={d.id} tone="primary">
 											{d.name}
-										</span>
+										</Chip>
 									))}
 							</div>
 						</div>
-					)}
-
-					{selectedDoctorIds.size === 0 && (
-						<div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-							<p className="text-xs text-amber-700 dark:text-amber-300">
+					) : (
+						<div className="border border-n-150 rounded-md p-3 bg-[var(--warn-bg)]/30">
+							<p className="text-[12.5px] text-[var(--warn-fg)]">
 								No doctors selected — this will send to{" "}
 								<strong>all doctors</strong> with active push tokens.
 							</p>
@@ -587,97 +502,76 @@ export default function Doctors() {
 					)}
 
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Title *
-						</label>
+						<label className="label-kicker block mb-1.5">Title *</label>
 						<input
 							type="text"
 							value={notifyTitle}
 							onChange={(e) => setNotifyTitle(e.target.value)}
 							className="input-field"
-							placeholder="e.g. System Update"
+							placeholder="e.g. System update"
 							required
 							maxLength={100}
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Message *
-						</label>
+						<label className="label-kicker block mb-1.5">Message *</label>
 						<textarea
 							value={notifyBody}
 							onChange={(e) => setNotifyBody(e.target.value)}
-							className="input-field min-h-[80px] resize-y"
-							placeholder="e.g. A new version of the app is available. Please update."
+							className="input-field min-h-[80px] py-2 resize-y"
+							placeholder="A new version of the app is available. Please update."
 							required
 							maxLength={500}
 							rows={3}
 						/>
-						<p className="text-[10px] text-gray-400 mt-1 text-right">
+						<p className="text-[10.5px] font-mono text-n-500 mt-1 text-right">
 							{notifyBody.length}/500
 						</p>
 					</div>
 
-					{/* Result feedback */}
 					{notifyResult && (
 						<div
-							className={`flex items-center gap-2 p-3 rounded-lg text-xs font-medium ${
+							className={cls(
+								"flex items-center gap-2 px-3 py-2.5 rounded-md text-[12.5px] font-medium",
 								notifyResult.success
-									? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800"
-									: "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800"
-							}`}
+									? "bg-[var(--ok-bg)] text-[var(--ok-fg)]"
+									: "bg-[var(--dnr-bg)] text-[var(--dnr-fg)]",
+							)}
 						>
-							{notifyResult.success ? (
-								<Check className="w-4 h-4 flex-shrink-0" />
-							) : null}
-							{notifyResult.message}
+							{notifyResult.success && <Check className="w-4 h-4 shrink-0" />}
+							<span>{notifyResult.message}</span>
 						</div>
 					)}
 
-					<div className="flex gap-3 pt-4">
-						<button
+					<div className="flex gap-2 pt-2">
+						<Button
 							type="button"
+							tone="ghost"
+							size="md"
 							onClick={() => setIsNotifyModalOpen(false)}
-							className="btn-secondary flex-1"
+							className="flex-1"
 						>
 							Cancel
-						</button>
-						<button
+						</Button>
+						<Button
 							type="submit"
+							tone="primary"
+							size="md"
 							disabled={isSendingNotification || notifyResult?.success === true}
-							className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
+							className="flex-1"
 						>
 							{isSendingNotification ? (
 								<>
-									<svg
-										className="w-4 h-4 animate-spin"
-										viewBox="0 0 24 24"
-										fill="none"
-									>
-										<circle
-											className="opacity-25"
-											cx="12"
-											cy="12"
-											r="10"
-											stroke="currentColor"
-											strokeWidth="4"
-										/>
-										<path
-											className="opacity-75"
-											fill="currentColor"
-											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-										/>
-									</svg>
-									Sending...
+									<Loader2 className="w-4 h-4 animate-spin" />
+									<span>Sending…</span>
 								</>
 							) : (
 								<>
 									<Send className="w-4 h-4" />
-									Send Notification
+									<span>Send</span>
 								</>
 							)}
-						</button>
+						</Button>
 					</div>
 				</form>
 			</Modal>

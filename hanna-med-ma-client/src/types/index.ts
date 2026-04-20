@@ -118,16 +118,74 @@ export interface DoctorLoginResponse {
 		name: string;
 		username: string;
 		specialty?: string;
+		emrSystems?: string[];
 	};
 }
 
 export type BillingEmrStatus = 'PENDING' | 'REGISTERED' | 'ALREADY_EXISTS' | 'FAILED';
 export type EncounterType = 'CONSULT' | 'PROGRESS';
+export type EmrSystem = 'JACKSON' | 'STEWARD' | 'BAPTIST';
 
 export interface PatientBillingInfo {
 	success?: boolean;
 	patientId: number;
 	encounterId: number;
 	billingEmrStatus: BillingEmrStatus;
+}
+
+export interface Patient {
+	id: number;
+	emrSystem: EmrSystem;
+	name: string;
+	normalizedName: string;
+	location?: string | null;
+	facility?: string | null;
+	reason?: string | null;
+	admittedDate?: string | null;
+	billingEmrStatus: BillingEmrStatus;
+	billingEmrPatientId?: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type NoteStatus =
+	| "PENDING"
+	| "SEARCHING"
+	| "NOT_FOUND"
+	| "FOUND_UNSIGNED"
+	| "FOUND_SIGNED";
+
+export interface EncounterDetail {
+	id: number;
+	patientId: number;
+	doctorId: number;
+	type: EncounterType;
+	dateOfService: string;
+	deadline?: string | null;
+	faceSheet?: string | null;
+	providerNote?: string | null;
+	noteStatus: NoteStatus;
+	noteAttempts: number;
+	noteLastAttemptAt?: string | null;
+	noteAgentSummary?: string | null;
+	faceSheetUrl?: string | null;
+	providerNoteUrl?: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type RawDataType = "SUMMARY" | "INSURANCE" | "LAB";
+
+export interface PatientRawDataEntry {
+	id: number;
+	dataType: RawDataType;
+	extractedAt: string;
+	file?: string | null;
+	createdAt: string;
+}
+
+export interface PatientDetail extends Patient {
+	encounters: EncounterDetail[];
+	rawData: PatientRawDataEntry[];
 }
 

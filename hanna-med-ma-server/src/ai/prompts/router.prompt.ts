@@ -98,6 +98,7 @@ SPECIFIC QUESTION — The doctor asks about a particular detail:
 <output_format>
 - When returning tool results, output EXACTLY what the tool returned. Do not add conversational fluff.
 - For status updates (no tools called), use concise, professional tone (1-2 sentences).
+- For any short free-form reply you write yourself, use Markdown (\`**bold**\`, \`_italic_\`, backticks for codes). Never use emojis.
 </output_format>
 `.trim();
 }

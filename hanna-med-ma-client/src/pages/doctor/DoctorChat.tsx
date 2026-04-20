@@ -7,32 +7,30 @@ import {
 	type FormEvent,
 	useCallback,
 } from "react";
-import { useNavigate } from "react-router-dom";
-import { doctorAuthService } from "../../services/doctorAuthService";
-import { chatService } from "../../services/chatService";
-import { socketService } from "../../services/socketService";
+import { useSearchParams } from "react-router-dom";
 import { patientService } from "../../services/patientService";
 import { toast } from "sonner";
 import type { Message } from "../../types/chat";
 import {
 	Send,
-	LogOut,
-	Stethoscope,
-	Bot,
-	Shield,
 	Loader2,
 	X,
 	Copy,
 	FileText,
-	Landmark,
+	Shield,
 	FlaskConical,
 	Check,
 	CheckCircle2,
+	Calendar,
 } from "lucide-react";
-import ThemeToggle from "../../components/ThemeToggle";
 import { MessageItem } from "./MessageItem";
 import { ChatSkeleton } from "./ChatSkeleton";
 import { parseWhatsAppFormat } from "../../lib/chatUtils";
+import { cls } from "../../lib/cls";
+import { Button } from "../../components/ui/Button";
+import { IconButton } from "../../components/ui/IconButton";
+import { useDoctorChat } from "../../contexts/DoctorChatContext";
+import { useDoctorData } from "../../contexts/DoctorDataContext";
 
 export type SelectedItem = {
 	type: "message" | "patient";
@@ -43,42 +41,48 @@ export type SelectedItem = {
 };
 
 export default function DoctorChat() {
-	const navigate = useNavigate();
-	const doctor = doctorAuthService.getCurrentDoctor();
+	const [searchParams, setSearchParams] = useSearchParams();
 
-	// --- State ---
-	const [messages, setMessages] = useState<Message[]>([]);
+	// Everything that used to be local (history, socket, streaming) now lives
+	// in DoctorChatContext so navigating away and back does not re-fetch
+	// history or drop the socket subscription. DoctorChat only owns UI
+	// state from here on.
+	const {
+		messages,
+		isReady,
+		isLoadingHistory,
+		isSending,
+		isAiThinking,
+		currentToolCall,
+		streamingText,
+		hasMoreHistory,
+		sendMessage,
+		regenerate,
+		editLastUser,
+		loadMoreHistory,
+	} = useDoctorChat();
+
+	const { markSeenLocally } = useDoctorData();
+
 	const [input, setInput] = useState("");
-	const [nextCursor, setNextCursor] = useState<number | undefined>(undefined);
 	const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
 
-	// Selection State
 	const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
 	const [isCopied, setIsCopied] = useState(false);
 
-	// Mark Seen State
 	const [markingLoading, setMarkingLoading] = useState<Set<number>>(new Set());
 
-	// Encounter Type Modal
-	const [encounterModalPatientId, setEncounterModalPatientId] = useState<number | null>(null);
-	// Date of service defaults to today; lets the doctor back-date a visit they
-	// forgot to mark as seen on the actual day.
+	const [encounterModalPatientId, setEncounterModalPatientId] = useState<
+		number | null
+	>(null);
 	const todayIso = () => new Date().toISOString().slice(0, 10);
-	const [encounterDateOfService, setEncounterDateOfService] = useState<string>(todayIso());
+	const [encounterDateOfService, setEncounterDateOfService] = useState<string>(
+		todayIso(),
+	);
+	const [encounterType, setEncounterType] = useState<"CONSULT" | "PROGRESS">(
+		"CONSULT",
+	);
 
-	// UI States
-	const [isReady, setIsReady] = useState(false);
-	const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-	const [isSending, setIsSending] = useState(false);
-
-	// Real-time AI states
-	const [isAiThinking, setIsAiThinking] = useState(false);
-	const [currentToolCall, setCurrentToolCall] = useState<string | null>(null);
-	const [streamingText, setStreamingText] = useState("");
-	const streamingBufferRef = useRef("");
-	const renderTimerRef = useRef<number | null>(null);
-
-	// --- Refs ---
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const spacerEndRef = useRef<HTMLDivElement>(null);
@@ -88,26 +92,6 @@ export default function DoctorChat() {
 	const isPrependRef = useRef(false);
 	const isInitialLoadRef = useRef(true);
 
-	const onStreamingChunk = useCallback((chunk: string) => {
-		streamingBufferRef.current += chunk;
-		if (!renderTimerRef.current) {
-			renderTimerRef.current = window.setTimeout(() => {
-				setStreamingText(streamingBufferRef.current);
-				renderTimerRef.current = null;
-			}, 30);
-		}
-	}, []);
-
-	const stopStreaming = useCallback(() => {
-		if (renderTimerRef.current) {
-			clearTimeout(renderTimerRef.current);
-			renderTimerRef.current = null;
-		}
-		streamingBufferRef.current = "";
-		setStreamingText("");
-	}, []);
-
-	// --- Handlers ---
 	const handleSelect = useCallback((item: SelectedItem | null) => {
 		if (!item) {
 			setSelectedItem(null);
@@ -147,29 +131,30 @@ export default function DoctorChat() {
 	}, [selectedItem, copyToClipboard]);
 
 	const handleMarkSeen = (patientId: number) => {
-		// Reset the date picker to today every time the modal opens so a
-		// previous back-dated selection never leaks into a fresh visit.
 		setEncounterDateOfService(todayIso());
+		setEncounterType("CONSULT");
 		setEncounterModalPatientId(patientId);
 	};
 
-	const handleEncounterTypeSelected = async (encounterType: "CONSULT" | "PROGRESS") => {
+	const handleConfirmEncounter = async () => {
 		const patientId = encounterModalPatientId;
 		const dateOfService = encounterDateOfService;
+		const type = encounterType;
 		setEncounterModalPatientId(null);
 		if (!patientId) return;
 
-		const label = encounterType === "CONSULT" ? "Consult" : "Follow-Up";
+		const label = type === "CONSULT" ? "Consult" : "Follow-Up";
 
 		try {
 			setMarkingLoading((prev) => new Set(prev).add(patientId));
-			await patientService.markAsSeen(patientId, encounterType, dateOfService);
+			await patientService.markAsSeen(patientId, type, dateOfService);
 			const isToday = dateOfService === todayIso();
 			toast.success(
 				isToday
 					? `${label} encounter created`
 					: `${label} encounter created for ${dateOfService}`,
 			);
+			markSeenLocally(patientId);
 		} catch (error) {
 			console.error("Failed to mark patient as seen:", error);
 			toast.error("Failed to create encounter. Please try again.");
@@ -182,74 +167,33 @@ export default function DoctorChat() {
 		}
 	};
 
-	// --- Effects ---
-	// Initial history load
-	useEffect(() => {
-		const init = async () => {
-			try {
-				const session = await chatService.getHistory(20);
-				setMessages(session.messages);
-				setNextCursor(session.nextCursor);
-			} catch (error) {
-				console.error("Failed to load chat history or seen patients", error);
-			} finally {
-				setIsReady(true);
-			}
-		};
-		init();
+	const scrollToSpacer = useCallback((behavior: ScrollBehavior = "smooth") => {
+		requestAnimationFrame(() => {
+			setTimeout(() => {
+				spacerEndRef.current?.scrollIntoView({ behavior, block: "end" });
+			}, 50);
+		});
 	}, []);
 
-	// Socket.IO real-time connection
+	// Chat interop: when another screen navigates here with `?q=...`, send
+	// the query once. The context handles socket waiting internally.
+	const autoSentRef = useRef(false);
 	useEffect(() => {
-		try {
-			socketService.connect();
-		} catch {
-			console.warn("Socket connection failed, falling back to polling");
-		}
+		if (!isReady || autoSentRef.current) return;
+		const q = searchParams.get("q");
+		if (!q) return;
+		const content = q.trim();
+		if (!content) return;
+		autoSentRef.current = true;
 
-		const cleanupThinking = socketService.on("ai_thinking", (data: any) => {
-			setIsAiThinking(data.status);
-			if (!data.status) setCurrentToolCall(null);
-		});
+		// Clear query so a hard refresh doesn't replay.
+		const next = new URLSearchParams(searchParams);
+		next.delete("q");
+		setSearchParams(next, { replace: true });
 
-		const cleanupToolCall = socketService.on("ai_tool_call", (data: any) => {
-			setCurrentToolCall(data.message);
-		});
-
-		const cleanupStreaming = socketService.on("ai_streaming", (data: any) => {
-			if (data.chunk) {
-				onStreamingChunk(data.chunk);
-			}
-		});
-
-		const cleanupComplete = socketService.on(
-			"ai_response_complete",
-			(data: any) => {
-				stopStreaming();
-				setIsAiThinking(false);
-				setCurrentToolCall(null);
-				setIsSending(false);
-				setMessages((prev) => [...prev, data.message]);
-			},
-		);
-
-		const cleanupError = socketService.on("error", (data: any) => {
-			console.error("[Socket] Error:", data.message);
-			stopStreaming();
-			setIsAiThinking(false);
-			setCurrentToolCall(null);
-			setIsSending(false);
-		});
-
-		return () => {
-			cleanupThinking();
-			cleanupToolCall();
-			cleanupStreaming();
-			cleanupComplete();
-			cleanupError();
-			socketService.disconnect();
-		};
-	}, []);
+		sendMessage(content);
+		scrollToSpacer("smooth");
+	}, [isReady, searchParams, setSearchParams, sendMessage, scrollToSpacer]);
 
 	useLayoutEffect(() => {
 		const container = scrollContainerRef.current;
@@ -274,7 +218,6 @@ export default function DoctorChat() {
 			return;
 		}
 
-		// Auto-scroll when new messages are appended, BUT only if near the bottom of MESSAGES (ignoring spacer)
 		const containerRect = container.getBoundingClientRect();
 		const messagesEndRect = messagesEndRef.current?.getBoundingClientRect();
 
@@ -291,175 +234,61 @@ export default function DoctorChat() {
 		}
 	}, [messages]);
 
-	// Removed erratic auto-scrolling effects for isAiThinking and currentToolCall
-	// to keep the canvas fixed while chunks are physically streaming in.
-
 	useEffect(() => {
 		if (!window.visualViewport) return;
 		const handleResize = () => scrollToSpacer("smooth");
 		window.visualViewport.addEventListener("resize", handleResize);
 		return () =>
 			window.visualViewport?.removeEventListener("resize", handleResize);
-	}, []);
+	}, [scrollToSpacer]);
 
 	const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
 		const { scrollTop, scrollHeight } = e.currentTarget;
-		if (scrollTop < 50 && nextCursor && !isLoadingHistory) {
-			setIsLoadingHistory(true);
+		if (scrollTop < 50 && hasMoreHistory && !isLoadingHistory) {
 			prevScrollHeightRef.current = scrollHeight;
 			isPrependRef.current = true;
-			try {
-				const session = await chatService.getHistory(20, nextCursor);
-				if (session.messages.length > 0) {
-					setMessages((prev) => [...session.messages, ...prev]);
-					setNextCursor(session.nextCursor);
-				} else {
-					isPrependRef.current = false;
-				}
-			} catch (err) {
-				isPrependRef.current = false;
-			} finally {
-				setIsLoadingHistory(false);
-			}
+			const loaded = await loadMoreHistory();
+			if (!loaded) isPrependRef.current = false;
 		}
 	};
 
-	const handleSubmit = async (e: FormEvent) => {
+	const handleSubmit = (e: FormEvent) => {
 		e.preventDefault();
-		if (!input.trim() || isSending) return;
-		const tempContent = input.trim();
+		const content = input.trim();
+		if (!content || isSending) return;
 
-		// Edit mode: update last user message and regenerate via WebSocket
-		if (editingMessageId !== null && socketService.isConnected) {
+		if (editingMessageId !== null) {
 			setInput("");
-			setIsSending(true);
-
-			setMessages((prev) => {
-				const updated = [...prev];
-
-				// Update last USER message content
-				for (let i = updated.length - 1; i >= 0; i--) {
-					if (updated[i].role === "USER") {
-						updated[i] = { ...updated[i], content: tempContent };
-						break;
-					}
-				}
-
-				// Remove last ASSISTANT message so new one streams in cleanly
-				for (let i = updated.length - 1; i >= 0; i--) {
-					if (updated[i].role === "ASSISTANT") {
-						updated.splice(i, 1);
-						break;
-					}
-				}
-
-				return updated;
-			});
-
 			setEditingMessageId(null);
 			scrollToSpacer("smooth");
-
-			try {
-				(socketService as any).editLastMessage(tempContent);
-			} catch (error) {
-				console.error("Failed to edit last message", error);
-				setIsSending(false);
-			}
-
+			editLastUser(content);
 			return;
 		}
 
-		// If edit mode but no socket, fall back to sending a new message
-		if (editingMessageId !== null) {
-			setEditingMessageId(null);
-		}
-
 		setInput("");
-		setIsSending(true);
-
-		// Optimistic: add user message immediately
-		const optimisticMsg: Message = {
-			id: Date.now(),
-			role: "USER" as const,
-			content: tempContent,
-			type: "TEXT" as const,
-			createdAt: new Date().toISOString(),
-		};
-		setMessages((prev) => [...prev, optimisticMsg]);
 		scrollToSpacer("smooth");
-
-		try {
-			if (socketService.isConnected) {
-				socketService.sendMessage(tempContent);
-			} else {
-				await chatService.sendMessage(tempContent);
-				setIsSending(false);
-			}
-		} catch (error) {
-			setInput(tempContent);
-			setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
-			setIsSending(false);
-		}
+		sendMessage(content);
 	};
 
-	const scrollToSpacer = useCallback((behavior: ScrollBehavior = "smooth") => {
-		requestAnimationFrame(() => {
-			setTimeout(() => {
-				spacerEndRef.current?.scrollIntoView({ behavior, block: "end" });
-			}, 50);
-		});
-	}, []);
-
 	const handlePatientAction = useCallback(
-		async (action: "summary" | "insurance" | "lab", patientName: string) => {
+		(action: "summary" | "insurance" | "lab", patientName: string) => {
 			const prefix =
 				action === "summary"
 					? "Check clinical summary of"
 					: action === "insurance"
 						? "Check medical insurance of"
 						: "Check lab results of";
-			const content = `${prefix} ${patientName}`;
 			setSelectedItem(null);
-			setIsSending(true);
-
-			const optimisticMsg: Message = {
-				id: Date.now(),
-				role: "USER" as const,
-				content,
-				type: "TEXT" as const,
-				createdAt: new Date().toISOString(),
-			};
-			setMessages((prev) => [...prev, optimisticMsg]);
 			scrollToSpacer("smooth");
-
-			try {
-				if (socketService.isConnected) {
-					socketService.sendMessage(content);
-				} else {
-					await chatService.sendMessage(content);
-					setIsSending(false);
-				}
-			} catch (error) {
-				console.error("Failed to send patient action message", error);
-				setIsSending(false);
-			}
+			sendMessage(`${prefix} ${patientName}`);
 		},
-		[scrollToSpacer],
+		[scrollToSpacer, sendMessage],
 	);
 
 	const handleRegenerate = useCallback(() => {
-		setMessages((prev) => {
-			const idx = [...prev].reverse().findIndex((m) => m.role === "ASSISTANT");
-			if (idx === -1) return prev;
-			return prev.filter((_, i) => i !== prev.length - 1 - idx);
-		});
-		setIsAiThinking(true);
-		setIsSending(true);
 		scrollToSpacer("smooth");
-		if (socketService.isConnected) {
-			socketService.regenerateMessage();
-		}
-	}, [scrollToSpacer]);
+		regenerate();
+	}, [scrollToSpacer, regenerate]);
 
 	const lastAssistantId = useMemo(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
@@ -488,50 +317,41 @@ export default function DoctorChat() {
 		});
 	}, []);
 
-	const handleLogout = () => {
-		doctorAuthService.logout();
-		navigate("/");
-	};
-
 	return (
-		<div className="h-[100dvh] overflow-hidden bg-slate-50 dark:bg-slate-900 flex flex-col transition-colors duration-300 pt-[env(safe-area-inset-top)] relative">
-			{/* Selection Backdrop */}
-
-			{/* Unified Selection Toolbar (WhatsApp UX) */}
+		<div className="flex-1 flex flex-col min-h-0 bg-n-50 relative">
 			{selectedItem && (
-				<div className="fixed top-0 left-0 right-0 z-[100] h-16 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 md:hidden animate-in slide-in-from-top duration-300 flex items-center justify-between px-6">
-					<div className="flex items-center gap-4">
-						<button
+				<div className="fixed top-0 left-0 right-0 z-[100] h-14 bg-n-0/90 backdrop-blur-md border-b border-n-150 md:hidden flex items-center justify-between px-4">
+					<div className="flex items-center gap-3 min-w-0">
+						<IconButton
 							onClick={() => setSelectedItem(null)}
-							className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+							aria-label="Close selection"
 						>
-							<X className="w-5 h-5" />
-						</button>
-						<div className="flex flex-col">
-							<span className="text-sm font-bold text-slate-900 dark:text-white">
+							<X className="w-4 h-4" />
+						</IconButton>
+						<div className="flex flex-col min-w-0">
+							<span className="text-[13px] font-semibold text-n-900">
 								1 selected
 							</span>
 							{selectedItem?.patientName && (
-								<span className="text-[10px] text-slate-500 font-medium truncate max-w-[150px]">
+								<span className="font-mono text-[10.5px] text-n-500 truncate max-w-[180px]">
 									{selectedItem.patientName}
 								</span>
 							)}
 						</div>
 					</div>
 
-					<div className="flex items-center gap-1 sm:gap-2">
-						{/* Patient Specific Actions */}
+					<div className="flex items-center gap-1">
 						{selectedItem?.type === "patient" && (
 							<>
 								<button
 									onClick={() =>
 										handlePatientAction("summary", selectedItem?.patientName!)
 									}
-									className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
+									className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-n-700 hover:bg-n-100 transition"
 									title="Summary"
 								>
-									<FileText className="w-5 h-5 text-blue-500" />
-									<span className="text-xs font-semibold hidden sm:inline">
+									<FileText className="w-4 h-4" />
+									<span className="text-[11.5px] font-medium hidden sm:inline">
 										Summary
 									</span>
 								</button>
@@ -539,11 +359,11 @@ export default function DoctorChat() {
 									onClick={() =>
 										handlePatientAction("insurance", selectedItem?.patientName!)
 									}
-									className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
+									className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-n-700 hover:bg-n-100 transition"
 									title="Insurance"
 								>
-									<Landmark className="w-5 h-5 text-cyan-500" />
-									<span className="text-xs font-semibold hidden sm:inline">
+									<Shield className="w-4 h-4" />
+									<span className="text-[11.5px] font-medium hidden sm:inline">
 										Insurance
 									</span>
 								</button>
@@ -551,49 +371,48 @@ export default function DoctorChat() {
 									onClick={() =>
 										handlePatientAction("lab", selectedItem?.patientName!)
 									}
-									className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group"
+									className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-n-700 hover:bg-n-100 transition"
 									title="Lab"
 								>
-									<FlaskConical className="w-5 h-5 text-emerald-500" />
-									<span className="text-xs font-semibold hidden sm:inline">
+									<FlaskConical className="w-4 h-4" />
+									<span className="text-[11.5px] font-medium hidden sm:inline">
 										Lab
 									</span>
 								</button>
-
-								{/* Mark Seen Button */}
 								<button
 									onClick={() => handleMarkSeen(selectedItem?.patientId!)}
 									disabled={
 										!selectedItem?.patientId ||
 										markingLoading.has(selectedItem?.patientId!)
 									}
-									className="flex items-center gap-2 p-2 sm:px-3 rounded-xl transition-all group text-slate-700 dark:text-slate-200 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+									className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-n-700 hover:bg-n-100 transition disabled:opacity-40"
 									title="Seen"
 								>
-									{selectedItem?.patientId && markingLoading.has(selectedItem.patientId) ? (
-										<Loader2 className="w-5 h-5 animate-spin text-amber-500" />
+									{selectedItem?.patientId &&
+									markingLoading.has(selectedItem.patientId) ? (
+										<Loader2 className="w-4 h-4 animate-spin" />
 									) : (
-										<CheckCircle2 className="w-5 h-5 text-amber-500" />
+										<CheckCircle2 className="w-4 h-4" />
 									)}
-									<span className="text-xs font-semibold hidden sm:inline">
+									<span className="text-[11.5px] font-medium hidden sm:inline">
 										Seen
 									</span>
 								</button>
 							</>
 						)}
 
-						<div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
+						<div className="w-px h-5 bg-n-200 mx-1" />
 
 						<button
 							onClick={handleCopy}
-							className="flex items-center gap-2 p-2 sm:px-3 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all group active:scale-95"
+							className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-n-700 hover:bg-n-100 transition"
 						>
 							{isCopied ? (
-								<Check className="w-5 h-5 text-green-500" />
+								<Check className="w-4 h-4 text-[var(--ok-fg)]" />
 							) : (
-								<Copy className="w-5 h-5 text-indigo-500" />
+								<Copy className="w-4 h-4" />
 							)}
-							<span className="text-xs font-semibold hidden sm:inline">
+							<span className="text-[11.5px] font-medium hidden sm:inline">
 								{isCopied ? "Copied" : "Copy"}
 							</span>
 						</button>
@@ -601,50 +420,20 @@ export default function DoctorChat() {
 				</div>
 			)}
 
-			<header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm shrink-0">
-				<div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-					<div className="flex items-center gap-2.5">
-						<div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-							<Stethoscope className="w-5 h-5 text-white" />
-						</div>
-						<div className="flex flex-col">
-							<h1 className="text-sm font-bold text-slate-800 dark:text-white leading-none">
-								Hanna-Med MA
-							</h1>
-							<span className="text-[10px] text-slate-500 font-medium">
-								Dr. {doctor?.name}
-							</span>
-						</div>
-					</div>
-					<div className="flex items-center gap-2 sm:gap-3">
-						<div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
-							<Shield className="w-3 h-3 text-green-500" /> HIPAA Secure
-						</div>
-						<ThemeToggle />
-						<button
-							onClick={handleLogout}
-							className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"
-						>
-							<LogOut className="w-5 h-5" />
-						</button>
-					</div>
-				</div>
-			</header>
-
 			<main className="flex-1 w-full max-w-5xl mx-auto flex flex-col min-h-0 relative">
 				<div className="flex-1 flex flex-col min-h-0 relative">
 					{!isReady && (
-						<div className="absolute inset-0 z-20 bg-slate-50 dark:bg-slate-900">
+						<div className="absolute inset-0 z-20 bg-n-50">
 							<ChatSkeleton />
 						</div>
 					)}
 
 					{isLoadingHistory && (
-						<div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center justify-center pointer-events-none">
-							<div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm shadow-md border border-slate-200 dark:border-slate-700 rounded-full px-4 py-1.5 flex items-center gap-2">
-								<Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-								<span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-									Loading history...
+						<div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+							<div className="bg-n-0 border border-n-200 rounded-md px-3 py-1.5 flex items-center gap-2 shadow-soft">
+								<Loader2 className="w-3 h-3 animate-spin text-p-500" />
+								<span className="font-mono text-[10.5px] uppercase tracking-widest text-n-500">
+									Loading history
 								</span>
 							</div>
 						</div>
@@ -653,21 +442,21 @@ export default function DoctorChat() {
 					<div
 						ref={scrollContainerRef}
 						onScroll={handleScroll}
-						className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-3 min-h-0 transition-opacity duration-300 custom-scrollbar
-                        ${isReady ? "opacity-100" : "opacity-0"}`}
+						className={cls(
+							"flex-1 overflow-y-auto p-4 space-y-5 min-h-0 transition-opacity duration-300 custom-scrollbar",
+							isReady ? "opacity-100" : "opacity-0",
+						)}
 						style={{ overflowAnchor: "none" }}
 					>
 						{isReady && messages.length === 0 && (
-							<div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 pointer-events-none">
-								<div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-full mb-4">
-									<Stethoscope className="w-8 h-8 opacity-50 text-blue-500" />
+							<div className="absolute inset-0 flex flex-col items-start justify-center px-8 pointer-events-none">
+								<div className="label-kicker mb-3">Assistant · idle</div>
+								<div className="font-serif text-[22px] text-n-900 mb-1.5 leading-tight">
+									Ask about your census.
 								</div>
-								<h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-2">
-									Welcome, Dr. {doctor?.name}
-								</h3>
-								<p className="text-sm max-w-xs text-center leading-relaxed">
-									I'm your AI assistant. Ask me about patient lists, summaries
-									or insurance details.
+								<p className="text-[13px] text-n-500 max-w-sm leading-relaxed">
+									Patient lists, summaries, insurance, lab results. Cite,
+									compare, mark seen.
 								</p>
 							</div>
 						)}
@@ -689,52 +478,48 @@ export default function DoctorChat() {
 						))}
 
 						{(isAiThinking || streamingText) && (
-							<div className="flex gap-2 items-start">
-								<div className="shrink-0 mt-0.5">
-									<div
-										className={`w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm shadow-blue-500/20 ${!streamingText ? "animate-pulse" : ""}`}
-									>
-										<Bot className="w-3 h-3 md:w-3.5 md:h-3.5 text-white" />
+							<div className="max-w-[92%]">
+								<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-1.5 flex items-center gap-2">
+									<span>assistant</span>
+									<span className="w-1.5 h-1.5 rounded-full bg-[var(--info-fg)] animate-pulse" />
+								</div>
+								{currentToolCall && (
+									<div className="rounded-lg border border-n-150 bg-n-50 mb-1.5">
+										<div className="flex items-center gap-2 px-3 py-1.5 font-mono text-[11.5px] text-n-700">
+											<Loader2 className="w-3 h-3 animate-spin text-[var(--info-fg)]" />
+											<span className="flex-1">{currentToolCall}</span>
+										</div>
 									</div>
-								</div>
-								<div className="flex-1 min-w-0 flex flex-col gap-1.5">
-									{currentToolCall && (
-										<div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-xl px-3 py-2 w-fit">
-											<Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-											<span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
-												{currentToolCall}
-											</span>
+								)}
+								{streamingText &&
+								!(
+									streamingText.trimStart().startsWith("{") ||
+									streamingText.trimStart().startsWith("[")
+								) ? (
+									<div className="rounded-lg bg-n-0 border border-n-150 px-3.5 py-3 text-[13px] text-n-800 leading-[1.6]">
+										{parseWhatsAppFormat(streamingText)}
+									</div>
+								) : (
+									!currentToolCall && (
+										<div className="inline-flex items-center gap-1.5 rounded-lg border border-n-150 bg-n-0 px-3 py-2.5 w-fit">
+											<span className="w-1.5 h-1.5 bg-n-400 rounded-full animate-bounce" />
+											<span className="w-1.5 h-1.5 bg-n-400 rounded-full animate-bounce delay-75" />
+											<span className="w-1.5 h-1.5 bg-n-400 rounded-full animate-bounce delay-150" />
 										</div>
-									)}
-									{streamingText && !(streamingText.trimStart().startsWith("{") || streamingText.trimStart().startsWith("[")) ? (
-										<div className="pt-0.5 pb-1 text-slate-800 dark:text-slate-100">
-											<div className="text-[13px] leading-relaxed tracking-wide">
-												{parseWhatsAppFormat(streamingText)}
-											</div>
-										</div>
-									) : (
-										<div className="py-3">
-											<div className="flex gap-1.5 items-center">
-												<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
-												<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75" />
-												<span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150" />
-											</div>
-										</div>
-									)}
-								</div>
+									)
+								)}
 							</div>
 						)}
 
 						<div ref={messagesEndRef} />
-						<div className="shrink-0 min-h-[35vh]" aria-hidden="true" />
+						<div className="shrink-0 min-h-[30vh]" aria-hidden="true" />
 						<div ref={spacerEndRef} />
 					</div>
 
-					{/* Input Area */}
 					<div className="px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shrink-0 z-30">
 						<form
 							onSubmit={handleSubmit}
-							className="max-w-3xl mx-auto bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl border border-white/20 dark:border-slate-700 rounded-2xl shadow-xl p-1.5 flex items-center gap-1.5 ring-1 ring-black/5 dark:ring-white/5"
+							className="max-w-3xl mx-auto bg-n-0 border border-n-200 rounded-lg p-1.5 flex items-center gap-1.5 shadow-soft focus-within:border-p-500 transition"
 						>
 							<textarea
 								ref={inputRef}
@@ -743,13 +528,17 @@ export default function DoctorChat() {
 								onKeyDown={(e) => {
 									if (e.key === "Enter" && !e.shiftKey) {
 										e.preventDefault();
-										handleSubmit(e as any);
+										handleSubmit(e as unknown as FormEvent);
 									}
 								}}
-								placeholder="Ask anything..."
+								placeholder={
+									editingMessageId
+										? "Edit your message…"
+										: "Ask about your census…"
+								}
 								autoComplete="off"
 								rows={1}
-								className="flex-1 max-h-32 min-h-[36px] px-3 py-2 text-sm bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-slate-800 dark:text-gray-100 placeholder-slate-400 dark:placeholder-slate-500 resize-none overflow-y-auto custom-scrollbar leading-snug"
+								className="flex-1 max-h-32 min-h-[36px] px-2.5 py-2 text-[13.5px] bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-n-900 placeholder:text-n-400 resize-none overflow-y-auto custom-scrollbar leading-snug"
 								style={{ height: "auto" }}
 								onInput={(e) => {
 									const target = e.target as HTMLTextAreaElement;
@@ -760,7 +549,8 @@ export default function DoctorChat() {
 							<button
 								type="submit"
 								disabled={!input.trim() || isSending}
-								className="shrink-0 self-end mb-0.5 w-9 h-9 bg-gradient-to-br from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white rounded-xl shadow-md shadow-blue-500/20 disabled:opacity-30 disabled:scale-90 disabled:shadow-none flex items-center justify-center transition-all duration-200 active:scale-95"
+								className="shrink-0 self-end mb-0.5 w-9 h-9 bg-p-600 hover:bg-p-700 text-white rounded-md disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center justify-center transition"
+								aria-label="Send"
 							>
 								{isSending ? (
 									<Loader2 className="w-4 h-4 animate-spin" />
@@ -773,73 +563,117 @@ export default function DoctorChat() {
 				</div>
 			</main>
 
-			{/* Encounter Type Modal */}
 			{encounterModalPatientId !== null && (
 				<div
-					className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+					className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-n-900/40 backdrop-blur-[2px]"
 					onClick={() => setEncounterModalPatientId(null)}
 				>
 					<div
-						className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 mx-4 w-full max-w-[280px] animate-in zoom-in-95 duration-200"
+						className="bg-n-0 rounded-t-2xl sm:rounded-lg border-t sm:border border-n-200 shadow-deep w-full sm:max-w-[420px] px-5 pt-4 pb-6 sm:p-5"
 						onClick={(e) => e.stopPropagation()}
 					>
-						<div className="flex items-center justify-center gap-2 mb-4">
-							<Stethoscope className="w-5 h-5 text-blue-500" />
-							<h3 className="text-sm font-bold text-slate-800 dark:text-white">
-								Encounter Type
-							</h3>
+						<div className="w-10 h-1 bg-n-200 rounded-full mx-auto mb-4 sm:hidden" />
+
+						<div className="flex items-start justify-between mb-4">
+							<div>
+								<h3 className="font-serif text-[20px] text-n-900 leading-tight">
+									Mark as seen
+								</h3>
+								<p className="text-[12px] text-n-500 mt-1">
+									Creates an encounter record. Sign-off is deliberate.
+								</p>
+							</div>
+							<IconButton
+								onClick={() => setEncounterModalPatientId(null)}
+								aria-label="Close"
+								className="shrink-0"
+							>
+								<X className="w-4 h-4" />
+							</IconButton>
 						</div>
 
-						<div className="mb-4">
-							<label
-								htmlFor="encounter-dos"
-								className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1"
-							>
-								Date of service
-							</label>
-							<input
-								id="encounter-dos"
-								type="date"
-								value={encounterDateOfService}
-								max={todayIso()}
-								onChange={(e) => setEncounterDateOfService(e.target.value)}
-								className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
-							/>
-							<p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500 leading-tight">
-								Defaults to today. Change it if you forgot to mark the visit on the actual day.
-							</p>
-						</div>
-
-						<div className="grid grid-cols-2 gap-3">
-							<button
-								onClick={() => handleEncounterTypeSelected("CONSULT")}
-								className="flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 hover:border-amber-400 dark:hover:border-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/40 active:scale-[0.97] transition-all"
-							>
-								<div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center shadow-md shadow-amber-500/30">
-									<span className="text-white text-lg font-bold">C</span>
+						<div className="space-y-4">
+							<div>
+								<label className="label-kicker block mb-1.5">
+									Encounter type
+								</label>
+								<div className="grid grid-cols-2 gap-2">
+									<button
+										onClick={() => setEncounterType("CONSULT")}
+										className={cls(
+											"h-10 rounded-md border text-[13px] font-medium transition",
+											encounterType === "CONSULT"
+												? "border-p-500 bg-p-50 text-p-700"
+												: "border-n-200 text-n-700 hover:bg-n-100",
+										)}
+									>
+										Consult{" "}
+										<span className="font-mono text-[10.5px] opacity-70">
+											· 1st
+										</span>
+									</button>
+									<button
+										onClick={() => setEncounterType("PROGRESS")}
+										className={cls(
+											"h-10 rounded-md border text-[13px] font-medium transition",
+											encounterType === "PROGRESS"
+												? "border-p-500 bg-p-50 text-p-700"
+												: "border-n-200 text-n-700 hover:bg-n-100",
+										)}
+									>
+										Follow-Up{" "}
+										<span className="font-mono text-[10.5px] opacity-70">
+											· daily
+										</span>
+									</button>
 								</div>
-								<span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Consult</span>
-								<span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight text-center">First visit</span>
-							</button>
+							</div>
 
-							<button
-								onClick={() => handleEncounterTypeSelected("PROGRESS")}
-								className="flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-900/20 hover:border-violet-400 dark:hover:border-violet-600 hover:bg-violet-100 dark:hover:bg-violet-900/40 active:scale-[0.97] transition-all"
-							>
-								<div className="w-10 h-10 rounded-full bg-violet-500 flex items-center justify-center shadow-md shadow-violet-500/30">
-									<span className="text-white text-lg font-bold">F</span>
+							<div>
+								<label
+									htmlFor="encounter-dos"
+									className="label-kicker block mb-1.5"
+								>
+									Date of service
+								</label>
+								<div className="relative">
+									<Calendar className="w-3.5 h-3.5 text-n-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+									<input
+										id="encounter-dos"
+										type="date"
+										value={encounterDateOfService}
+										max={todayIso()}
+										onChange={(e) =>
+											setEncounterDateOfService(e.target.value)
+										}
+										className="input-field h-10 pl-8"
+									/>
 								</div>
-								<span className="text-xs font-semibold text-violet-700 dark:text-violet-300">Follow-Up</span>
-								<span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight text-center">Daily visit</span>
-							</button>
+								<p className="mt-1 text-[10.5px] text-n-500 leading-tight">
+									Defaults to today. Change it if you forgot to mark the visit
+									on the actual day.
+								</p>
+							</div>
 						</div>
 
-						<button
-							onClick={() => setEncounterModalPatientId(null)}
-							className="w-full mt-4 py-2 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-						>
-							Cancel
-						</button>
+						<div className="flex gap-2 mt-5">
+							<Button
+								tone="ghost"
+								size="md"
+								onClick={() => setEncounterModalPatientId(null)}
+								className="flex-1"
+							>
+								Cancel
+							</Button>
+							<Button
+								tone="primary"
+								size="md"
+								onClick={handleConfirmEncounter}
+								className="flex-1"
+							>
+								Sign & record
+							</Button>
+						</div>
 					</div>
 				</div>
 			)}

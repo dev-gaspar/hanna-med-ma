@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { userService } from "../services/userService";
 import type { User, CreateUserDto, UpdateUserDto } from "../types";
 import Modal from "../components/Modal";
+import { Button } from "../components/ui/Button";
+import { Chip } from "../components/ui/Chip";
 
 export default function Users() {
 	const [users, setUsers] = useState<User[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingUser, setEditingUser] = useState<User | null>(null);
+	const [submitting, setSubmitting] = useState(false);
 	const [formData, setFormData] = useState<CreateUserDto>({
 		name: "",
 		rol: "",
@@ -58,23 +61,15 @@ export default function Users() {
 	const handleCloseModal = () => {
 		setIsModalOpen(false);
 		setEditingUser(null);
-		setFormData({
-			name: "",
-			rol: "",
-			username: "",
-			password: "",
-			email: "",
-		});
 	};
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
+		setSubmitting(true);
 		try {
 			if (editingUser) {
 				const updateData: UpdateUserDto = { ...formData };
-				if (!updateData.password) {
-					delete updateData.password;
-				}
+				if (!updateData.password) delete updateData.password;
 				await userService.update(editingUser.id, updateData);
 			} else {
 				await userService.create(formData);
@@ -83,128 +78,128 @@ export default function Users() {
 			handleCloseModal();
 		} catch (error) {
 			console.error("Error saving user:", error);
-			alert("Error saving user");
+		} finally {
+			setSubmitting(false);
 		}
 	};
 
 	const handleDelete = async (id: number) => {
-		if (window.confirm("Are you sure you want to delete this user?")) {
-			try {
-				await userService.delete(id);
-				await fetchUsers();
-			} catch (error) {
-				console.error("Error deleting user:", error);
-				alert("Error deleting user");
-			}
+		if (!window.confirm("Delete this user?")) return;
+		try {
+			await userService.delete(id);
+			await fetchUsers();
+		} catch (error) {
+			console.error("Error deleting user:", error);
 		}
 	};
 
-	if (loading) {
-		return (
-			<div className="flex items-center justify-center h-64">
-				<div className="text-gray-600">Loading...</div>
-			</div>
-		);
-	}
+	const initials = (name: string) =>
+		name
+			.split(" ")
+			.map((p) => p[0])
+			.filter(Boolean)
+			.slice(0, 2)
+			.join("")
+			.toUpperCase();
 
 	return (
-		<div>
-			<div className="flex justify-between items-center mb-4">
+		<div className="max-w-5xl">
+			<div className="flex items-end justify-between gap-4 pb-4 mb-5 border-b border-n-150">
 				<div>
-					<h1 className="text-xl font-bold text-gray-900 dark:text-white">
-						Users Management
-					</h1>
-					<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-						Manage system users
+					<div className="label-kicker mb-1.5">Administration</div>
+					<div className="flex items-center gap-3">
+						<h1 className="font-serif text-[24px] text-n-900 leading-tight">
+							Users
+						</h1>
+						<Chip>{users.length}</Chip>
+					</div>
+					<p className="text-[12.5px] text-n-500 mt-1.5">
+						Platform accounts with access to the admin dashboard.
 					</p>
 				</div>
-				<button
+				<Button
+					tone="primary"
+					size="sm"
 					onClick={() => handleOpenModal()}
-					className="btn-primary flex items-center gap-2"
+					leading={<Plus className="w-3.5 h-3.5" />}
 				>
-					<Plus className="w-4 h-4" />
-					Add User
-				</button>
+					Add user
+				</Button>
 			</div>
 
-			<div className="card">
-				<div className="overflow-x-auto">
-					<table className="w-full">
-						<thead>
-							<tr className="border-b border-gray-200 dark:border-slate-700">
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Name
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Username
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Email
-								</th>
-								<th className="text-left py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Role
-								</th>
-								<th className="text-right py-2 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-									Actions
-								</th>
-							</tr>
-						</thead>
-						<tbody>
-							{users.map((user) => (
-								<tr
-									key={user.id}
-									className="border-b border-gray-100 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
-								>
-									<td className="py-2 px-3 text-sm font-medium dark:text-white">
-										{user.name}
-									</td>
-									<td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">
-										{user.username}
-									</td>
-									<td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">
-										{user.email}
-									</td>
-									<td className="py-2 px-3">
-										<span className="px-2 py-0.5 bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary-200 rounded-full text-xs">
-											{user.rol}
-										</span>
-									</td>
-									<td className="py-2 px-3">
-										<div className="flex justify-end gap-1">
-											<button
-												onClick={() => handleOpenModal(user)}
-												className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-											>
-												<Pencil className="w-3.5 h-3.5" />
-											</button>
-											<button
-												onClick={() => handleDelete(user.id)}
-												className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-											>
-												<Trash2 className="w-3.5 h-3.5" />
-											</button>
-										</div>
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-					{users.length === 0 && (
-						<div className="text-center py-8 text-gray-500">No users found</div>
-					)}
+			<div className="border border-n-150 rounded-lg bg-n-0 overflow-hidden">
+				<div className="grid grid-cols-[1fr_140px_110px_80px] px-4 h-10 border-b border-n-150 bg-n-50 items-center">
+					<div className="label-kicker">User</div>
+					<div className="label-kicker">Role</div>
+					<div className="label-kicker">Username</div>
+					<div className="label-kicker text-right">Actions</div>
 				</div>
+
+				{loading ? (
+					<div className="flex items-center justify-center gap-2 py-10 text-n-500">
+						<Loader2 className="w-4 h-4 animate-spin" />
+						<span className="font-mono text-[11px] uppercase tracking-widest">
+							Loading
+						</span>
+					</div>
+				) : users.length === 0 ? (
+					<div className="py-10 text-center font-mono text-[11.5px] text-n-500">
+						No users yet.
+					</div>
+				) : (
+					users.map((user) => (
+						<div
+							key={user.id}
+							className="grid grid-cols-[1fr_140px_110px_80px] px-4 py-3 border-b border-n-150 last:border-0 items-center hover:bg-n-50 transition"
+						>
+							<div className="flex items-center gap-3 min-w-0">
+								<div className="w-8 h-8 rounded-full bg-n-100 grid place-items-center font-mono text-[10.5px] text-n-700 shrink-0">
+									{initials(user.name)}
+								</div>
+								<div className="min-w-0">
+									<div className="text-[13.5px] font-medium text-n-900 truncate">
+										{user.name}
+									</div>
+									<div className="font-mono text-[10.5px] text-n-500 truncate">
+										{user.email}
+									</div>
+								</div>
+							</div>
+							<div>
+								<Chip tone="primary">{user.rol}</Chip>
+							</div>
+							<div className="font-mono text-[11.5px] text-n-600 truncate">
+								{user.username}
+							</div>
+							<div className="flex justify-end gap-0.5">
+								<button
+									onClick={() => handleOpenModal(user)}
+									className="inline-flex items-center justify-center w-7 h-7 rounded-md text-n-500 hover:text-n-900 hover:bg-n-100 transition"
+									title="Edit"
+								>
+									<Pencil className="w-3.5 h-3.5" />
+								</button>
+								<button
+									onClick={() => handleDelete(user.id)}
+									className="inline-flex items-center justify-center w-7 h-7 rounded-md text-n-500 hover:text-[var(--dnr-fg)] hover:bg-[var(--dnr-bg)] transition"
+									title="Delete"
+								>
+									<Trash2 className="w-3.5 h-3.5" />
+								</button>
+							</div>
+						</div>
+					))
+				)}
 			</div>
 
 			<Modal
 				isOpen={isModalOpen}
 				onClose={handleCloseModal}
-				title={editingUser ? "Edit User" : "Add New User"}
+				title={editingUser ? "Edit user" : "Add user"}
 			>
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Name
-						</label>
+						<label className="label-kicker block mb-1.5">Name</label>
 						<input
 							type="text"
 							value={formData.name}
@@ -215,11 +210,8 @@ export default function Users() {
 							required
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Username
-						</label>
+						<label className="label-kicker block mb-1.5">Username</label>
 						<input
 							type="text"
 							value={formData.username}
@@ -230,11 +222,8 @@ export default function Users() {
 							required
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Email
-						</label>
+						<label className="label-kicker block mb-1.5">Email</label>
 						<input
 							type="email"
 							value={formData.email}
@@ -245,11 +234,8 @@ export default function Users() {
 							required
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Role
-						</label>
+						<label className="label-kicker block mb-1.5">Role</label>
 						<input
 							type="text"
 							value={formData.rol}
@@ -257,14 +243,18 @@ export default function Users() {
 								setFormData({ ...formData, rol: e.target.value })
 							}
 							className="input-field"
-							placeholder="e.g., admin, wp, user"
+							placeholder="admin · wp · user"
 							required
 						/>
 					</div>
-
 					<div>
-						<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-							Password {editingUser && "(leave empty to keep current)"}
+						<label className="label-kicker block mb-1.5">
+							Password{" "}
+							{editingUser && (
+								<span className="normal-case tracking-normal font-sans text-n-400">
+									· leave empty to keep current
+								</span>
+							)}
 						</label>
 						<input
 							type="password"
@@ -277,17 +267,34 @@ export default function Users() {
 						/>
 					</div>
 
-					<div className="flex gap-3 pt-4">
-						<button
+					<div className="flex gap-2 pt-2">
+						<Button
 							type="button"
+							tone="ghost"
+							size="md"
 							onClick={handleCloseModal}
-							className="btn-secondary flex-1"
+							className="flex-1"
 						>
 							Cancel
-						</button>
-						<button type="submit" className="btn-primary flex-1">
-							{editingUser ? "Update" : "Create"}
-						</button>
+						</Button>
+						<Button
+							type="submit"
+							tone="primary"
+							size="md"
+							disabled={submitting}
+							className="flex-1"
+						>
+							{submitting ? (
+								<>
+									<Loader2 className="w-4 h-4 animate-spin" />
+									<span>Saving…</span>
+								</>
+							) : editingUser ? (
+								"Update"
+							) : (
+								"Create"
+							)}
+						</Button>
 					</div>
 				</form>
 			</Modal>

@@ -1,6 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
-import { normalizeName } from "../../core/patient-name.util";
+import {
+	normalizeName,
+	rankAndFilterPatients,
+	tokenizeName,
+} from "../../core/patient-name.util";
 
 @Injectable()
 export class FindPatientContextTool {
@@ -49,14 +53,16 @@ export class FindPatientContextTool {
     const result: Record<string, string[]> = {};
 
     for (const name of names) {
-      const lastName = normalizeName(name).split(" ")[0];
+      const firstToken = tokenizeName(name)[0] || normalizeName(name);
 
-      const matches = await this.prisma.patient.findMany({
+      const candidates = await this.prisma.patient.findMany({
         where: {
           doctorLinks: { some: { doctorId, isActive: true } },
-          normalizedName: { contains: lastName },
+          normalizedName: { contains: firstToken },
         },
       });
+
+      const matches = rankAndFilterPatients(candidates, name);
 
       for (const match of matches) {
         const system = match.emrSystem;

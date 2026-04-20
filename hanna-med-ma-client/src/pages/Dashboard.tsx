@@ -1,13 +1,16 @@
-import { Users, Stethoscope, Activity } from "lucide-react";
+import { Users, Stethoscope, Activity, ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { userService } from "../services/userService";
 import { doctorService } from "../services/doctorService";
+import { Chip } from "../components/ui/Chip";
 
 export default function Dashboard() {
 	const [stats, setStats] = useState({
 		users: 0,
 		doctors: 0,
 	});
+	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
 		const fetchStats = async () => {
@@ -22,6 +25,8 @@ export default function Dashboard() {
 				});
 			} catch (error) {
 				console.error("Error fetching stats:", error);
+			} finally {
+				setLoading(false);
 			}
 		};
 
@@ -30,104 +35,97 @@ export default function Dashboard() {
 
 	const statCards = [
 		{
-			title: "Total Users",
+			title: "Total users",
 			value: stats.users,
-			icon: Users,
-			color: "bg-blue-500",
+			trend: loading ? "loading" : "ok",
 		},
 		{
-			title: "Total Doctors",
+			title: "Total doctors",
 			value: stats.doctors,
-			icon: Stethoscope,
-			color: "bg-primary",
+			trend: loading ? "loading" : "ok",
 		},
 		{
-			title: "System Status",
+			title: "System status",
 			value: "Active",
-			icon: Activity,
-			color: "bg-green-500",
+			trend: "ok" as const,
+		},
+	];
+
+	const quickActions = [
+		{
+			title: "Manage users",
+			description: "Invite, suspend, and assign roles",
+			href: "/admin/dashboard/users",
+			icon: Users,
+		},
+		{
+			title: "Manage doctors",
+			description: "EMR assignments and census access",
+			href: "/admin/dashboard/doctors",
+			icon: Stethoscope,
 		},
 	];
 
 	return (
-		<div>
-			<div className="mb-4">
-				<h1 className="text-xl font-bold text-gray-900 dark:text-white">
-					Dashboard
-				</h1>
-				<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-					Welcome to Hanna-Med MA Dashboard
-				</p>
+		<div className="max-w-5xl">
+			<div className="flex items-end justify-between gap-4 pb-4 mb-5 border-b border-n-150">
+				<div>
+					<div className="label-kicker mb-1.5">Operations</div>
+					<h1 className="font-serif text-[26px] text-n-900 leading-tight">
+						Dashboard
+					</h1>
+					<p className="text-[13px] text-n-500 mt-1.5">
+						Welcome to Hanna-Med · Admin
+					</p>
+				</div>
+				<Chip tone="ok">system healthy</Chip>
 			</div>
 
-			{/* Stats Grid */}
-			<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-				{statCards.map((stat) => {
-					const Icon = stat.icon;
+			<div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+				{statCards.map((stat) => (
+					<div
+						key={stat.title}
+						className="border border-n-150 rounded-lg bg-n-0 p-4"
+					>
+						<div className="label-kicker">{stat.title}</div>
+						<div className="font-serif text-[32px] text-n-900 tabular-nums mt-1 leading-none">
+							{stat.value}
+						</div>
+						<div className="mt-2 font-mono text-[11px] text-n-500 flex items-center gap-1.5">
+							<Activity className="w-3 h-3" />
+							<span>live</span>
+						</div>
+					</div>
+				))}
+			</div>
+
+			<div className="mb-3">
+				<div className="label-kicker mb-2">Quick actions</div>
+			</div>
+			<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+				{quickActions.map((action) => {
+					const Icon = action.icon;
 					return (
-						<div key={stat.title} className="card">
-							<div className="flex items-center justify-between">
-								<div>
-									<p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-										{stat.title}
-									</p>
-									<p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-										{stat.value}
-									</p>
+						<Link
+							key={action.href}
+							to={action.href}
+							className="group border border-n-150 rounded-lg bg-n-0 p-4 hover:border-n-200 hover:bg-n-50 transition flex items-center gap-4"
+						>
+							<div className="w-10 h-10 rounded-md bg-p-50 grid place-items-center shrink-0">
+								<Icon className="w-5 h-5 text-p-600" />
+							</div>
+							<div className="flex-1 min-w-0">
+								<div className="font-semibold text-n-900 text-[14px]">
+									{action.title}
 								</div>
-								<div className={`${stat.color} p-3 rounded-full`}>
-									<Icon className="w-6 h-6 text-white" />
+								<div className="text-[12.5px] text-n-500 mt-0.5">
+									{action.description}
 								</div>
 							</div>
-						</div>
+							<ArrowRight className="w-4 h-4 text-n-400 group-hover:text-n-700 transition shrink-0" />
+						</Link>
 					);
 				})}
-			</div>
-
-			{/* Quick Actions */}
-			<div className="mt-5">
-				<h2 className="text-base font-bold text-gray-900 dark:text-white mb-3">
-					Quick Actions
-				</h2>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-					<a
-						href="/admin/dashboard/users"
-						className="card hover:shadow-md transition-shadow cursor-pointer"
-					>
-						<div className="flex items-center gap-4">
-							<div className="bg-primary/10 dark:bg-primary/20 p-3 rounded-lg">
-								<Users className="w-6 h-6 text-primary" />
-							</div>
-							<div>
-								<h3 className="font-semibold text-gray-900 dark:text-white">
-									Manage Users
-								</h3>
-								<p className="text-sm text-gray-600 dark:text-gray-400">
-									View and manage system users
-								</p>
-							</div>
-						</div>
-					</a>
-
-					<a
-						href="/admin/dashboard/doctors"
-						className="card hover:shadow-md transition-shadow cursor-pointer"
-					>
-						<div className="flex items-center gap-4">
-							<div className="bg-primary/10 dark:bg-primary/20 p-3 rounded-lg">
-								<Stethoscope className="w-6 h-6 text-primary" />
-							</div>
-							<div>
-								<h3 className="font-semibold text-gray-900 dark:text-white">
-									Manage Doctors
-								</h3>
-								<p className="text-sm text-gray-600 dark:text-gray-400">
-									View and manage doctors
-								</p>
-							</div>
-						</div>
-					</a>
-				</div>
 			</div>
 		</div>
 	);

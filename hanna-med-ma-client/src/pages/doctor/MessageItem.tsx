@@ -1,8 +1,9 @@
 import type { Message } from "../../types/chat";
-import { Bot, Copy, Check, RotateCcw, Pencil } from "lucide-react";
+import { Copy, Check, RotateCcw, Pencil } from "lucide-react";
 import { memo, useMemo, useRef, useCallback, useState } from "react";
 import { PatientListMessage, formatFullListText } from "./PatientListMessage";
 import { parseWhatsAppFormat } from "../../lib/chatUtils";
+import { cls } from "../../lib/cls";
 import type { SelectedItem } from "./DoctorChat";
 
 interface MessageItemProps {
@@ -66,7 +67,6 @@ export const MessageItem = memo(
 			(e: React.TouchEvent) => {
 				e.stopPropagation();
 				if (longPressTimer.current) clearTimeout(longPressTimer.current);
-
 				longPressTimer.current = setTimeout(() => {
 					onSelect({
 						type: "message",
@@ -92,15 +92,17 @@ export const MessageItem = memo(
 			(e: React.MouseEvent) => {
 				e.stopPropagation();
 				let text = message.content;
-				// For PATIENT_LIST JSON messages, generate the formatted text for copy
-				if (message.type === "PATIENT_LIST" && text.trimStart().startsWith("{")) {
+				if (
+					message.type === "PATIENT_LIST" &&
+					text.trimStart().startsWith("{")
+				) {
 					try {
 						const parsed = JSON.parse(text.trim());
 						if (parsed.sections) {
 							text = formatFullListText(parsed);
 						}
 					} catch {
-						// fallback to raw content
+						/* fallback */
 					}
 				}
 				const fallback = () => {
@@ -121,11 +123,11 @@ export const MessageItem = memo(
 				setIsCopied(true);
 				setTimeout(() => setIsCopied(false), 1500);
 			},
-			[message.content],
+			[message.content, message.type],
 		);
 
-		const actionBtnClass =
-			"p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors";
+		const iconBtn =
+			"inline-flex items-center justify-center w-6 h-6 rounded-md text-n-500 hover:text-n-900 hover:bg-n-100 transition";
 
 		if (!isAssistant) {
 			const canEdit = isLastUser && !!onEditUser;
@@ -138,7 +140,11 @@ export const MessageItem = memo(
 								e.stopPropagation();
 								onEditUser?.(message.id, message.content);
 							}}
-							className={`mt-1 inline-flex items-center justify-center ${actionBtnClass} opacity-100 md:opacity-0 md:group-hover/user:opacity-100`}
+							className={cls(
+								"mt-1.5",
+								iconBtn,
+								"opacity-100 md:opacity-0 md:group-hover/user:opacity-100",
+							)}
 							aria-label="Edit message"
 						>
 							<Pencil className="w-3.5 h-3.5" />
@@ -149,13 +155,12 @@ export const MessageItem = memo(
 						onTouchStart={startLongPress}
 						onTouchEnd={stopLongPress}
 						onTouchMove={stopLongPress}
-						className={`max-w-[88%] sm:max-w-[75%] rounded-2xl rounded-br-md px-4 py-2.5 shadow-sm select-none md:select-text transition-all duration-200 bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-blue-500/20 ${
-							isSelected
-								? "ring-2 ring-indigo-500 dark:ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900"
-								: "hover:shadow-md"
-						}`}
+						className={cls(
+							"max-w-[82%] sm:max-w-[72%] bg-p-50 border border-p-200 text-n-900 rounded-lg rounded-tr-[4px] px-3.5 py-2.5 select-none md:select-text transition",
+							isSelected && "ring-2 ring-p-500 ring-offset-2 ring-offset-n-0",
+						)}
 					>
-						<div className="text-xs leading-relaxed tracking-wide">
+						<div className="text-[13px] leading-relaxed">
 							{formattedContent}
 						</div>
 					</div>
@@ -164,58 +169,53 @@ export const MessageItem = memo(
 		}
 
 		return (
-			<div className="flex gap-2 relative group/msg items-start">
-				<div className="shrink-0 mt-0.5">
-					<div className="w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm shadow-blue-500/20">
-						<Bot className="w-3 h-3 md:w-3.5 md:h-3.5 text-white" />
-					</div>
+			<div className="relative group/msg max-w-[92%]">
+				<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-1.5">
+					assistant
 				</div>
-
 				<div
 					onTouchStart={startLongPress}
 					onTouchEnd={stopLongPress}
 					onTouchMove={stopLongPress}
-					className={`flex-1 min-w-0 pt-0.5 pb-1 select-none md:select-text text-slate-800 dark:text-slate-100 ${
-						isSelected
-							? "ring-2 ring-indigo-500 dark:ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900 rounded-lg"
-							: ""
-					}`}
+					className={cls(
+						"rounded-lg border border-n-150 bg-n-0 px-3.5 py-3 text-n-800 select-none md:select-text transition",
+						isSelected && "ring-2 ring-p-500 ring-offset-2 ring-offset-n-0",
+					)}
 				>
-					<div className="text-[13px] leading-relaxed tracking-wide">
-						{formattedContent}
-					</div>
+					<div className="text-[13px] leading-[1.6]">{formattedContent}</div>
+				</div>
 
-					<div
-						className={`flex items-center gap-0.5 mt-1.5 transition-opacity duration-200 ${
-							isLastAssistant
-								? "opacity-100 md:opacity-60 md:hover:opacity-100"
-								: "opacity-100 md:opacity-0 md:group-hover/msg:opacity-100"
-						}`}
-					>
-						{isLastAssistant && onRegenerate && (
-							<button
-								onClick={(e) => {
-									e.stopPropagation();
-									onRegenerate();
-								}}
-								className={actionBtnClass}
-								title="Regenerate"
-							>
-								<RotateCcw className="w-3.5 h-3.5" />
-							</button>
-						)}
+				<div
+					className={cls(
+						"flex items-center gap-1 mt-1.5 transition-opacity",
+						isLastAssistant
+							? "opacity-100 md:opacity-50 md:group-hover/msg:opacity-100"
+							: "opacity-100 md:opacity-0 md:group-hover/msg:opacity-100",
+					)}
+				>
+					{isLastAssistant && onRegenerate && (
 						<button
-							onClick={handleCopy}
-							className={actionBtnClass}
-							title="Copy"
+							onClick={(e) => {
+								e.stopPropagation();
+								onRegenerate();
+							}}
+							className={iconBtn}
+							title="Regenerate"
 						>
-							{isCopied ? (
-								<Check className="w-3.5 h-3.5 text-green-500" />
-							) : (
-								<Copy className="w-3.5 h-3.5" />
-							)}
+							<RotateCcw className="w-3.5 h-3.5" />
 						</button>
-					</div>
+					)}
+					<button
+						onClick={handleCopy}
+						className={iconBtn}
+						title="Copy"
+					>
+						{isCopied ? (
+							<Check className="w-3.5 h-3.5 text-[var(--ok-fg)]" />
+						) : (
+							<Copy className="w-3.5 h-3.5" />
+						)}
+					</button>
 				</div>
 			</div>
 		);

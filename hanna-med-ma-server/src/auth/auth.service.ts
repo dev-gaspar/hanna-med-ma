@@ -83,6 +83,7 @@ export class AuthService {
         name: doctor.name,
         username: doctor.username,
         specialty: doctor.specialty,
+        emrSystems: doctor.emrSystems,
       },
     };
   }

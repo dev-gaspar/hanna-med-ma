@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Key, Building2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Key, Lock, Loader2 } from "lucide-react";
 import { credentialService } from "../services/credentialService";
 import { doctorService } from "../services/doctorService";
 import type {
@@ -9,24 +9,14 @@ import type {
 	CreateCredentialDto,
 } from "../types";
 import Modal from "../components/Modal";
+import { Button } from "../components/ui/Button";
+import { Chip } from "../components/ui/Chip";
+import { EmptyState } from "../components/ui/EmptyState";
 
-// EMR System logos
-const systemLogos: Record<string, React.ReactNode> = {
-	JACKSON: (
-		<div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-			<Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-		</div>
-	),
-	STEWARD: (
-		<div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-			<Building2 className="w-6 h-6 text-green-600 dark:text-green-400" />
-		</div>
-	),
-	BAPTIST: (
-		<div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-			<Building2 className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-		</div>
-	),
+const SYSTEM_HUE: Record<string, string> = {
+	JACKSON: "#c06a1f",
+	STEWARD: "#6d4f8f",
+	BAPTIST: "#2a6f84",
 };
 
 export default function Credentials() {
@@ -40,6 +30,7 @@ export default function Credentials() {
 		useState<DoctorCredential | null>(null);
 	const [selectedSystem, setSelectedSystem] = useState<EMRSystem | null>(null);
 	const [formFields, setFormFields] = useState<Record<string, string>>({});
+	const [submitting, setSubmitting] = useState(false);
 
 	useEffect(() => {
 		fetchInitialData();
@@ -103,7 +94,6 @@ export default function Credentials() {
 	const handleSystemChange = (systemKey: string) => {
 		const system = systems.find((s) => s.key === systemKey);
 		setSelectedSystem(system || null);
-		// Initialize form fields for the selected system
 		const initialFields: Record<string, string> = {};
 		system?.fields.forEach((field) => {
 			initialFields[field.key] = "";
@@ -114,7 +104,7 @@ export default function Credentials() {
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!selectedDoctor || !selectedSystem) return;
-
+		setSubmitting(true);
 		try {
 			if (editingCredential) {
 				await credentialService.update(editingCredential.id, {
@@ -132,190 +122,211 @@ export default function Credentials() {
 			handleCloseModal();
 		} catch (error) {
 			console.error("Error saving credential:", error);
-			alert("Error saving credential");
+		} finally {
+			setSubmitting(false);
 		}
 	};
 
 	const handleDelete = async (id: number) => {
-		if (window.confirm("Are you sure you want to delete this credential?")) {
-			try {
-				await credentialService.delete(id);
-				if (selectedDoctor) {
-					await fetchCredentials(selectedDoctor.id);
-				}
-			} catch (error) {
-				console.error("Error deleting credential:", error);
-				alert("Error deleting credential");
+		if (!window.confirm("Delete this credential?")) return;
+		try {
+			await credentialService.delete(id);
+			if (selectedDoctor) {
+				await fetchCredentials(selectedDoctor.id);
 			}
+		} catch (error) {
+			console.error("Error deleting credential:", error);
 		}
 	};
 
-	// Only show systems that actually need credentials (have fields)
-	// and that the doctor doesn't already have a credential for
 	const systemsWithFields = systems.filter((s) => s.fields.length > 0);
 	const availableSystems = systemsWithFields.filter(
 		(s) => !credentials.some((c) => c.systemKey === s.key),
 	);
-
-	// Systems that don't need credentials (like Baptist)
 	const noCredentialSystems = systems.filter((s) => s.fields.length === 0);
 
-	if (loading) {
-		return (
-			<div className="flex items-center justify-center h-64">
-				<div className="text-gray-600">Loading...</div>
-			</div>
-		);
-	}
-
 	return (
-		<div>
-			<div className="flex justify-between items-center mb-4">
+		<div className="max-w-5xl">
+			<div className="flex items-end justify-between gap-4 pb-4 mb-5 border-b border-n-150">
 				<div>
-					<h1 className="text-xl font-bold text-gray-900 dark:text-white">
+					<div className="label-kicker mb-1.5">Administration</div>
+					<h1 className="font-serif text-[24px] text-n-900 leading-tight">
 						EMR Credentials
 					</h1>
-					<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-						Manage doctor credentials for EMR systems that require login
+					<p className="text-[12.5px] text-n-500 mt-1.5 max-w-2xl leading-relaxed">
+						Encrypted at rest. RPA nodes pull these on heartbeat via{" "}
+						<span className="font-mono text-n-800">GET /rpa/:uuid/config</span>.
 					</p>
 				</div>
 			</div>
 
-			{/* Doctor Selector */}
-			<div className="card mb-4">
-				<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-					Select Doctor
-				</label>
-				<select
-					value={selectedDoctor?.id || ""}
-					onChange={(e) => {
-						const doctor = doctors.find((d) => d.id === Number(e.target.value));
-						setSelectedDoctor(doctor || null);
-					}}
-					className="input-field max-w-md"
-				>
-					{doctors.map((doctor) => (
-						<option key={doctor.id} value={doctor.id}>
-							{doctor.name}
-						</option>
-					))}
-				</select>
-			</div>
-
-			{selectedDoctor && (
+			{loading ? (
+				<div className="flex items-center justify-center gap-2 py-12 text-n-500">
+					<Loader2 className="w-4 h-4 animate-spin" />
+					<span className="font-mono text-[11px] uppercase tracking-widest">
+						Loading
+					</span>
+				</div>
+			) : (
 				<>
-					{/* Info about systems that don't need credentials */}
-					{noCredentialSystems.length > 0 && (
-						<div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
-							<p className="text-xs text-purple-700 dark:text-purple-300">
-								<strong>
-									{noCredentialSystems.map((s) => s.name).join(", ")}
-								</strong>{" "}
-								{noCredentialSystems.length === 1 ? "uses" : "use"} saved
-								browser credentials and {noCredentialSystems.length === 1 ? "doesn't" : "don't"}{" "}
-								need manual configuration. Enable access in{" "}
-								<strong>Doctors Management</strong>.
-							</p>
-						</div>
-					)}
+					<div className="mb-5">
+						<label className="label-kicker block mb-1.5">Doctor</label>
+						<select
+							value={selectedDoctor?.id || ""}
+							onChange={(e) => {
+								const doctor = doctors.find(
+									(d) => d.id === Number(e.target.value),
+								);
+								setSelectedDoctor(doctor || null);
+							}}
+							className="input-field max-w-sm"
+						>
+							{doctors.map((doctor) => (
+								<option key={doctor.id} value={doctor.id}>
+									{doctor.name}
+								</option>
+							))}
+						</select>
+					</div>
 
-					{/* Credentials List */}
-					<div className="card">
-						<div className="flex justify-between items-center mb-3">
-							<h2 className="text-sm font-semibold text-gray-800 dark:text-white">
-								Credentials for {selectedDoctor.name}
-							</h2>
-							{availableSystems.length > 0 && (
-								<button
-									onClick={() => handleOpenModal()}
-									className="btn-primary flex items-center gap-2"
-								>
-									<Plus className="w-4 h-4" />
-									Add Credential
-								</button>
+					{selectedDoctor && (
+						<>
+							{noCredentialSystems.length > 0 && (
+								<div className="mb-5 px-3 py-2.5 border border-n-150 rounded-md bg-n-50">
+									<p className="text-[12.5px] text-n-700 leading-relaxed">
+										<span className="font-semibold">
+											{noCredentialSystems.map((s) => s.name).join(", ")}
+										</span>{" "}
+										{noCredentialSystems.length === 1 ? "uses" : "use"} saved
+										browser credentials and{" "}
+										{noCredentialSystems.length === 1 ? "doesn't" : "don't"}{" "}
+										need manual configuration. Enable access in{" "}
+										<span className="font-semibold">Doctors</span>.
+									</p>
+								</div>
 							)}
-						</div>
 
-						{credentials.length === 0 ? (
-							<div className="text-center py-8 text-gray-500">
-								<Key className="w-12 h-12 mx-auto mb-3 opacity-50" />
-								<p>No credentials configured for this doctor</p>
+							<div className="flex items-center justify-between mb-3">
+								<div className="flex items-center gap-2">
+									<h2 className="font-serif text-[16px] text-n-900">
+										Credentials for {selectedDoctor.name}
+									</h2>
+									<Chip>{credentials.length}</Chip>
+								</div>
 								{availableSystems.length > 0 && (
-									<button
+									<Button
+										tone="primary"
+										size="sm"
 										onClick={() => handleOpenModal()}
-										className="mt-4 text-primary hover:underline"
+										leading={<Plus className="w-3.5 h-3.5" />}
 									>
-										Add first credential
-									</button>
+										Add credential
+									</Button>
 								)}
 							</div>
-						) : (
-							<div className="grid gap-4">
-								{credentials.map((credential) => (
-									<div
-										key={credential.id}
-										className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg"
-									>
-										<div className="flex items-center gap-3">
-											{systemLogos[credential.systemKey] || (
-												<div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-slate-600 flex items-center justify-center">
-													<Key className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+
+							{credentials.length === 0 ? (
+								<EmptyState
+									title="No credentials configured"
+									body={
+										availableSystems.length > 0
+											? "Add credentials for the EMR systems assigned to this doctor."
+											: "All assigned EMR systems already have credentials or don't require them."
+									}
+									action={
+										availableSystems.length > 0 && (
+											<Button
+												tone="primary"
+												size="sm"
+												onClick={() => handleOpenModal()}
+												leading={<Plus className="w-3.5 h-3.5" />}
+											>
+												Add first credential
+											</Button>
+										)
+									}
+								/>
+							) : (
+								<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+									{credentials.map((credential) => (
+										<div
+											key={credential.id}
+											className="border border-n-150 rounded-lg bg-n-0 p-4"
+										>
+											<div className="flex items-start gap-3">
+												<div
+													className="w-9 h-9 rounded-md grid place-items-center shrink-0"
+													style={{
+														background: `${SYSTEM_HUE[credential.systemKey] || "#5e5e5e"}1a`,
+													}}
+												>
+													<Lock
+														className="w-4 h-4"
+														style={{
+															color:
+																SYSTEM_HUE[credential.systemKey] ||
+																"#5e5e5e",
+														}}
+													/>
 												</div>
-											)}
-											<div>
-												<h3 className="text-sm font-medium text-gray-900 dark:text-white">
-													{credential.systemInfo?.name || credential.systemKey}
-												</h3>
-												<p className="text-xs text-gray-500 dark:text-gray-400">
-													{Object.keys(credential.fields).length} fields
-													configured
-												</p>
+												<div className="flex-1 min-w-0">
+													<div className="flex items-center gap-2">
+														<div className="font-semibold text-[13.5px] text-n-900 truncate">
+															{credential.systemInfo?.name ||
+																credential.systemKey}
+														</div>
+														<Chip tone="ok">configured</Chip>
+													</div>
+													<div className="font-mono text-[10.5px] text-n-500 mt-0.5">
+														{Object.keys(credential.fields).length} field
+														{Object.keys(credential.fields).length === 1
+															? ""
+															: "s"}{" "}
+														configured
+													</div>
+												</div>
+												<div className="flex gap-0.5">
+													<button
+														onClick={() => handleOpenModal(credential)}
+														className="inline-flex items-center justify-center w-7 h-7 rounded-md text-n-500 hover:text-n-900 hover:bg-n-100 transition"
+														title="Edit"
+													>
+														<Pencil className="w-3.5 h-3.5" />
+													</button>
+													<button
+														onClick={() => handleDelete(credential.id)}
+														className="inline-flex items-center justify-center w-7 h-7 rounded-md text-n-500 hover:text-[var(--dnr-fg)] hover:bg-[var(--dnr-bg)] transition"
+														title="Delete"
+													>
+														<Trash2 className="w-3.5 h-3.5" />
+													</button>
+												</div>
 											</div>
 										</div>
-										<div className="flex gap-1">
-											<button
-												onClick={() => handleOpenModal(credential)}
-												className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-												title="Edit"
-											>
-												<Pencil className="w-3.5 h-3.5" />
-											</button>
-											<button
-												onClick={() => handleDelete(credential.id)}
-												className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-												title="Delete"
-											>
-												<Trash2 className="w-3.5 h-3.5" />
-											</button>
-										</div>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
+									))}
+								</div>
+							)}
+						</>
+					)}
 				</>
 			)}
 
-			{/* Modal */}
 			<Modal
 				isOpen={isModalOpen}
 				onClose={handleCloseModal}
-				title={editingCredential ? "Edit Credential" : "Add New Credential"}
+				title={editingCredential ? "Edit credential" : "Add credential"}
 			>
 				<form onSubmit={handleSubmit} className="space-y-4">
-					{/* System Selector (only for new credentials) */}
 					{!editingCredential && (
 						<div>
-							<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-								EMR System *
-							</label>
+							<label className="label-kicker block mb-1.5">EMR system *</label>
 							<select
 								value={selectedSystem?.key || ""}
 								onChange={(e) => handleSystemChange(e.target.value)}
 								className="input-field"
 								required
 							>
-								<option value="">Select a system...</option>
+								<option value="">Select a system…</option>
 								{availableSystems.map((system) => (
 									<option key={system.key} value={system.key}>
 										{system.name}
@@ -325,11 +336,10 @@ export default function Credentials() {
 						</div>
 					)}
 
-					{/* Dynamic Fields */}
 					{selectedSystem &&
 						selectedSystem.fields.map((field) => (
 							<div key={field.key}>
-								<label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+								<label className="label-kicker block mb-1.5">
 									{field.label} {field.required && "*"}
 								</label>
 								<input
@@ -342,24 +352,48 @@ export default function Credentials() {
 										})
 									}
 									className="input-field"
-									placeholder={`Enter ${field.label.toLowerCase()}`}
+									placeholder={field.label}
 									required={field.required}
 								/>
 							</div>
 						))}
 
 					{selectedSystem && (
-						<div className="flex gap-3 pt-4">
-							<button
+						<div className="flex gap-2 pt-2">
+							<Button
 								type="button"
+								tone="ghost"
+								size="md"
 								onClick={handleCloseModal}
-								className="btn-secondary flex-1"
+								className="flex-1"
 							>
 								Cancel
-							</button>
-							<button type="submit" className="btn-primary flex-1">
-								{editingCredential ? "Update" : "Create"}
-							</button>
+							</Button>
+							<Button
+								type="submit"
+								tone="primary"
+								size="md"
+								disabled={submitting}
+								className="flex-1"
+							>
+								{submitting ? (
+									<>
+										<Loader2 className="w-4 h-4 animate-spin" />
+										<span>Saving…</span>
+									</>
+								) : editingCredential ? (
+									"Update"
+								) : (
+									"Create"
+								)}
+							</Button>
+						</div>
+					)}
+
+					{!selectedSystem && !editingCredential && (
+						<div className="flex items-center gap-2 pt-2 text-[12px] text-n-500">
+							<Key className="w-3.5 h-3.5" />
+							<span>Select an EMR system to see its required fields.</span>
 						</div>
 					)}
 				</form>

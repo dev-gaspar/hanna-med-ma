@@ -93,7 +93,7 @@ export class PatientListTool {
     }
 
     const sections = Array.from(grouped.entries()).map(([label, group]) => ({
-      header: `🏥 ${label}`,
+      header: label,
       patients: group.map((p) => ({
         id: p.id,
         name: p.name,
