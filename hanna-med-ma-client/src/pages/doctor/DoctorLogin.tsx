@@ -13,7 +13,9 @@ export default function DoctorLogin() {
 	const navigate = useNavigate();
 
 	useEffect(() => {
-		if (doctorAuthService.getCurrentDoctor()) {
+		// Use isAuthenticated (not getCurrentDoctor) so an expired session
+		// doesn't briefly redirect into /doctor/round → bounce back to login.
+		if (doctorAuthService.isAuthenticated()) {
 			navigate("/doctor/round", { replace: true });
 		}
 	}, [navigate]);

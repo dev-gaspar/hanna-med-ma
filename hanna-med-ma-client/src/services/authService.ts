@@ -1,4 +1,5 @@
 import api from '../lib/api';
+import { isJwtExpired } from '../lib/jwt';
 import type { LoginCredentials, LoginResponse } from '../types';
 
 export const authService = {
@@ -25,7 +26,19 @@ export const authService = {
     return userStr ? JSON.parse(userStr) : null;
   },
 
+  /**
+   * Synchronous session check. Returns false if the stored JWT is missing
+   * or already expired, AND eagerly clears the stale storage so the
+   * protected route can redirect on the very first render — no dashboard
+   * flash while we wait for a 401 from the server.
+   */
   isAuthenticated(): boolean {
-    return !!this.getToken();
+    const token = this.getToken();
+    if (!token) return false;
+    if (isJwtExpired(token)) {
+      this.logout();
+      return false;
+    }
+    return true;
   },
 };
