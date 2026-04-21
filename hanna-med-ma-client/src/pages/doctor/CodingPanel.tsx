@@ -228,11 +228,14 @@ export function CodingPanel({
 
 			{/* 3-column only on xl+ (≥1280px, where there's room for
 			    480+300+260 of content). Below that the panel stacks
-			    vertically so each section is readable on its own. */}
+			    vertically so each section is readable on its own.
+			    Each column header is pinned to h-11 so the border-b
+			    lines up pixel-perfect across the three regardless of
+			    font-size differences in each label. */}
 			<div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px_260px]">
 				{/* ── Col 1 — Note with highlights ───────────────────── */}
 				<div className="border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col max-h-[600px] xl:max-h-[720px] min-w-0">
-					<div className="px-4 py-2.5 border-b border-n-150 flex items-center gap-3 whitespace-nowrap">
+					<div className="h-11 shrink-0 px-4 border-b border-n-150 flex items-center gap-3 whitespace-nowrap">
 						<FileText className="w-3.5 h-3.5 text-n-500 shrink-0" />
 						<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 truncate">
 							Provider note
@@ -268,7 +271,7 @@ export function CodingPanel({
 
 				{/* ── Col 2 — Suggested bill ─────────────────────────── */}
 				<div className="border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col max-h-[600px] xl:max-h-[720px] min-w-0">
-					<div className="px-4 py-2.5 border-b border-n-150">
+					<div className="h-11 shrink-0 px-4 border-b border-n-150 flex items-center">
 						<div className="font-semibold text-[13px] text-n-900">
 							Suggested bill
 						</div>
@@ -395,7 +398,7 @@ export function CodingPanel({
 
 				{/* ── Col 3 — Defense ────────────────────────────────── */}
 				<div className="flex flex-col bg-n-50 max-h-[600px] xl:max-h-[720px] min-w-0">
-					<div className="px-4 py-2.5 border-b border-n-150 flex items-center gap-2">
+					<div className="h-11 shrink-0 px-4 border-b border-n-150 flex items-center gap-2">
 						<div className="font-semibold text-[13px] text-n-900">Defense</div>
 						<Shield className="w-3.5 h-3.5 text-n-500 ml-auto" />
 					</div>
