@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
 	AlertTriangle,
 	CheckCircle2,
@@ -215,15 +216,16 @@ export function CodingPanel({
 
 	const highlights = toHighlights(proposal);
 
-	return (
+	// The whole panel body. When fullscreen=true we render it through
+	// a portal to <body> so no ancestor transform/filter can pin the
+	// "fixed" to a parent (which was leaving a gap at the top and
+	// clipping scroll). When not fullscreen, it renders inline.
+	const body = (
 		<section
 			className={cls(
 				"bg-n-0 border border-n-150 rounded-lg overflow-hidden",
-				// When fullscreen, the section breaks out of its parent
-				// layout and covers the viewport. Keeps the same content
-				// so state (selected code, attest toggle) is preserved.
 				fullscreen &&
-					"fixed inset-0 z-50 rounded-none border-0 flex flex-col",
+					"fixed inset-0 z-[60] rounded-none border-0 flex flex-col bg-n-0",
 			)}
 		>
 			{/* Header */}
@@ -269,24 +271,26 @@ export function CodingPanel({
 				</div>
 			</div>
 
-			{/* 3-column only on xl+ (≥1280px, where there's room for
-			    480+300+260 of content). Below that the panel stacks
-			    vertically so each section is readable on its own.
-			    Each column header is pinned to h-11 so the border-b
-			    lines up pixel-perfect across the three regardless of
-			    font-size differences in each label. */}
+			{/* Column layout: flex-col on mobile (sections stack with
+			    page-level scroll), flex-row on xl. When fullscreen,
+			    the whole container fills the remaining viewport height
+			    (flex-1 min-h-0) so each xl column's inner overflow-y
+			    works against a bounded height. At stacked mobile
+			    fullscreen, we let the section itself scroll because
+			    splitting scroll between 3 internal areas is jarring. */}
 			<div
 				className={cls(
-					"grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px_260px]",
-					fullscreen && "flex-1 min-h-0 overflow-hidden",
+					"flex flex-col xl:flex-row",
+					fullscreen &&
+						"flex-1 min-h-0 overflow-y-auto xl:overflow-hidden custom-scrollbar",
 				)}
 			>
 				{/* ── Col 1 — Note with highlights ───────────────────── */}
 				<div
 					className={cls(
-						"border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col min-w-0",
+						"border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col min-w-0 xl:flex-1",
 						fullscreen
-							? "max-h-none xl:max-h-none"
+							? "xl:max-h-none"
 							: "max-h-[600px] xl:max-h-[720px]",
 					)}
 				>
@@ -327,9 +331,9 @@ export function CodingPanel({
 				{/* ── Col 2 — Suggested bill ─────────────────────────── */}
 				<div
 					className={cls(
-						"border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col min-w-0",
+						"border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col min-w-0 xl:w-[320px] xl:shrink-0",
 						fullscreen
-							? "max-h-none xl:max-h-none"
+							? "xl:max-h-none"
 							: "max-h-[600px] xl:max-h-[720px]",
 					)}
 				>
@@ -461,9 +465,9 @@ export function CodingPanel({
 				{/* ── Col 3 — Defense ────────────────────────────────── */}
 				<div
 					className={cls(
-						"flex flex-col bg-n-50 min-w-0",
+						"flex flex-col bg-n-50 min-w-0 xl:w-[280px] xl:shrink-0",
 						fullscreen
-							? "max-h-none xl:max-h-none"
+							? "xl:max-h-none"
 							: "max-h-[600px] xl:max-h-[720px]",
 					)}
 				>
@@ -619,4 +623,8 @@ export function CodingPanel({
 			</div>
 		</section>
 	);
+
+	// Portal the overlay to <body> so no ancestor transform/filter
+	// can pin the "fixed" position to a nested containing block.
+	return fullscreen ? createPortal(body, document.body) : body;
 }
