@@ -36,6 +36,14 @@ function parseArgs(argv: string[]) {
 
 // CMS sometimes swaps between fixed-width and whitespace-delimited
 // in the same release family. Detect once, then parse consistently.
+// CMS ships codes dotless in the order file ("E11621") but the
+// clinical/LCD side and every coder we know uses the dotted form
+// ("E11.621"). Normalise at ingest so exact-match joins work across
+// all tables.
+function addIcdDot(raw: string): string {
+	return raw.length > 3 ? `${raw.slice(0, 3)}.${raw.slice(3)}` : raw;
+}
+
 function parseOrderLine(line: string):
 	| {
 			orderNumber: number;
@@ -48,15 +56,15 @@ function parseOrderLine(line: string):
 	// Fixed-width: "00001 A00     0 Cholera ... Cholera..."
 	if (line.length < 78) return null;
 	const orderNumber = Number(line.slice(0, 5).trim());
-	const code = line.slice(6, 13).trim();
+	const rawCode = line.slice(6, 13).trim();
 	const billableFlag = line.slice(14, 15).trim();
 	const shortDescription = line.slice(16, 77).trim();
 	const longDescription = line.slice(77).trim();
 
-	if (!Number.isFinite(orderNumber) || !code) return null;
+	if (!Number.isFinite(orderNumber) || !rawCode) return null;
 	return {
 		orderNumber,
-		code,
+		code: addIcdDot(rawCode),
 		isBillable: billableFlag === "1",
 		shortDescription,
 		longDescription,

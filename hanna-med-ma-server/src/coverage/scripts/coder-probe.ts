@@ -59,7 +59,9 @@ async function main() {
 		locality: "04",
 		contractorNumber: "09102",
 		year: 2026,
-		specialty: "Podiatry",
+		// Probe uses the legacy shape without a delta — CodingService
+		// is where the real Specialty relation is resolved.
+		specialty: { name: "Podiatry", systemPrompt: "" },
 		pos: "11",
 	});
 	const elapsed = ((Date.now() - t0) / 1000).toFixed(1);

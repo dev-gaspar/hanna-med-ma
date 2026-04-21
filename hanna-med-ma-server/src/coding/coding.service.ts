@@ -61,7 +61,16 @@ export class CodingService {
 			where: { id: encounterId },
 			include: {
 				patient: { select: { emrSystem: true, facility: true } },
-				doctor: { select: { specialty: true } },
+				// Pull specialty through the relation — the source of truth.
+				// The `specialty` string on doctor is kept for back-compat only.
+				doctor: {
+					select: {
+						specialty: true,
+						specialtyRel: {
+							select: { name: true, systemPrompt: true },
+						},
+					},
+				},
 			},
 		});
 		if (!encounter) throw new NotFoundException(`Encounter ${encounterId} not found`);
@@ -99,7 +108,17 @@ export class CodingService {
 			noteText,
 			locality: "04",
 			contractorNumber: "09102",
-			specialty: encounter.doctor?.specialty ?? undefined,
+			// Pre-loaded specialty from the relation — no second query
+			// inside the agent. Falls back to the raw string if no
+			// relation is linked yet (legacy doctors).
+			specialty: encounter.doctor?.specialtyRel
+				? {
+						name: encounter.doctor.specialtyRel.name,
+						systemPrompt: encounter.doctor.specialtyRel.systemPrompt,
+					}
+				: encounter.doctor?.specialty
+					? { name: encounter.doctor.specialty, systemPrompt: "" }
+					: undefined,
 			// Heuristic POS: Baptist = inpatient (21), otherwise leave blank.
 			pos: encounter.patient?.emrSystem === "BAPTIST" ? "21" : undefined,
 			year: new Date().getFullYear(),

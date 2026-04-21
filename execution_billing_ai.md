@@ -4,8 +4,8 @@
 > es el plan. Este documento es lo que **está hecho** con pointers a código, data
 > y siguientes pasos. Actualizar al final de cada sesión.
 
-**Última actualización**: 2026-04-20
-**Commits relevantes**: `6d8fa0f` → `7856cd9` (todos locales, sin push a `main`).
+**Última actualización**: 2026-04-20 (late sesión)
+**Commits relevantes**: `6d8fa0f` → HEAD (todos locales, sin push a `main`).
 
 ---
 
@@ -66,7 +66,7 @@ Ubicación: `hanna-med-ma-server/src/ai/agents/coder.agent.ts`.
   - 3 principios generales (combination codes, pair codes, specificity over "unspecified") — **NO hardcoded specialty rules**.
   - Workflow explícito de 9 pasos, refuerza `search_coding_guidelines` para sequencing.
   - Scoring recipe determinista (0–100) con bandas LOW/REVIEW/RISK.
-- **Specialty delta** appended desde `specialty_prompt_deltas` (tabla seed con `Podiatry` + `Internal Medicine`). Match case-insensitive contra `Doctor.specialty`.
+- **Specialty delta** appended desde `specialties` (tabla catálogo con `Podiatry` + `Internal Medicine`, linkeada a `Doctor.specialtyId`). `CodingService` resuelve la relación y le pasa `{ name, systemPrompt }` pre-loaded al agente — no hay segunda query. El campo string `Doctor.specialty` se mantiene por compatibilidad con chat / RPA / auth, sincronizado desde `specialties.name`.
 - **Prompt caching** con `cache_control: { type: "ephemeral" }` en base + delta → cache de 5 min de Anthropic reusa prompt entre runs consecutivos.
 - **PHI redaction** (ver §1.5) aplicada antes de mandar la nota a Claude, rehydrada antes de persistir.
 
@@ -251,17 +251,15 @@ El agente consultó `search_coding_guidelines` para decidir ordering entre `E11.
 
 1. **PHI redaction no cubre todos los patrones**. La implementación regex de Adony funciona pero puede dejar pasar nombres raros (multi-palabra, acentos), IDs específicos de hospital (Baptist chart IDs distintos al MRN estándar), etc. → considerar un tercero (AWS Comprehend Medical) si la exigencia compliance sube.
 
-2. **ICD-10 sin punto**. Nuestra tabla `icd10_codes` guarda códigos sin punto (`E11621`). El agente emite con punto (`E11.621`). Mayormente funciona por el vector search pero puede fallar en lookups exact. Normalizar en un pre-save hook cuando movamos esto.
+2. **`embed-all.ts` usa Gemini**, no Claude. Para un stack 100% Anthropic habría que cambiar a `voyage-3` o similar. No urgente — la calidad de Gemini embeddings es buena para nuestro recall.
 
-3. **`embed-all.ts` usa Gemini**, no Claude. Para un stack 100% Anthropic habría que cambiar a `voyage-3` o similar. No urgente — la calidad de Gemini embeddings es buena para nuestro recall.
+3. **Sin auto-trigger**. El CoderAgent se dispara por botón "Run AI Coder" en la UI. Cuando validemos calidad con Hajira, hookearlo al flow RPA (cuando `noteStatus → FOUND_SIGNED`).
 
-4. **Sin auto-trigger**. El CoderAgent se dispara por botón "Run AI Coder" en la UI. Cuando validemos calidad con Hajira, hookearlo al flow RPA (cuando `noteStatus → FOUND_SIGNED`).
+4. **Sin Coder Inbox** (pantalla H del Remix design). Ya tenemos los flattened fields (`primaryCpt`, `auditRiskScore`, `riskBand`, `runDurationMs`) listos para filtrar, solo falta la vista.
 
-5. **Sin Coder Inbox** (pantalla H del Remix design). Ya tenemos los flattened fields (`primaryCpt`, `auditRiskScore`, `riskBand`, `runDurationMs`) listos para filtrar, solo falta la vista.
+5. **Fase 1 local only**. Todos los commits en `main` local, **no push a prod todavía**. Es política explícita del Dr. Peter para esta fase (ver memoria `feedback_phase1_local_only.md`).
 
-6. **Fase 1 local only**. Todos los commits en `main` local, **no push a prod todavía**. Es política explícita del Dr. Peter para esta fase (ver memoria `feedback_phase1_local_only.md`).
-
-7. **Prisma client regen en Windows**. Recurrente EPERM lock sobre `query_engine-windows.dll.node` por VSCode TS server. Workaround: `mv node_modules/.prisma/client/query_engine-windows.dll.node{,.OLD}` antes de `npx prisma generate`.
+6. **Prisma client regen en Windows**. Recurrente EPERM lock sobre `query_engine-windows.dll.node` por VSCode TS server. Workaround: `mv node_modules/.prisma/client/query_engine-windows.dll.node{,.OLD}` antes de `npx prisma generate`.
 
 ---
 

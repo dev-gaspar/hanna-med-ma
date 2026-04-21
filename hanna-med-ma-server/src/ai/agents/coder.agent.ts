@@ -143,7 +143,13 @@ export interface CoderInput {
 	locality: string;
 	contractorNumber: string;
 	year?: number;
-	specialty?: string;
+	/**
+	 * Pre-loaded specialty from CodingService. `systemPrompt` is the
+	 * delta appended to the base prompt; empty string when we know
+	 * the specialty but no delta has been authored yet. `name` is
+	 * used only for the header section of the base prompt.
+	 */
+	specialty?: { name: string; systemPrompt: string };
 	pos?: string;
 }
 
@@ -169,25 +175,15 @@ export class CoderAgent {
 			locality: input.locality,
 			contractorNumber: input.contractorNumber,
 			year,
-			specialty: input.specialty,
+			specialty: input.specialty?.name,
 			pos: input.pos,
 			currentDate: currentTimeForDisplay(),
 		});
 
-		// Load the specialty delta (podiatry, internal medicine, etc.) if
-		// we recognise the doctor's specialty. Appended verbatim after
-		// the base prompt so it can override / extend scope, exam limits,
-		// code preferences.
-		let specialtyDelta = "";
-		if (input.specialty) {
-			const row = await this.prisma.specialtyPromptDelta.findFirst({
-				where: {
-					specialty: { equals: input.specialty, mode: "insensitive" },
-				},
-				select: { systemPrompt: true },
-			});
-			if (row) specialtyDelta = row.systemPrompt;
-		}
+		// Specialty delta is pre-loaded by CodingService from the
+		// Specialty relation. No DB lookup here — keeps the agent
+		// pure-ish and lets callers decide how to resolve specialty.
+		const specialtyDelta = input.specialty?.systemPrompt?.trim() || "";
 
 		// Two cache_control blocks so Anthropic's prompt cache (5-min
 		// TTL) reuses the base prompt across ANY encounter and reuses

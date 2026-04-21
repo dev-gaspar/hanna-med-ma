@@ -13,16 +13,23 @@ datasource db {
 // ─── Doctor ─────────────────────────────────────────────────
 
 model Doctor {
-  id         Int      @id @default(autoincrement())
-  name       String
-  username   String   @unique
-  password   String
-  specialty  String?
-  emrSystems String[] @default([])  // EMR systems this doctor uses: ["JACKSON", "STEWARD", "BAPTIST"]
+  id          Int      @id @default(autoincrement())
+  name        String
+  username    String   @unique
+  password    String
+  // `specialty` is kept as a plain string for back-compat with every
+  // legacy caller (chat prompts, RPA, auth login). The SOURCE OF TRUTH
+  // is specialtyId → Specialty. The string is kept in sync with
+  // specialtyRel.name by seed scripts / admin writes.
+  specialty   String?
+  specialtyId Int?
+  emrSystems  String[] @default([]) // EMR systems this doctor uses: ["JACKSON", "STEWARD", "BAPTIST"]
 
   deleted   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  specialtyRel Specialty? @relation(fields: [specialtyId], references: [id])
 
   // EMR Credentials (only for systems that need them)
   credentials DoctorCredential[]
@@ -642,19 +649,21 @@ model CptCode {
   @@map("cpt_codes")
 }
 
-// Per-specialty delta appended to the coder's base system prompt.
-// Lets us teach the agent specialty-specific exam conventions, code
-// preferences, and LCD anchors without touching the shared base.
-// Match on Doctor.specialty (case-insensitive) at runtime.
-model SpecialtyPromptDelta {
+// Specialty catalog + per-specialty prompt delta for the AI Coder.
+// Doctors link here via Doctor.specialtyId. The systemPrompt field
+// is appended to the coder's base prompt at runtime (teaches exam
+// scope, code preferences, LCD anchors without polluting the base).
+model Specialty {
   id           Int      @id @default(autoincrement())
-  specialty    String   @unique // e.g., "Podiatry", "Internal Medicine"
-  systemPrompt String   @db.Text
+  name         String   @unique // canonical display name, e.g. "Podiatry"
+  systemPrompt String   @db.Text @default("")
+
+  doctors Doctor[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("specialty_prompt_deltas")
+  @@map("specialties")
 }
 
 // Chunked ICD-10-CM Official Guidelines for Coding and Reporting.

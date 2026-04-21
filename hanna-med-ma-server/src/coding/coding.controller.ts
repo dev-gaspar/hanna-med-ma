@@ -63,12 +63,17 @@ export class CodingController {
 			pos?: string;
 		},
 	) {
+		// Debug endpoint: caller only provides the specialty name, so
+		// the delta is left empty. For the persisted path (encounters/
+		// :id/generate) the delta comes from the Specialty relation.
 		const result = await this.coder.run({
 			noteText: body.noteText,
 			locality: body.locality || "04",
 			contractorNumber: body.contractorNumber || "09102",
 			year: body.year,
-			specialty: body.specialty,
+			specialty: body.specialty
+				? { name: body.specialty, systemPrompt: "" }
+				: undefined,
 			pos: body.pos,
 		});
 		return {

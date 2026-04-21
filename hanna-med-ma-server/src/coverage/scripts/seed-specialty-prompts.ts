@@ -1,17 +1,17 @@
 /**
- * Seed initial SpecialtyPromptDelta rows. One row per specialty the
- * CoderAgent should know about. Each delta is appended after the base
- * system prompt so specialty-specific knowledge grows without polluting
- * the shared text.
+ * Seed initial Specialty rows (catalog + prompt delta). One row per
+ * specialty the CoderAgent should know about. Each delta is appended
+ * after the base system prompt so specialty-specific knowledge grows
+ * without polluting the shared text.
  *
  *   npx ts-node -r dotenv/config src/coverage/scripts/seed-specialty-prompts.ts
  */
 
 import { PrismaClient } from "@prisma/client";
 
-const SEEDS: Array<{ specialty: string; systemPrompt: string }> = [
+const SEEDS: Array<{ name: string; systemPrompt: string }> = [
 	{
-		specialty: "Podiatry",
+		name: "Podiatry",
 		systemPrompt: `Specialty delta — PODIATRY
 
 Exam scope: limit physical exam analysis to Vascular, Neurological,
@@ -50,7 +50,7 @@ Hard rules
 `,
 	},
 	{
-		specialty: "Internal Medicine",
+		name: "Internal Medicine",
 		systemPrompt: `Specialty delta — INTERNAL MEDICINE
 
 Exam scope: use a problem-focused exam by system (General, HEENT,
@@ -87,15 +87,27 @@ async function main() {
 	const prisma = new PrismaClient();
 	try {
 		for (const s of SEEDS) {
-			await prisma.specialtyPromptDelta.upsert({
-				where: { specialty: s.specialty },
+			await prisma.specialty.upsert({
+				where: { name: s.name },
 				create: s,
 				update: { systemPrompt: s.systemPrompt },
 			});
-			console.log(
-				`✓ ${s.specialty} (${s.systemPrompt.length} chars)`,
-			);
+			console.log(`✓ ${s.name} (${s.systemPrompt.length} chars)`);
 		}
+
+		// Relink any doctor whose legacy `specialty` string matches a
+		// Specialty.name (case-insensitive) and doesn't yet have a
+		// relation. The migration already did this once at creation;
+		// re-running keeps things self-healing for new doctors.
+		const res = await prisma.$executeRawUnsafe(
+			`UPDATE "doctors" d
+			   SET "specialtyId" = s.id
+			   FROM "specialties" s
+			  WHERE d."specialtyId" IS NULL
+			    AND d."specialty" IS NOT NULL
+			    AND LOWER(TRIM(d."specialty")) = LOWER(TRIM(s."name"))`,
+		);
+		console.log(`Relinked ${res} doctors to their Specialty row.`);
 	} finally {
 		await prisma.$disconnect();
 	}
