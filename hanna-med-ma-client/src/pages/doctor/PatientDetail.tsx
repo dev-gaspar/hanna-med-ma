@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
 	ArrowLeft,
@@ -18,8 +18,6 @@ import type {
 	EncounterDetail,
 	NoteStatus,
 	PatientDetail as PatientDetailType,
-	PatientRawDataEntry,
-	RawDataType,
 } from "../../types";
 import type { EncounterCoding } from "../../types/coding";
 import { cls } from "../../lib/cls";
@@ -256,33 +254,6 @@ export default function PatientDetail() {
 						</Button>
 					</section>
 
-					{/* Last attempt log — what the RPA agent did the last time it
-					    tried to grab the signed note. Diagnostic only, collapsed
-					    by default. Lives in the left column so it sits out of the
-					    way of the encounter + coding flow in the right column. */}
-					{latestEncounter?.noteAgentSummary && (
-						<section className="bg-n-0 border border-n-150 rounded-lg">
-							<button
-								onClick={() => setLogOpen((v) => !v)}
-								className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-n-50 transition"
-								aria-expanded={logOpen}
-							>
-								{logOpen ? (
-									<ChevronDown className="w-3.5 h-3.5 text-n-500 shrink-0" />
-								) : (
-									<ChevronRight className="w-3.5 h-3.5 text-n-500 shrink-0" />
-								)}
-								<div className="label-kicker">Last attempt log</div>
-							</button>
-							{logOpen && (
-								<div className="px-4 pb-3 border-t border-n-150">
-									<p className="text-[12px] text-n-700 leading-[1.6] font-mono whitespace-pre-wrap mt-3">
-										{latestEncounter.noteAgentSummary}
-									</p>
-								</div>
-							)}
-						</section>
-					)}
 					</div>
 					{/* ── Right column: encounter + history + raw data ── */}
 					<div className="space-y-5 min-w-0">
@@ -352,6 +323,33 @@ export default function PatientDetail() {
 								/>
 							</div>
 
+							{/* Last attempt log — what the RPA agent did on its
+							    most recent pass. Diagnostic noise on happy days,
+							    so it sits inside the encounter card collapsed
+							    by default at the very bottom. */}
+							{latestEncounter.noteAgentSummary && (
+								<div className="border-t border-n-150">
+									<button
+										onClick={() => setLogOpen((v) => !v)}
+										className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-n-50 transition"
+										aria-expanded={logOpen}
+									>
+										{logOpen ? (
+											<ChevronDown className="w-3.5 h-3.5 text-n-500 shrink-0" />
+										) : (
+											<ChevronRight className="w-3.5 h-3.5 text-n-500 shrink-0" />
+										)}
+										<div className="label-kicker">Last attempt log</div>
+									</button>
+									{logOpen && (
+										<div className="px-4 pb-3 border-t border-n-150">
+											<p className="text-[12px] text-n-700 leading-[1.6] font-mono whitespace-pre-wrap mt-3">
+												{latestEncounter.noteAgentSummary}
+											</p>
+										</div>
+									)}
+								</div>
+							)}
 						</section>
 					)}
 
@@ -362,18 +360,6 @@ export default function PatientDetail() {
 							<div className="bg-n-0 border border-n-150 rounded-lg divide-y divide-n-150">
 								{patient.encounters.slice(1).map((e) => (
 									<EncounterRow key={e.id} encounter={e} />
-								))}
-							</div>
-						</section>
-					)}
-
-					{/* Raw data timeline */}
-					{patient.rawData.length > 0 && (
-						<section>
-							<div className="label-kicker mb-2">Raw data timeline</div>
-							<div className="bg-n-0 border border-n-150 rounded-lg divide-y divide-n-150">
-								{patient.rawData.map((row) => (
-									<RawDataRow key={row.id} row={row} />
 								))}
 							</div>
 						</section>
@@ -506,32 +492,6 @@ function EncounterRow({ encounter }: { encounter: EncounterDetail }) {
 			<Chip tone={NOTE_STATUS_TONE[encounter.noteStatus]}>
 				{NOTE_STATUS_LABEL[encounter.noteStatus]}
 			</Chip>
-		</div>
-	);
-}
-
-function RawDataRow({ row }: { row: PatientRawDataEntry }) {
-	const icon: Record<RawDataType, ReactNode> = {
-		SUMMARY: <FileText className="w-3.5 h-3.5 text-p-500" />,
-		INSURANCE: <Shield className="w-3.5 h-3.5 text-p-500" />,
-		LAB: <FlaskConical className="w-3.5 h-3.5 text-p-500" />,
-	};
-	return (
-		<div className="px-4 py-2.5 flex items-center gap-3 text-[13px]">
-			<div className="shrink-0">{icon[row.dataType]}</div>
-			<div className="flex-1 min-w-0">
-				<div className="text-n-800 capitalize">
-					{row.dataType.toLowerCase()}
-				</div>
-				<div className="font-mono text-[10.5px] text-n-500">
-					extracted {formatDate(row.extractedAt)}
-				</div>
-			</div>
-			{row.file && (
-				<span className="font-mono text-[10.5px] uppercase tracking-wider text-n-500">
-					pdf
-				</span>
-			)}
 		</div>
 	);
 }
