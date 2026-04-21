@@ -40,7 +40,7 @@ type Target = {
 	// We COALESCE the short + long descriptions so the vector captures
 	// both the billable-spec wording and the richer clinical phrasing.
 	textExpr: string;
-	key: "cpt" | "icd10" | "lcd";
+	key: "cpt" | "icd10" | "lcd" | "guideline";
 };
 
 const TARGETS: Target[] = [
@@ -61,6 +61,14 @@ const TARGETS: Target[] = [
 		table: "lcd_text_chunks",
 		idCol: "id",
 		textExpr: `text`,
+	},
+	{
+		key: "guideline",
+		table: "coding_guidelines",
+		idCol: "id",
+		// Prepend the section label so the embedding captures context
+		// ("I.C.4.a.2" by itself means nothing; the heading + body matters).
+		textExpr: `CONCAT(section, ' ', COALESCE(heading, ''), ': ', text)`,
 	},
 ];
 

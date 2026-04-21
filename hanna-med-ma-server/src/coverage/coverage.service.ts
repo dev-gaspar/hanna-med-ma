@@ -218,6 +218,46 @@ export class CoverageService {
 		}));
 	}
 
+	async searchCodingGuidelines(
+		query: string,
+		k = 5,
+	): Promise<
+		Array<{
+			section: string;
+			heading: string | null;
+			chunkIndex: number;
+			sourceYear: number;
+			text: string;
+			similarity: number;
+		}>
+	> {
+		const lit = toVectorLiteral(await this.embedQuery(query));
+		const rows = await this.prisma.$queryRawUnsafe<
+			Array<{
+				section: string;
+				heading: string | null;
+				chunkIndex: number;
+				sourceYear: number;
+				text: string;
+				similarity: number;
+			}>
+		>(
+			`SELECT section, heading, "chunkIndex", "sourceYear", text,
+			        1 - (embedding <=> $1::vector) AS similarity
+			 FROM coding_guidelines
+			 WHERE embedding IS NOT NULL
+			 ORDER BY embedding <=> $1::vector
+			 LIMIT ${Math.min(Math.max(k, 1), 20)}`,
+			lit,
+		);
+		return rows.map((r) => ({
+			...r,
+			chunkIndex: Number(r.chunkIndex),
+			sourceYear: Number(r.sourceYear),
+			similarity: Number(r.similarity),
+		}));
+	}
+
 	async searchLcdChunks(
 		query: string,
 		k = 6,

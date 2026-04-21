@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { CoderAgent, CoderProposal } from "../ai/agents/coder.agent";
 import { PrismaService } from "../core/prisma.service";
+import { RedactionService } from "../redaction/redaction.service";
 import { S3Service } from "../core/s3.service";
 
 // PDF text extraction via pdf-parse v2's class API. Lazy-required so
@@ -41,6 +42,7 @@ export class CodingService {
 		private readonly prisma: PrismaService,
 		private readonly s3: S3Service,
 		private readonly coder: CoderAgent,
+		private readonly redaction: RedactionService,
 	) {}
 
 	/**
@@ -74,12 +76,20 @@ export class CodingService {
 		);
 
 		const pdfBuffer = await this.s3.downloadBuffer(encounter.providerNote);
-		const noteText = await extractPdfText(pdfBuffer);
-		if (!noteText || noteText.length < 50) {
+		const rawNoteText = await extractPdfText(pdfBuffer);
+		if (!rawNoteText || rawNoteText.length < 50) {
 			throw new BadRequestException(
-				`Provider note PDF produced no usable text (got ${noteText.length} chars)`,
+				`Provider note PDF produced no usable text (got ${rawNoteText.length} chars)`,
 			);
 		}
+
+		// HIPAA boundary: redact PHI before the note hits Anthropic.
+		// The agent sees [NAME_1] / [MRN_1] / [DATE_3] style tokens; we
+		// rehydrate inside our server before storing / displaying.
+		const { redacted: noteText, tokens } = this.redaction.redact(rawNoteText);
+		this.logger.log(
+			`Redacted ${Object.keys(tokens).length} PHI tokens across ${rawNoteText.length} chars`,
+		);
 
 		// Locality/contractor default to Miami-Dade / First Coast FL Part B.
 		// This is Phase-1 scope — extending to other regions happens when we
@@ -96,19 +106,26 @@ export class CodingService {
 		});
 		const durationMs = Date.now() - t0;
 
-		const proposal = result.proposal;
+		// Rehydrate every string field in the proposal (evidence spans,
+		// rationales, summary) so the UI renders real PHI instead of tokens.
+		const proposal = result.proposal
+			? this.redaction.rehydrateDeep(result.proposal, tokens)
+			: null;
+
 		const score =
 			proposal && typeof proposal.auditRiskScore === "number"
 				? proposal.auditRiskScore
 				: null;
 		const band = proposal?.riskBand ?? (score !== null ? deriveBand(score) : null);
 
-		// Bundle the extracted note text into the stored proposal so the
+		// Bundle the rehydrated note text into the stored proposal so the
 		// UI can render evidence-span highlights without re-downloading
-		// and re-parsing the PDF on every read.
+		// and re-parsing the PDF on every read. The highlights map against
+		// the same real PHI version the LLM's evidenceSpan now contains.
+		const rehydratedNoteText = this.redaction.rehydrate(noteText, tokens);
 		const storedProposal = proposal
-			? { ...proposal, noteText }
-			: { rawText: result.rawText, noteText };
+			? { ...proposal, noteText: rehydratedNoteText }
+			: { rawText: result.rawText, noteText: rehydratedNoteText };
 
 		const coding = await this.prisma.encounterCoding.create({
 			data: {

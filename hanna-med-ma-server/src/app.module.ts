@@ -14,6 +14,7 @@ import { PatientsModule } from "./patients/patients.module";
 import { AiModule } from "./ai/ai.module";
 import { CoverageModule } from "./coverage/coverage.module";
 import { CodingModule } from "./coding/coding.module";
+import { RedactionModule } from "./redaction/redaction.module";
 import { RedisModule } from "./core/redis.module";
 import { S3Module } from "./core/s3.module";
 
@@ -35,6 +36,7 @@ import { S3Module } from "./core/s3.module";
     AiModule,
     CoverageModule,
     CodingModule,
+    RedactionModule,
     RedisModule,
     S3Module,
   ],

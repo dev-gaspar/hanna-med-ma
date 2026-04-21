@@ -642,6 +642,42 @@ model CptCode {
   @@map("cpt_codes")
 }
 
+// Per-specialty delta appended to the coder's base system prompt.
+// Lets us teach the agent specialty-specific exam conventions, code
+// preferences, and LCD anchors without touching the shared base.
+// Match on Doctor.specialty (case-insensitive) at runtime.
+model SpecialtyPromptDelta {
+  id           Int      @id @default(autoincrement())
+  specialty    String   @unique // e.g., "Podiatry", "Internal Medicine"
+  systemPrompt String   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("specialty_prompt_deltas")
+}
+
+// Chunked ICD-10-CM Official Guidelines for Coding and Reporting.
+// Authoritative source for WHEN to combine codes, WHICH code pairs
+// are mandated by CMS, sequencing rules, etc. The CoderAgent queries
+// this via search_coding_guidelines to ground its specificity
+// decisions in the actual guideline text (not just the prompt).
+model CodingGuideline {
+  id          Int                           @id @default(autoincrement())
+  sourceYear  Int                           // e.g., 2026
+  section     String                        // e.g., "I.C.4.a.2" or "Section IV.B"
+  heading     String?                       // e.g., "Diabetes mellitus"
+  chunkIndex  Int
+  text        String                        @db.Text
+  embedding   Unsupported("vector(768)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sourceYear, section])
+  @@map("coding_guidelines")
+}
+
 // Chunked free-text sections of LCDs and Articles so an LCD's
 // coverage rationale can be searched semantically. One row per
 // ~500-token slice; chunking is lossy on purpose (embedding a 40k-

@@ -1,12 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
-import { HumanMessage } from "@langchain/core/messages";
+import {
+	HumanMessage,
+	SystemMessage,
+	type BaseMessage,
+} from "@langchain/core/messages";
 import { z } from "zod";
 import { LangChainModelService } from "../langchain-model.service";
 import { CoverageService } from "../../coverage/coverage.service";
 import { getCoderPrompt } from "../prompts/coder.prompt";
 import { currentTimeForDisplay } from "../../core/date.util";
+import { PrismaService } from "../../core/prisma.service";
 
 // Zod schema for the final JSON proposal. `finalize_coding` is the
 // agent's exit door — when it calls this tool, we capture the payload
@@ -155,17 +160,57 @@ export class CoderAgent {
 	constructor(
 		private readonly modelService: LangChainModelService,
 		private readonly coverage: CoverageService,
+		private readonly prisma: PrismaService,
 	) {}
 
 	async run(input: CoderInput): Promise<CoderResult> {
 		const year = input.year ?? new Date().getFullYear();
-		const systemPrompt = getCoderPrompt({
+		const basePrompt = getCoderPrompt({
 			locality: input.locality,
 			contractorNumber: input.contractorNumber,
 			year,
 			specialty: input.specialty,
 			pos: input.pos,
 			currentDate: currentTimeForDisplay(),
+		});
+
+		// Load the specialty delta (podiatry, internal medicine, etc.) if
+		// we recognise the doctor's specialty. Appended verbatim after
+		// the base prompt so it can override / extend scope, exam limits,
+		// code preferences.
+		let specialtyDelta = "";
+		if (input.specialty) {
+			const row = await this.prisma.specialtyPromptDelta.findFirst({
+				where: {
+					specialty: { equals: input.specialty, mode: "insensitive" },
+				},
+				select: { systemPrompt: true },
+			});
+			if (row) specialtyDelta = row.systemPrompt;
+		}
+
+		// Two cache_control blocks so Anthropic's prompt cache (5-min
+		// TTL) reuses the base prompt across ANY encounter and reuses
+		// the specialty delta across encounters for the same specialty.
+		// The note text itself goes through as a user message and is
+		// NOT cached (every encounter is different).
+		const systemMessage = new SystemMessage({
+			content: [
+				{
+					type: "text",
+					text: basePrompt,
+					cache_control: { type: "ephemeral" },
+				},
+				...(specialtyDelta
+					? [
+							{
+								type: "text",
+								text: specialtyDelta,
+								cache_control: { type: "ephemeral" },
+							},
+						]
+					: []),
+			],
 		});
 
 		let captured: CoderProposal | null = null;
@@ -227,6 +272,25 @@ export class CoderAgent {
 						query: z.string(),
 						k: z.number().int().min(1).max(10).optional(),
 						contractorNumber: z.string().optional(),
+					}),
+				},
+			),
+			tool(
+				async ({ query, k }) => {
+					toolCalls.push("search_coding_guidelines");
+					const hits = await this.coverage.searchCodingGuidelines(
+						query,
+						k ?? 5,
+					);
+					return JSON.stringify(hits);
+				},
+				{
+					name: "search_coding_guidelines",
+					description:
+						"Search the ICD-10-CM Official Guidelines for Coding and Reporting (FY2026). Use this when you need authoritative guidance on combination codes, sequencing rules, 'code first' / 'use additional code' mandates, or any specificity question. Returns the actual paragraph from the CMS guidelines document, tagged with its section number (e.g. 'I.C.4.a.2').",
+					schema: z.object({
+						query: z.string(),
+						k: z.number().int().min(1).max(10).optional(),
 					}),
 				},
 			),
@@ -333,7 +397,13 @@ export class CoderAgent {
 		const agent = createReactAgent({
 			llm: this.modelService.getCoderModel(),
 			tools,
-			prompt: systemPrompt,
+			// Function form so we can prepend our structured SystemMessage
+			// (with cache_control blocks) instead of letting langgraph
+			// convert a plain string — otherwise caching is lost.
+			prompt: (state: { messages: BaseMessage[] }) => [
+				systemMessage,
+				...state.messages,
+			],
 		});
 
 		this.logger.log(`CoderAgent run — ${input.noteText.length} chars of note`);
