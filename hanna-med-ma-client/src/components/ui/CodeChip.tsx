@@ -2,10 +2,12 @@ import { cls } from "../../lib/cls";
 
 type Tone = "primary" | "neutral" | "dnr";
 
+// Design tokens for the primary text color don't swap in dark mode
+// (only --p-50/100/200 do), so the dark-text-on-dark-bg pair is
+// unreadable in .dark. Force white text in dark mode for primary.
 const toneMap: Record<Tone, string> = {
-	// Primary = proposed, accepted. Neutral = historical reference.
-	// DNR = the code must be dropped (e.g. NCCI-collapsed).
-	primary: "bg-[var(--p-100)] text-[var(--p-700)] border-[var(--p-300)]",
+	primary:
+		"bg-[var(--p-100)] text-[var(--p-700)] border-[var(--p-300)] dark:text-white dark:border-[var(--p-200)]",
 	neutral: "bg-[var(--n-100)] text-[var(--n-800)] border-[var(--n-200)]",
 	dnr: "bg-[var(--dnr-bg)] text-[var(--dnr-fg)] border-[var(--dnr-fg)]/30",
 };

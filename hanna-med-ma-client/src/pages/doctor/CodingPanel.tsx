@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	AlertTriangle,
 	CheckCircle2,
 	FileText,
 	Info,
 	Loader2,
+	Maximize2,
+	Minimize2,
 	RefreshCw,
 	Shield,
 	Sparkles,
@@ -67,6 +69,23 @@ export function CodingPanel({
 	const [approving, setApproving] = useState(false);
 	const [attested, setAttested] = useState(false);
 	const [selectedCode, setSelectedCode] = useState<string | null>(null);
+	const [fullscreen, setFullscreen] = useState(false);
+
+	// Escape exits fullscreen + page scroll gets locked while the
+	// overlay is up so the body doesn't creep around behind it.
+	useEffect(() => {
+		if (!fullscreen) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setFullscreen(false);
+		};
+		window.addEventListener("keydown", onKey);
+		const prev = document.body.style.overflow;
+		document.body.style.overflow = "hidden";
+		return () => {
+			window.removeEventListener("keydown", onKey);
+			document.body.style.overflow = prev;
+		};
+	}, [fullscreen]);
 
 	const proposal = coding?.proposal ?? null;
 	const noteText = proposal?.noteText ?? "";
@@ -197,9 +216,18 @@ export function CodingPanel({
 	const highlights = toHighlights(proposal);
 
 	return (
-		<section className="bg-n-0 border border-n-150 rounded-lg overflow-hidden">
+		<section
+			className={cls(
+				"bg-n-0 border border-n-150 rounded-lg overflow-hidden",
+				// When fullscreen, the section breaks out of its parent
+				// layout and covers the viewport. Keeps the same content
+				// so state (selected code, attest toggle) is preserved.
+				fullscreen &&
+					"fixed inset-0 z-50 rounded-none border-0 flex flex-col",
+			)}
+		>
 			{/* Header */}
-			<div className="px-4 py-3 border-b border-n-150 flex items-center gap-3 flex-wrap">
+			<div className="px-4 py-3 border-b border-n-150 flex items-center gap-3 flex-wrap shrink-0">
 				<div className="flex items-center gap-2">
 					<Sparkles className="w-4 h-4 text-p-600" />
 					<div className="font-serif text-[15px] text-n-900">AI Coder</div>
@@ -223,6 +251,21 @@ export function CodingPanel({
 					>
 						{generating ? "Running…" : "Re-run"}
 					</Button>
+					<Button
+						tone="ghost"
+						size="sm"
+						onClick={() => setFullscreen((v) => !v)}
+						leading={
+							fullscreen ? (
+								<Minimize2 className="w-3.5 h-3.5" />
+							) : (
+								<Maximize2 className="w-3.5 h-3.5" />
+							)
+						}
+						aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+					>
+						{fullscreen ? "Exit" : "Fullscreen"}
+					</Button>
 				</div>
 			</div>
 
@@ -232,9 +275,21 @@ export function CodingPanel({
 			    Each column header is pinned to h-11 so the border-b
 			    lines up pixel-perfect across the three regardless of
 			    font-size differences in each label. */}
-			<div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px_260px]">
+			<div
+				className={cls(
+					"grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px_260px]",
+					fullscreen && "flex-1 min-h-0 overflow-hidden",
+				)}
+			>
 				{/* ── Col 1 — Note with highlights ───────────────────── */}
-				<div className="border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col max-h-[600px] xl:max-h-[720px] min-w-0">
+				<div
+					className={cls(
+						"border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col min-w-0",
+						fullscreen
+							? "max-h-none xl:max-h-none"
+							: "max-h-[600px] xl:max-h-[720px]",
+					)}
+				>
 					<div className="h-11 shrink-0 px-4 border-b border-n-150 flex items-center gap-3 whitespace-nowrap">
 						<FileText className="w-3.5 h-3.5 text-n-500 shrink-0" />
 						<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 truncate">
@@ -270,7 +325,14 @@ export function CodingPanel({
 				</div>
 
 				{/* ── Col 2 — Suggested bill ─────────────────────────── */}
-				<div className="border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col max-h-[600px] xl:max-h-[720px] min-w-0">
+				<div
+					className={cls(
+						"border-b xl:border-b-0 xl:border-r border-n-150 flex flex-col min-w-0",
+						fullscreen
+							? "max-h-none xl:max-h-none"
+							: "max-h-[600px] xl:max-h-[720px]",
+					)}
+				>
 					<div className="h-11 shrink-0 px-4 border-b border-n-150 flex items-center">
 						<div className="font-semibold text-[13px] text-n-900">
 							Suggested bill
@@ -397,7 +459,14 @@ export function CodingPanel({
 				</div>
 
 				{/* ── Col 3 — Defense ────────────────────────────────── */}
-				<div className="flex flex-col bg-n-50 max-h-[600px] xl:max-h-[720px] min-w-0">
+				<div
+					className={cls(
+						"flex flex-col bg-n-50 min-w-0",
+						fullscreen
+							? "max-h-none xl:max-h-none"
+							: "max-h-[600px] xl:max-h-[720px]",
+					)}
+				>
 					<div className="h-11 shrink-0 px-4 border-b border-n-150 flex items-center gap-2">
 						<div className="font-semibold text-[13px] text-n-900">Defense</div>
 						<Shield className="w-3.5 h-3.5 text-n-500 ml-auto" />
@@ -525,7 +594,7 @@ export function CodingPanel({
 			</div>
 
 			{/* Run metadata — always visible as a slim footer */}
-			<div className="px-4 py-2 border-t border-n-150 flex items-center gap-3 flex-wrap font-mono text-[10.5px] text-n-500">
+			<div className="px-4 py-2 border-t border-n-150 flex items-center gap-3 flex-wrap font-mono text-[10.5px] text-n-500 shrink-0">
 				<span>
 					primary <span className="text-n-800">{proposal.primaryCpt}</span>
 				</span>

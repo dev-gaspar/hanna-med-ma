@@ -331,7 +331,7 @@ export class CoderAgent {
 		];
 
 		const agent = createReactAgent({
-			llm: this.modelService.getModel(),
+			llm: this.modelService.getCoderModel(),
 			tools,
 			prompt: systemPrompt,
 		});

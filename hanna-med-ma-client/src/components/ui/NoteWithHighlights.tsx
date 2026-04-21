@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { cls } from "../../lib/cls";
 
 export interface Highlight {
@@ -10,10 +10,14 @@ export interface Highlight {
 	kind: "cpt" | "icd10" | "mdm";
 }
 
+// Dark-mode values from the design system only swap the primary
+// *background* tokens (--p-50/100/200); the *text* tokens (--p-700 etc.)
+// stay at their light-mode values, so "bg-p-100 text-p-700" goes
+// dark-on-dark in .dark. `--info-*` and `--ok-*` DO swap cleanly, so
+// only the ICD (purple) bucket needs the explicit dark override.
 const kindStyle: Record<Highlight["kind"], string> = {
-	// Same visual language as the Remix design's <mark> colors.
 	cpt: "bg-[var(--info-bg)] text-[var(--info-fg)]",
-	icd10: "bg-[var(--p-100)] text-[var(--p-700)]",
+	icd10: "bg-[var(--p-100)] text-[var(--p-700)] dark:text-white",
 	mdm: "bg-[var(--ok-bg)] text-[var(--ok-fg)]",
 };
 
@@ -145,6 +149,20 @@ export function NoteWithHighlights({
 		[cleaned, highlights],
 	);
 
+	// Scroll the first highlight that matches `selectedCode` into view
+	// whenever the selection changes. Lets the bill panel drive which
+	// part of the note is visible without the user having to scroll.
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (!selectedCode || !containerRef.current) return;
+		const match = containerRef.current.querySelector<HTMLElement>(
+			`[data-code="${CSS.escape(selectedCode)}"]`,
+		);
+		if (match) {
+			match.scrollIntoView({ behavior: "smooth", block: "center" });
+		}
+	}, [selectedCode]);
+
 	const nodes: ReactNode[] = [];
 	let cursor = 0;
 	placed.forEach((p, i) => {
@@ -153,20 +171,24 @@ export function NoteWithHighlights({
 		}
 		const text = cleaned.slice(p.start, p.end);
 		const isSelected = selectedCode && p.code === selectedCode;
+		// <span> rather than <mark> so browser UA styles (yellow bg, black
+		// text) don't fight our design tokens.
 		nodes.push(
-			<mark
+			<span
 				key={`h-${i}`}
+				data-code={p.code}
 				className={cls(
 					"rounded px-0.5 cursor-pointer transition",
 					kindStyle[p.kind],
-					isSelected && "ring-2 ring-p-500 ring-offset-1",
+					isSelected &&
+						"ring-2 ring-p-500 ring-offset-1 ring-offset-n-0",
 					onCodeClick && "hover:brightness-95",
 				)}
 				onClick={() => onCodeClick?.(p.code)}
 				title={`Evidence for ${p.code}`}
 			>
 				{text}
-			</mark>,
+			</span>,
 		);
 		cursor = p.end;
 	});
@@ -176,6 +198,7 @@ export function NoteWithHighlights({
 
 	return (
 		<div
+			ref={containerRef}
 			className={cls(
 				"font-serif text-[14px] leading-[1.75] text-n-800 whitespace-pre-wrap",
 				className,
