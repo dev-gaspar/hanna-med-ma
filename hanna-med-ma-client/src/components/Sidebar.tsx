@@ -3,6 +3,7 @@ import {
 	LayoutDashboard,
 	Users,
 	Stethoscope,
+	Sparkles,
 	Key,
 	Monitor,
 	LogOut,
@@ -32,6 +33,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 		{ path: "/admin/dashboard", icon: LayoutDashboard, label: "Dashboard" },
 		{ path: "/admin/dashboard/users", icon: Users, label: "Users" },
 		{ path: "/admin/dashboard/doctors", icon: Stethoscope, label: "Doctors" },
+		{
+			path: "/admin/dashboard/specialties",
+			icon: Sparkles,
+			label: "Specialties",
+		},
 		{ path: "/admin/dashboard/rpas", icon: Monitor, label: "RPA Nodes" },
 		{ path: "/admin/dashboard/credentials", icon: Key, label: "Credentials" },
 	];

@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsNotEmpty, IsArray } from "class-validator";
+import {
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 
 export class CreateDoctorDto {
@@ -18,8 +24,19 @@ export class CreateDoctorDto {
   password: string;
 
   @ApiProperty({
+    example: 3,
+    description:
+      "Specialty relation ID (preferred). When set, Doctor.specialty string is auto-synced from Specialty.name.",
+    required: false,
+  })
+  @IsInt()
+  @IsOptional()
+  specialtyId?: number;
+
+  @ApiProperty({
     example: "Cardiology",
-    description: "Doctor specialty",
+    description:
+      "Legacy free-text specialty. Kept for back-compat; ignored when specialtyId is provided.",
     required: false,
   })
   @IsString()

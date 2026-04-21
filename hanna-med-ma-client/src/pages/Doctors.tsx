@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Bell, Send, Check, Loader2 } from "lucide-react";
 import { doctorService } from "../services/doctorService";
+import {
+	specialtyService,
+	type Specialty,
+} from "../services/specialtyService";
 import type { Doctor, CreateDoctorDto, UpdateDoctorDto } from "../types";
 import Modal from "../components/Modal";
 import { Button } from "../components/ui/Button";
@@ -30,6 +34,7 @@ function EmrPill({ system }: { system: string }) {
 
 export default function Doctors() {
 	const [doctors, setDoctors] = useState<Doctor[]>([]);
+	const [specialties, setSpecialties] = useState<Specialty[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null);
@@ -38,7 +43,7 @@ export default function Doctors() {
 		name: "",
 		username: "",
 		password: "",
-		specialty: "",
+		specialtyId: null,
 		emrSystems: [],
 	});
 
@@ -56,6 +61,9 @@ export default function Doctors() {
 
 	useEffect(() => {
 		fetchDoctors();
+		// Specialties feed the form dropdown. Failure is non-blocking —
+		// the dropdown falls back to "(none)" until the fetch succeeds.
+		specialtyService.getAll().then(setSpecialties).catch(() => {});
 	}, []);
 
 	const fetchDoctors = async () => {
@@ -76,7 +84,10 @@ export default function Doctors() {
 				name: doctor.name,
 				username: doctor.username,
 				password: "",
-				specialty: doctor.specialty || "",
+				specialtyId:
+					doctor.specialtyId ??
+					doctor.specialtyRel?.id ??
+					null,
 				emrSystems: doctor.emrSystems || [],
 			});
 		} else {
@@ -85,7 +96,7 @@ export default function Doctors() {
 				name: "",
 				username: "",
 				password: "",
-				specialty: "",
+				specialtyId: null,
 				emrSystems: [],
 			});
 		}
@@ -114,7 +125,9 @@ export default function Doctors() {
 					name: formData.name,
 					username: formData.username,
 					password: formData.password || undefined,
-					specialty: formData.specialty || undefined,
+					// specialtyId null = explicit "unassign"; server clears
+					// both the relation and the legacy string mirror.
+					specialtyId: formData.specialtyId ?? null,
 					emrSystems: formData.emrSystems,
 				};
 				await doctorService.update(editingDoctor.id, updateData);
@@ -375,15 +388,35 @@ export default function Doctors() {
 					</div>
 					<div>
 						<label className="label-kicker block mb-1.5">Specialty</label>
-						<input
-							type="text"
-							value={formData.specialty}
+						<select
+							value={formData.specialtyId ?? ""}
 							onChange={(e) =>
-								setFormData({ ...formData, specialty: e.target.value })
+								setFormData({
+									...formData,
+									specialtyId: e.target.value
+										? Number(e.target.value)
+										: null,
+								})
 							}
 							className="input-field"
-							placeholder="Podiatry, vascular, internal medicine…"
-						/>
+						>
+							<option value="">— none —</option>
+							{specialties.map((s) => (
+								<option key={s.id} value={s.id}>
+									{s.name}
+								</option>
+							))}
+						</select>
+						<div className="font-mono text-[10.5px] text-n-500 mt-1.5">
+							Manage the list at{" "}
+							<a
+								href="/admin/dashboard/specialties"
+								className="underline decoration-dotted"
+							>
+								Specialties
+							</a>
+							.
+						</div>
 					</div>
 
 					<div>

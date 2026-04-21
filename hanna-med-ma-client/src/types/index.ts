@@ -12,7 +12,10 @@ export interface Doctor {
 	id: number;
 	name: string;
 	username: string;
+	/** Legacy mirror of specialtyRel.name — kept for back-compat. */
 	specialty?: string;
+	specialtyId?: number | null;
+	specialtyRel?: { id: number; name: string } | null;
 	emrSystems: string[];
 	deleted?: boolean;
 	createdAt: string;
@@ -63,6 +66,9 @@ export interface CreateDoctorDto {
 	name: string;
 	username: string;
 	password: string;
+	/** Preferred when picking from the Specialty catalog dropdown. */
+	specialtyId?: number | null;
+	/** Legacy free-text — ignored by the server when specialtyId is set. */
 	specialty?: string;
 	emrSystems?: string[];
 }
@@ -71,6 +77,7 @@ export interface UpdateDoctorDto {
 	name?: string;
 	username?: string;
 	password?: string;
+	specialtyId?: number | null;
 	specialty?: string;
 	emrSystems?: string[];
 }

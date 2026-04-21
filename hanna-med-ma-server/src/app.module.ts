@@ -15,6 +15,7 @@ import { AiModule } from "./ai/ai.module";
 import { CoverageModule } from "./coverage/coverage.module";
 import { CodingModule } from "./coding/coding.module";
 import { RedactionModule } from "./redaction/redaction.module";
+import { SpecialtiesModule } from "./specialties/specialties.module";
 import { RedisModule } from "./core/redis.module";
 import { S3Module } from "./core/s3.module";
 
@@ -37,6 +38,7 @@ import { S3Module } from "./core/s3.module";
     CoverageModule,
     CodingModule,
     RedactionModule,
+    SpecialtiesModule,
     RedisModule,
     S3Module,
   ],

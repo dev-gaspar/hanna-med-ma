@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
 import Doctors from "./pages/Doctors";
+import Specialties from "./pages/Specialties";
 import RPAs from "./pages/RPAs";
 import Credentials from "./pages/Credentials";
 
@@ -76,6 +77,7 @@ function App() {
 					<Route index element={<Dashboard />} />
 					<Route path="users" element={<Users />} />
 					<Route path="doctors" element={<Doctors />} />
+					<Route path="specialties" element={<Specialties />} />
 					<Route path="rpas" element={<RPAs />} />
 					<Route path="credentials" element={<Credentials />} />
 				</Route>
