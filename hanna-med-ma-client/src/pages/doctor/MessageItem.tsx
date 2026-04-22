@@ -2,7 +2,7 @@ import type { Message } from "../../types/chat";
 import { Copy, Check, RotateCcw, Pencil } from "lucide-react";
 import { memo, useMemo, useRef, useCallback, useState } from "react";
 import { PatientListMessage, formatFullListText } from "./PatientListMessage";
-import { parseWhatsAppFormat } from "../../lib/chatUtils";
+import { parseMarkdown } from "../../lib/markdown";
 import { cls } from "../../lib/cls";
 import type { SelectedItem } from "./DoctorChat";
 
@@ -51,7 +51,7 @@ export const MessageItem = memo(
 					/>
 				);
 			}
-			return parseWhatsAppFormat(message.content);
+			return parseMarkdown(message.content);
 		}, [
 			message.content,
 			message.type,

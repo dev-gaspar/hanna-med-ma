@@ -1,14 +1,15 @@
 import React from "react";
 
 /**
- * Parse inline formatting: **bold**, *italic*, _italic_, ~strikethrough~, `code`.
+ * Parse inline Markdown formatting into React nodes.
  *
- * - Standard Markdown: `**bold**` wins over `*italic*` (we try the double-asterisk
- *   pattern first, then fall back to single-asterisk which we treat as italic).
- * - Legacy support: some older sub-agent outputs use `*text*` as bold. Rendered as
- *   italic now is acceptable — visually close and doesn't destroy semantics.
+ * Supports: `**bold**`, `*italic*`, `_italic_`, `~strike~`, `` `code` ``.
+ * `**bold**` must be tried before `*italic*` so the double-asterisk
+ * pattern wins; both follow standard Markdown (single asterisk = italic,
+ * double asterisk = bold). Recursive so styles can nest.
  *
- * Recursive so styles can nest (e.g. bold + italic).
+ * Agents are prompted to emit standard Markdown only — see the
+ * `<formatting_rules>` blocks in the server's prompt files.
  */
 export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 	const result: React.ReactNode[] = [];
@@ -107,8 +108,45 @@ export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 	return result;
 };
 
+type Alignment = "left" | "center" | "right";
+
 /**
- * Parse Markdown-flavoured free-form text into React elements.
+ * GFM-style table separator: `|---|---|`, `| :--- | ---: |` etc.
+ * Requires at least two columns so we don't accidentally match a
+ * horizontal rule that happens to sit under a line with a pipe.
+ */
+const TABLE_SEPARATOR_RE =
+	/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+
+/** Split a `| a | b | c |` row into trimmed cells. Tolerates missing outer pipes. */
+const splitTableRow = (line: string): string[] => {
+	let t = line.trim();
+	if (t.startsWith("|")) t = t.slice(1);
+	if (t.endsWith("|")) t = t.slice(0, -1);
+	return t.split("|").map((c) => c.trim());
+};
+
+/**
+ * Read column alignment from the separator row. GFM:
+ *   `:---`   → left (default),
+ *   `---:`   → right,
+ *   `:---:`  → center.
+ */
+const parseTableAlignments = (separatorLine: string): Alignment[] =>
+	splitTableRow(separatorLine).map((cell) => {
+		const t = cell.trim();
+		const left = t.startsWith(":");
+		const right = t.endsWith(":");
+		if (left && right) return "center";
+		if (right) return "right";
+		return "left";
+	});
+
+const alignClass = (a: Alignment): string =>
+	a === "center" ? "text-center" : a === "right" ? "text-right" : "text-left";
+
+/**
+ * Parse a full Markdown string (blocks + inline) into React elements.
  *
  * Supports:
  *   - `#`, `##`, `###`, `####` headings
@@ -117,11 +155,12 @@ export const parseInlineFormatting = (text: string): React.ReactNode[] => {
  *   - Blockquotes (`> text`)
  *   - Horizontal rule (`---` or `***`)
  *   - Fenced code blocks (```lang ... ```)
- *   - Blank lines between blocks
+ *   - GFM tables with `:---` / `---:` / `:---:` alignment
+ *   - Blank lines as block separators
  *
  * Headings render in our Newsreader serif so they feel clinical, not marketing.
  */
-export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
+export const parseMarkdown = (text: string): React.ReactNode[] => {
 	const lines = text.split("\n");
 	const result: React.ReactNode[] = [];
 	let listBuffer: { type: "bullet" | "numbered"; items: string[] } | null =
@@ -261,6 +300,73 @@ export const parseWhatsAppFormat = (text: string): React.ReactNode[] => {
 			result.push(
 				<hr key={`hr-${i}`} className="my-3 border-t border-n-150" />,
 			);
+			continue;
+		}
+
+		// GFM table: a `|`-containing header row whose next line is a
+		// valid separator. We swallow the header + separator + all
+		// contiguous body rows here, then advance `i` past them.
+		if (
+			line.includes("|") &&
+			i + 1 < lines.length &&
+			TABLE_SEPARATOR_RE.test(lines[i + 1].trim())
+		) {
+			flushAll();
+			const headers = splitTableRow(line);
+			const aligns = parseTableAlignments(lines[i + 1]);
+			const bodyRows: string[][] = [];
+			let j = i + 2;
+			while (
+				j < lines.length &&
+				lines[j].trim() !== "" &&
+				lines[j].includes("|")
+			) {
+				bodyRows.push(splitTableRow(lines[j]));
+				j++;
+			}
+			result.push(
+				<div
+					key={`table-${i}`}
+					className="my-2 overflow-x-auto border border-n-150 rounded-md"
+				>
+					<table className="w-full text-[12px] leading-[1.5] border-collapse">
+						<thead className="bg-n-50">
+							<tr>
+								{headers.map((h, ci) => (
+									<th
+										key={ci}
+										className={`px-2.5 py-1.5 font-semibold text-n-800 border-b border-n-150 ${alignClass(
+											aligns[ci] ?? "left",
+										)}`}
+									>
+										{parseInlineFormatting(h)}
+									</th>
+								))}
+							</tr>
+						</thead>
+						<tbody>
+							{bodyRows.map((row, ri) => (
+								<tr
+									key={ri}
+									className="[&:not(:last-child)>td]:border-b [&>td]:border-n-150"
+								>
+									{row.map((cell, ci) => (
+										<td
+											key={ci}
+											className={`px-2.5 py-1.5 text-n-700 ${alignClass(
+												aligns[ci] ?? "left",
+											)}`}
+										>
+											{parseInlineFormatting(cell)}
+										</td>
+									))}
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>,
+			);
+			i = j - 1; // the for-loop's ++ moves us past the last table row
 			continue;
 		}
 

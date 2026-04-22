@@ -15,21 +15,21 @@
 import { Client } from "pg";
 
 async function main() {
-	const databaseUrl = process.env.SERVER_DATABASE_URL;
-	if (!databaseUrl) throw new Error("SERVER_DATABASE_URL not set");
+  const databaseUrl = process.env.SERVER_DATABASE_URL;
+  if (!databaseUrl) throw new Error("SERVER_DATABASE_URL not set");
 
-	const client = new Client({ connectionString: databaseUrl });
-	await client.connect();
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
 
-	try {
-		// Fresh rebuild — cheaper and simpler than reconciling deltas.
-		await client.query(`TRUNCATE "cpt_codes" RESTART IDENTITY CASCADE`);
+  try {
+    // Fresh rebuild — cheaper and simpler than reconciling deltas.
+    await client.query(`TRUNCATE "cpt_codes" RESTART IDENTITY CASCADE`);
 
-		// One pass against each source, Postgres does the dedup.
-		// fee_schedule_items has one "canonical" description per CPT (the
-		// no-modifier row wins).  lcd_article_cpts uses the longest text
-		// across its rows so we capture the richer Article description.
-		const inserted = await client.query(`
+    // One pass against each source, Postgres does the dedup.
+    // fee_schedule_items has one "canonical" description per CPT (the
+    // no-modifier row wins).  lcd_article_cpts uses the longest text
+    // across its rows so we capture the richer Article description.
+    const inserted = await client.query(`
 			WITH mpfs AS (
 			  SELECT DISTINCT ON (cpt) cpt, description, "statusCode"
 			  FROM fee_schedule_items
@@ -58,13 +58,13 @@ async function main() {
 			RETURNING id
 		`);
 
-		console.log(`cpt_codes: ${inserted.rowCount} rows seeded.`);
-	} finally {
-		await client.end();
-	}
+    console.log(`cpt_codes: ${inserted.rowCount} rows seeded.`);
+  } finally {
+    await client.end();
+  }
 }
 
 main().catch((e) => {
-	console.error(e);
-	process.exit(1);
+  console.error(e);
+  process.exit(1);
 });

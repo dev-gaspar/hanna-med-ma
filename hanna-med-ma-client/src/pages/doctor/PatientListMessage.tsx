@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { PatientCard } from "./PatientCard";
-import { parseInlineFormatting } from "../../lib/chatUtils";
+import { parseInlineFormatting } from "../../lib/markdown";
 import type { SelectedItem } from "./DoctorChat";
 
 export interface PatientItem {

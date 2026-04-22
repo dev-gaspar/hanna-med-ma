@@ -4,9 +4,9 @@ import { PrismaService } from "../../core/prisma.service";
 import { formatForDisplay } from "../../core/date.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
 import {
-	normalizeName,
-	rankAndFilterPatients,
-	tokenizeName,
+  normalizeName,
+  rankAndFilterPatients,
+  tokenizeName,
 } from "../../core/patient-name.util";
 
 @Injectable()
@@ -32,11 +32,14 @@ export class PatientInsuranceTool {
     // Pull a candidate pool using a loose prefix on the first token (DB-side),
     // then apply word-boundary ranking in memory so "perez" doesn't match
     // "fuentesperez" and an exact-name query wins over partial ones.
-    const firstToken = tokenizeName(patient_name)[0] || normalizeName(patient_name);
+    const firstToken =
+      tokenizeName(patient_name)[0] || normalizeName(patient_name);
 
     const candidates = await this.prisma.patient.findMany({
       where: {
-        doctorLinks: { some: { doctorId: doctorContext.doctorId, isActive: true } },
+        doctorLinks: {
+          some: { doctorId: doctorContext.doctorId, isActive: true },
+        },
         emrSystem: hospital_type as any,
         normalizedName: { contains: firstToken },
       },
@@ -61,10 +64,7 @@ export class PatientInsuranceTool {
 
     if (patients.length > 1) {
       const patientList = patients
-        .map(
-          (p) =>
-            `- ${p.name} (Admitted: ${p.admittedDate || "Unknown"})`,
-        )
+        .map((p) => `- ${p.name} (Admitted: ${p.admittedDate || "Unknown"})`)
         .join("\n");
       // Disable streaming since we are returning a system message to the LLM
       return `Multiple patients found matching "${patient_name}" in ${hospital_type}. Please ask the doctor to clarify which one they mean:\n${patientList}`;

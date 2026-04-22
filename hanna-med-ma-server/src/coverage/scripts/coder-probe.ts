@@ -45,44 +45,44 @@ Place of Service: 11 (Office)
 `;
 
 async function main() {
-	const app = await NestFactory.createApplicationContext(AppModule, {
-		logger: ["log", "error", "warn"],
-	});
-	const coder = app.get(CoderAgent);
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ["log", "error", "warn"],
+  });
+  const coder = app.get(CoderAgent);
 
-	console.log("\n=== Note ===");
-	console.log(NOTE.slice(0, 300), "…\n");
+  console.log("\n=== Note ===");
+  console.log(NOTE.slice(0, 300), "…\n");
 
-	const t0 = Date.now();
-	const result = await coder.run({
-		noteText: NOTE,
-		locality: "04",
-		contractorNumber: "09102",
-		year: 2026,
-		// Probe uses the legacy shape without a delta — CodingService
-		// is where the real Specialty relation is resolved.
-		specialty: { name: "Podiatry", systemPrompt: "" },
-		pos: "11",
-	});
-	const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  const t0 = Date.now();
+  const result = await coder.run({
+    noteText: NOTE,
+    locality: "04",
+    contractorNumber: "09102",
+    year: 2026,
+    // Probe uses the legacy shape without a delta — CodingService
+    // is where the real Specialty relation is resolved.
+    specialty: { name: "Podiatry", systemPrompt: "" },
+    pos: "11",
+  });
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
-	console.log(`=== Tool calls (${elapsed}s) ===`);
-	console.log(result.toolCalls.join(" → "));
+  console.log(`=== Tool calls (${elapsed}s) ===`);
+  console.log(result.toolCalls.join(" → "));
 
-	if (result.proposal) {
-		console.log("\n=== Proposal ===");
-		console.log(JSON.stringify(result.proposal, null, 2));
-	} else {
-		console.log(
-			"\n⚠ No structured proposal captured. Raw agent text:\n",
-			result.rawText.slice(0, 2000),
-		);
-	}
+  if (result.proposal) {
+    console.log("\n=== Proposal ===");
+    console.log(JSON.stringify(result.proposal, null, 2));
+  } else {
+    console.log(
+      "\n⚠ No structured proposal captured. Raw agent text:\n",
+      result.rawText.slice(0, 2000),
+    );
+  }
 
-	await app.close();
+  await app.close();
 }
 
 main().catch((e) => {
-	console.error(e);
-	process.exit(1);
+  console.error(e);
+  process.exit(1);
 });

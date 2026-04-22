@@ -10,9 +10,9 @@
 import { PrismaClient } from "@prisma/client";
 
 const SEEDS: Array<{ name: string; systemPrompt: string }> = [
-	{
-		name: "Podiatry",
-		systemPrompt: `Specialty delta — PODIATRY
+  {
+    name: "Podiatry",
+    systemPrompt: `Specialty delta — PODIATRY
 
 Exam scope: limit physical exam analysis to Vascular, Neurological,
 Dermatologic, and Musculoskeletal systems unless the note documents
@@ -48,10 +48,10 @@ Hard rules
   medical-necessity anchor — pull them from the exam into
   lcdCitations.relevantExcerpt when they appear.
 `,
-	},
-	{
-		name: "Internal Medicine",
-		systemPrompt: `Specialty delta — INTERNAL MEDICINE
+  },
+  {
+    name: "Internal Medicine",
+    systemPrompt: `Specialty delta — INTERNAL MEDICINE
 
 Exam scope: use a problem-focused exam by system (General, HEENT,
 CV, Resp, GI, GU, MSK, Neuro, Skin, Psych) based only on documented
@@ -80,40 +80,40 @@ Code preferences
 Always analyse modifier 25 when an E/M is billed alongside a
 procedure on the same DOS, even a minor one (joint injection, I&D).
 `,
-	},
+  },
 ];
 
 async function main() {
-	const prisma = new PrismaClient();
-	try {
-		for (const s of SEEDS) {
-			await prisma.specialty.upsert({
-				where: { name: s.name },
-				create: s,
-				update: { systemPrompt: s.systemPrompt },
-			});
-			console.log(`✓ ${s.name} (${s.systemPrompt.length} chars)`);
-		}
+  const prisma = new PrismaClient();
+  try {
+    for (const s of SEEDS) {
+      await prisma.specialty.upsert({
+        where: { name: s.name },
+        create: s,
+        update: { systemPrompt: s.systemPrompt },
+      });
+      console.log(`✓ ${s.name} (${s.systemPrompt.length} chars)`);
+    }
 
-		// Relink any doctor whose legacy `specialty` string matches a
-		// Specialty.name (case-insensitive) and doesn't yet have a
-		// relation. The migration already did this once at creation;
-		// re-running keeps things self-healing for new doctors.
-		const res = await prisma.$executeRawUnsafe(
-			`UPDATE "doctors" d
+    // Relink any doctor whose legacy `specialty` string matches a
+    // Specialty.name (case-insensitive) and doesn't yet have a
+    // relation. The migration already did this once at creation;
+    // re-running keeps things self-healing for new doctors.
+    const res = await prisma.$executeRawUnsafe(
+      `UPDATE "doctors" d
 			   SET "specialtyId" = s.id
 			   FROM "specialties" s
 			  WHERE d."specialtyId" IS NULL
 			    AND d."specialty" IS NOT NULL
 			    AND LOWER(TRIM(d."specialty")) = LOWER(TRIM(s."name"))`,
-		);
-		console.log(`Relinked ${res} doctors to their Specialty row.`);
-	} finally {
-		await prisma.$disconnect();
-	}
+    );
+    console.log(`Relinked ${res} doctors to their Specialty row.`);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 main().catch((e) => {
-	console.error(e);
-	process.exit(1);
+  console.error(e);
+  process.exit(1);
 });

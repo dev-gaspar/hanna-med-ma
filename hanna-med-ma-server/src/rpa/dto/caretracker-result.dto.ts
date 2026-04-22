@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { ApiProperty } from "@nestjs/swagger";
+import { IsBoolean, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class CaretrackerResultDto {
   @ApiProperty()

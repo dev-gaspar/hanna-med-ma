@@ -1,5 +1,9 @@
 import api from "../lib/api";
-import type { CoderProposal, EncounterCoding } from "../types/coding";
+import type {
+	CodingStatus,
+	EncounterCoding,
+	InboxResponse,
+} from "../types/coding";
 
 /**
  * Client for the AI Coder endpoints. Kept tiny — the rendering side
@@ -7,6 +11,29 @@ import type { CoderProposal, EncounterCoding } from "../types/coding";
  * shape only.
  */
 export const codingService = {
+	/**
+	 * Doctor's coding inbox — every encounter with a signed note
+	 * joined with its latest coding pass (or null). Server already
+	 * sorts the rows; filters are applied server-side.
+	 */
+	async getInbox(filters: {
+		status?: string;
+		riskBand?: string;
+		emrSystem?: string;
+		search?: string;
+	} = {}): Promise<InboxResponse> {
+		const params = new URLSearchParams();
+		if (filters.status) params.set("status", filters.status);
+		if (filters.riskBand) params.set("riskBand", filters.riskBand);
+		if (filters.emrSystem) params.set("emrSystem", filters.emrSystem);
+		if (filters.search) params.set("search", filters.search);
+		const qs = params.toString();
+		const res = await api.get<InboxResponse>(
+			`/coding/inbox${qs ? `?${qs}` : ""}`,
+		);
+		return res.data;
+	},
+
 	/** Latest proposal for an encounter, or null if none has been run yet. */
 	async getLatest(encounterId: number): Promise<EncounterCoding | null> {
 		const res = await api.get<EncounterCoding | null>(
@@ -16,16 +43,16 @@ export const codingService = {
 	},
 
 	/**
-	 * Run the AI Coder against this encounter's signed note. Each call
-	 * creates a new DRAFT — the server is intentionally stateless here,
-	 * the UI decides whether to display history or replace in place.
+	 * Enqueue an AI Coder run against this encounter's signed note. Returns
+	 * 202 immediately with the new coding id — the agent runs in the
+	 * background on the server. The caller is expected to poll `getLatest`
+	 * (or use `useCodingPolling`) until the row reaches a terminal status.
 	 */
 	async generate(
 		encounterId: number,
-	): Promise<{ coding: { id: number }; proposal: CoderProposal | null }> {
+	): Promise<{ coding: { id: number; status: CodingStatus } }> {
 		const res = await api.post<{
-			coding: { id: number };
-			proposal: CoderProposal | null;
+			coding: { id: number; status: CodingStatus };
 		}>(`/coding/encounters/${encounterId}/generate`);
 		return res.data;
 	},

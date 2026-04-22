@@ -10,7 +10,7 @@ import { PatientsController } from "./patients.controller";
  * and S3Service (presigned URLs for face sheet / provider note PDFs).
  */
 @Module({
-	imports: [IngestModule, RpaModule, S3Module],
-	controllers: [PatientsController],
+  imports: [IngestModule, RpaModule, S3Module],
+  controllers: [PatientsController],
 })
 export class PatientsModule {}

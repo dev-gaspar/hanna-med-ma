@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
 import {
-	normalizeName,
-	rankAndFilterPatients,
-	tokenizeName,
+  normalizeName,
+  rankAndFilterPatients,
+  tokenizeName,
 } from "../../core/patient-name.util";
 
 @Injectable()

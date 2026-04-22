@@ -9,9 +9,9 @@ import { CodingService } from "./coding.service";
  * CoderAgent (in AiModule) and the PDF download to S3Service.
  */
 @Module({
-	imports: [AiModule, S3Module],
-	controllers: [CodingController],
-	providers: [CodingService],
-	exports: [CodingService],
+  imports: [AiModule, S3Module],
+  controllers: [CodingController],
+  providers: [CodingService],
+  exports: [CodingService],
 })
 export class CodingModule {}

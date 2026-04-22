@@ -6,9 +6,7 @@ import {
 	ChevronRight,
 	ExternalLink,
 	FileText,
-	FlaskConical,
 	Loader2,
-	Shield,
 	CheckCircle2,
 } from "lucide-react";
 import { patientService } from "../../services/patientService";
@@ -102,10 +100,6 @@ export default function PatientDetail() {
 			cancelled = true;
 		};
 	}, [patientId]);
-
-	const sendToChat = (query: string) => {
-		navigate(`/doctor/chat?q=${encodeURIComponent(query)}`);
-	};
 
 	if (loading) {
 		return (
@@ -220,40 +214,6 @@ export default function PatientDetail() {
 						</dl>
 					</section>
 
-					{/* Quick actions — shortcut to chat scoped to this patient */}
-					<section className="flex flex-wrap gap-2">
-						<Button
-							tone="ghost"
-							size="sm"
-							onClick={() =>
-								sendToChat(`Check clinical summary of ${patient.name}`)
-							}
-							leading={<FileText className="w-3.5 h-3.5" />}
-						>
-							Summary
-						</Button>
-						<Button
-							tone="ghost"
-							size="sm"
-							onClick={() =>
-								sendToChat(`Check medical insurance of ${patient.name}`)
-							}
-							leading={<Shield className="w-3.5 h-3.5" />}
-						>
-							Insurance
-						</Button>
-						<Button
-							tone="ghost"
-							size="sm"
-							onClick={() =>
-								sendToChat(`Check lab results of ${patient.name}`)
-							}
-							leading={<FlaskConical className="w-3.5 h-3.5" />}
-						>
-							Lab
-						</Button>
-					</section>
-
 					</div>
 					{/* ── Right column: encounter + history + raw data ── */}
 					<div className="space-y-5 min-w-0">
@@ -285,12 +245,6 @@ export default function PatientDetail() {
 									label="Date of service"
 									value={formatDate(latestEncounter.dateOfService)}
 								/>
-								{latestEncounter.deadline && (
-									<Row
-										label="Deadline"
-										value={formatDate(latestEncounter.deadline)}
-									/>
-								)}
 								<Row
 									label="Note attempts"
 									value={`${latestEncounter.noteAttempts}`}

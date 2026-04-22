@@ -5,7 +5,7 @@ import { RedactionService } from "./redaction.service";
 // RedactionModule explicitly. The service is pure (no state, no deps).
 @Global()
 @Module({
-	providers: [RedactionService],
-	exports: [RedactionService],
+  providers: [RedactionService],
+  exports: [RedactionService],
 })
 export class RedactionModule {}

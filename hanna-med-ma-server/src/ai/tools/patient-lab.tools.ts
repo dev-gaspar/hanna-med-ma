@@ -4,9 +4,9 @@ import { PrismaService } from "../../core/prisma.service";
 import { formatForDisplay } from "../../core/date.util";
 import { SubAgentsService } from "../agents/sub-agents.service";
 import {
-	normalizeName,
-	rankAndFilterPatients,
-	tokenizeName,
+  normalizeName,
+  rankAndFilterPatients,
+  tokenizeName,
 } from "../../core/patient-name.util";
 
 @Injectable()
@@ -29,11 +29,14 @@ export class PatientLabTool {
   ): Promise<string> {
     const { hospital_type, patient_name, specific_question } = args;
 
-    const firstToken = tokenizeName(patient_name)[0] || normalizeName(patient_name);
+    const firstToken =
+      tokenizeName(patient_name)[0] || normalizeName(patient_name);
 
     const candidates = await this.prisma.patient.findMany({
       where: {
-        doctorLinks: { some: { doctorId: doctorContext.doctorId, isActive: true } },
+        doctorLinks: {
+          some: { doctorId: doctorContext.doctorId, isActive: true },
+        },
         emrSystem: hospital_type as any,
         normalizedName: { contains: firstToken },
       },
@@ -58,10 +61,7 @@ export class PatientLabTool {
 
     if (patients.length > 1) {
       const patientList = patients
-        .map(
-          (p) =>
-            `- ${p.name} (Admitted: ${p.admittedDate || "Unknown"})`,
-        )
+        .map((p) => `- ${p.name} (Admitted: ${p.admittedDate || "Unknown"})`)
         .join("\n");
       return `Multiple patients found matching "${patient_name}" in ${hospital_type}. Please ask the doctor to clarify which one they mean:\n${patientList}`;
     }

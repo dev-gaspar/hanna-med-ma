@@ -17,9 +17,10 @@ export class DoctorsService {
   // `specialty` string with it. When neither is set, both fields are
   // cleared. When only `specialty` (string) is set, the relation
   // stays null (back-compat path for any legacy caller).
-  private async resolveSpecialty(
-    dto: { specialtyId?: number | null; specialty?: string | null },
-  ): Promise<{ specialtyId: number | null; specialty: string | null }> {
+  private async resolveSpecialty(dto: {
+    specialtyId?: number | null;
+    specialty?: string | null;
+  }): Promise<{ specialtyId: number | null; specialty: string | null }> {
     if (dto.specialtyId != null) {
       const row = await this.prisma.specialty.findUnique({
         where: { id: dto.specialtyId },

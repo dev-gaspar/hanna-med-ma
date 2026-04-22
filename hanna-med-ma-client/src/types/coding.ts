@@ -78,23 +78,108 @@ export interface CoderProposal {
 }
 
 export type CodingStatus =
+	| "IN_PROGRESS"
 	| "DRAFT"
 	| "UNDER_REVIEW"
 	| "APPROVED"
 	| "TRANSFERRED_TO_CARETRACKER"
-	| "DENIED";
+	| "DENIED"
+	| "FAILED";
+
+/** Terminal statuses — polling stops once the row reaches one of these. */
+export const TERMINAL_CODING_STATUSES: CodingStatus[] = [
+	"DRAFT",
+	"UNDER_REVIEW",
+	"APPROVED",
+	"TRANSFERRED_TO_CARETRACKER",
+	"DENIED",
+	"FAILED",
+];
+
+/**
+ * Live-reasoning events emitted by the agent during a run. Persisted
+ * into `encounter_codings.reasoningLog` and streamed to the UI via
+ * polling. `ts` is milliseconds since the run started.
+ */
+export type ReasoningEvent =
+	| { ts: number; type: "think"; text: string }
+	| {
+			ts: number;
+			type: "tool_call";
+			tool: string;
+			args: Record<string, unknown>;
+			callId?: string;
+	  }
+	| {
+			ts: number;
+			type: "tool_result";
+			tool: string;
+			summary: string;
+			callId?: string;
+	  };
+
+/**
+ * One row in the doctor's coder inbox. Each row is an encounter with
+ * a signed note, paired with its latest coding (or null when the AI
+ * Coder has not run yet — a "never run" row).
+ */
+export interface InboxEntry {
+	encounterId: number;
+	type: "CONSULT" | "PROGRESS";
+	dateOfService: string;
+	deadline?: string | null;
+	patient: {
+		id: number;
+		name: string;
+		emrSystem: "JACKSON" | "STEWARD" | "BAPTIST";
+		facility: string | null;
+	};
+	coding: {
+		id: number;
+		status: CodingStatus;
+		primaryCpt: string | null;
+		auditRiskScore: number | null;
+		riskBand: "LOW" | "REVIEW" | "RISK" | null;
+		runDurationMs: number | null;
+		toolCallCount: number | null;
+		errorMessage: string | null;
+		createdAt: string;
+		completedAt: string | null;
+	} | null;
+}
+
+export interface InboxResponse {
+	entries: InboxEntry[];
+	counts: {
+		total: number;
+		NEVER_RUN: number;
+		IN_PROGRESS: number;
+		DRAFT: number;
+		APPROVED: number;
+		TRANSFERRED_TO_CARETRACKER: number;
+		FAILED: number;
+		riskHigh: number;
+	};
+}
 
 export interface EncounterCoding {
 	id: number;
 	encounterId: number;
 	status: CodingStatus;
 	basedOnNoteVersion: "DRAFT" | "SIGNED";
-	proposal: CoderProposal;
+	/** Null while IN_PROGRESS / FAILED — only present after a successful finalize. */
+	proposal: CoderProposal | null;
 	primaryCpt?: string | null;
 	auditRiskScore?: number | null;
 	riskBand?: "LOW" | "REVIEW" | "RISK" | null;
 	toolCallCount?: number | null;
 	runDurationMs?: number | null;
+	/** Agent's live reasoning timeline — growing array of events. */
+	reasoningLog?: ReasoningEvent[] | null;
+	/** Populated when status=FAILED. */
+	errorMessage?: string | null;
+	startedAt?: string | null;
+	completedAt?: string | null;
 	approvedByDoctorId?: number | null;
 	approvedAt?: string | null;
 	createdAt: string;

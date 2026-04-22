@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Home, Command, User, Shield, LogOut } from "lucide-react";
+import { Home, Inbox, Command, User, Shield, LogOut } from "lucide-react";
 import { doctorAuthService } from "../../services/doctorAuthService";
 import { DoctorDataProvider } from "../../contexts/DoctorDataContext";
 import { DoctorChatProvider } from "../../contexts/DoctorChatContext";
@@ -31,6 +31,7 @@ export default function DoctorLayout({
 
 	const tabs = [
 		{ to: "/doctor/round", label: "Round", icon: Home },
+		{ to: "/doctor/inbox", label: "Inbox", icon: Inbox },
 		{ to: "/doctor/chat", label: "Chat", icon: Command },
 		{ to: "/doctor/me", label: "Me", icon: User },
 	];

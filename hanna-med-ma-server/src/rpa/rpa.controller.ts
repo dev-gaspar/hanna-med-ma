@@ -124,7 +124,8 @@ export class RpaController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth("JWT-auth")
   @ApiOperation({
-    summary: "Mark patient as seen — creates an Encounter and triggers billing EMR registration",
+    summary:
+      "Mark patient as seen — creates an Encounter and triggers billing EMR registration",
     description:
       "Creates an Encounter linking the doctor (from JWT) and patient. Send encounterType: CONSULT (first visit) or PROGRESS (follow-up).",
   })
@@ -151,7 +152,8 @@ export class RpaController {
   @ApiResponse({ status: 200, description: "Encounter created" })
   async markPatientAsSeen(
     @Param("patientId", ParseIntPipe) patientId: number,
-    @Body() body: {
+    @Body()
+    body: {
       encounterType?: "CONSULT" | "PROGRESS";
       dateOfService?: string;
     },
@@ -189,8 +191,14 @@ export class RpaController {
   @Get("patients/seen")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth("JWT-auth")
-  @ApiOperation({ summary: "Get IDs of all patients seen by the current doctor" })
-  @ApiResponse({ status: 200, description: "List of seen patient IDs", type: [Number] })
+  @ApiOperation({
+    summary: "Get IDs of all patients seen by the current doctor",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "List of seen patient IDs",
+    type: [Number],
+  })
   async getSeenPatients(@Request() req) {
     const doctorId = req.user.userId;
     return this.rpaService.getSeenPatientIds(doctorId);
@@ -208,7 +216,12 @@ export class RpaController {
     @Param("encounterId", ParseIntPipe) encounterId: number,
     @Body()
     body: {
-      noteStatus?: "PENDING" | "SEARCHING" | "NOT_FOUND" | "FOUND_UNSIGNED" | "FOUND_SIGNED";
+      noteStatus?:
+        | "PENDING"
+        | "SEARCHING"
+        | "NOT_FOUND"
+        | "FOUND_UNSIGNED"
+        | "FOUND_SIGNED";
       providerNote?: string | null;
       noteAttempts?: number;
       noteLastAttemptAt?: string;
@@ -242,13 +255,25 @@ export class RpaController {
   @ApiQuery({
     name: "status",
     required: false,
-    enum: ["PENDING", "SEARCHING", "NOT_FOUND", "FOUND_UNSIGNED", "FOUND_SIGNED"],
+    enum: [
+      "PENDING",
+      "SEARCHING",
+      "NOT_FOUND",
+      "FOUND_UNSIGNED",
+      "FOUND_SIGNED",
+    ],
   })
   @ApiQuery({ name: "attempts", required: false, type: "number" })
   @ApiQuery({ name: "limit", required: false, type: "number" })
   async getEncountersBillingStatus(
     @Query("doctorId") doctorId?: string,
-    @Query("status") status?: "PENDING" | "SEARCHING" | "NOT_FOUND" | "FOUND_UNSIGNED" | "FOUND_SIGNED",
+    @Query("status")
+    status?:
+      | "PENDING"
+      | "SEARCHING"
+      | "NOT_FOUND"
+      | "FOUND_UNSIGNED"
+      | "FOUND_SIGNED",
     @Query("attempts") attempts?: string,
     @Query("limit") limit?: string,
   ) {

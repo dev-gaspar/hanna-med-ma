@@ -280,11 +280,13 @@ model Encounter {
 // after approvals/denials.
 
 enum EncounterCodingStatus {
+  IN_PROGRESS
   DRAFT
   UNDER_REVIEW
   APPROVED
   TRANSFERRED_TO_CARETRACKER
   DENIED
+  FAILED
 }
 
 enum NoteVersionBasis {
@@ -295,13 +297,14 @@ enum NoteVersionBasis {
 model EncounterCoding {
   id                Int                  @id @default(autoincrement())
   encounterId       Int
-  status            EncounterCodingStatus @default(DRAFT)
+  status            EncounterCodingStatus @default(IN_PROGRESS)
   basedOnNoteVersion NoteVersionBasis    @default(SIGNED)
 
   // Full proposal JSON as emitted by the CoderAgent's finalize_coding tool.
   // Keeping it verbatim lets us render the same panel later without
   // re-running the agent and without serialising into many columns.
-  proposal          Json
+  // Null while status=IN_PROGRESS (no proposal yet).
+  proposal          Json?
 
   // Flattened metrics for fast filtering/sorting in the coder inbox.
   primaryCpt        String?
@@ -309,6 +312,18 @@ model EncounterCoding {
   riskBand          String?               // "LOW" | "REVIEW" | "RISK"
   toolCallCount     Int?
   runDurationMs     Int?
+
+  // Live reasoning log — array of events the agent emits during the run.
+  // Kept in the same row so polling a single coding returns everything.
+  // Each element: { ts, type: "think"|"tool_call"|"tool_result", ... }
+  reasoningLog      Json?
+
+  // Populated when status=FAILED. Short human-readable reason.
+  errorMessage      String?
+
+  // Lifecycle timestamps — useful for "running for 2m 14s" in the UI.
+  startedAt         DateTime?
+  completedAt       DateTime?
 
   // Sign-off audit trail.
   approvedByDoctorId Int?

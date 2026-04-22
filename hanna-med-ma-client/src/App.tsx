@@ -22,6 +22,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import DoctorLogin from "./pages/doctor/DoctorLogin";
 import DoctorChat from "./pages/doctor/DoctorChat";
 import TodaysRound from "./pages/doctor/TodaysRound";
+import DoctorInbox from "./pages/doctor/DoctorInbox";
 import PatientListPage from "./pages/doctor/PatientListPage";
 import PatientDetail from "./pages/doctor/PatientDetail";
 import DoctorMe from "./pages/doctor/DoctorMe";
@@ -58,6 +59,7 @@ function App() {
 				>
 					<Route index element={<Navigate to="round" replace />} />
 					<Route path="round" element={<TodaysRound />} />
+					<Route path="inbox" element={<DoctorInbox />} />
 					<Route path="hospital/:system" element={<PatientListPage />} />
 					<Route path="patient/:id" element={<PatientDetail />} />
 					<Route path="chat" element={<DoctorChat />} />

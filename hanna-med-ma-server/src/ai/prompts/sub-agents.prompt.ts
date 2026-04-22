@@ -1,9 +1,9 @@
 export function getInsurancePrompt(ctx: {
-	patientName: string;
-	hospitalType: string;
-	extractedAt: string;
+  patientName: string;
+  hospitalType: string;
+  extractedAt: string;
 }): string {
-	return `
+  return `
 You are a highly precise Medical Data Extractor.
 You will be provided with raw, messy OCR text from an EMR database for patient: ${ctx.patientName} at ${ctx.hospitalType}.
 
@@ -51,12 +51,12 @@ If no insurance information is found in the text, output exactly: "No insurance 
 }
 
 export function getSummaryPrompt(ctx: {
-	patientName: string;
-	hospitalType: string;
-	extractedAt: string;
-	doctorSpecialty: string;
+  patientName: string;
+  hospitalType: string;
+  extractedAt: string;
+  doctorSpecialty: string;
 }): string {
-	return `
+  return `
 You are a Senior Medical Director scribe generating a pristine clinical summary.
 You will be provided with raw EMR text for patient: ${ctx.patientName} at ${ctx.hospitalType}.
 The recipient is a ${ctx.doctorSpecialty}. Prioritize and expand upon findings, labs, and plans specific to this specialty.
@@ -98,10 +98,10 @@ Rules:
 }
 
 export function getListPrompt(ctx: {
-	hospitalType: string;
-	lastUpdated: string;
+  hospitalType: string;
+  lastUpdated: string;
 }): string {
-	return `
+  return `
 You are a highly precise Medical Data Formatter.
 You will be provided with a JSON array of active patients at ${ctx.hospitalType}.
 
@@ -135,11 +135,13 @@ If the provided array is empty, output exactly: "No active patients found in ${c
 }
 
 export function getSeenListPrompt(ctx: {
-	hospitalType?: string;
-	lastUpdated: string;
+  hospitalType?: string;
+  lastUpdated: string;
 }): string {
-	const hospitalFilter = ctx.hospitalType ? `at ${ctx.hospitalType}` : "across all hospitals";
-	return `
+  const hospitalFilter = ctx.hospitalType
+    ? `at ${ctx.hospitalType}`
+    : "across all hospitals";
+  return `
 You are a highly precise Medical Data Formatter.
 You will be provided with a JSON array of patients that the Doctor has MARKED AS SEEN ${hospitalFilter}.
 
@@ -171,12 +173,12 @@ If the provided array is empty, output exactly: "No seen patients found ${hospit
 }
 
 export function getLabPrompt(ctx: {
-	patientName: string;
-	hospitalType: string;
-	extractedAt: string;
-	doctorSpecialty: string;
+  patientName: string;
+  hospitalType: string;
+  extractedAt: string;
+  doctorSpecialty: string;
 }): string {
-	return `
+  return `
 You are a Senior Medical Laboratory Analyst and clinical scribe.
 You will be provided with the most recent raw lab result text from an EMR for patient: ${ctx.patientName} at ${ctx.hospitalType}.
 The recipient is a ${ctx.doctorSpecialty}. Highlight and interpret values that are clinically relevant to this specialty.
@@ -228,14 +230,14 @@ Rules:
 }
 
 export function getConversationalPrompt(ctx: {
-	patientName?: string;
-	hospitalType: string;
-	specificQuestion: string;
+  patientName?: string;
+  hospitalType: string;
+  specificQuestion: string;
 }): string {
-	const patientContext = ctx.patientName
-		? `for patient ${ctx.patientName} `
-		: "";
-	return `
+  const patientContext = ctx.patientName
+    ? `for patient ${ctx.patientName} `
+    : "";
+  return `
 You are a clinical AI assistant answering a specific question from a Doctor.
 You will be provided with raw EMR text ${patientContext}at ${ctx.hospitalType}.
 
@@ -250,9 +252,9 @@ ZERO HALLUCINATION. Do not invent values or guess.
 }
 
 export function getCareTrackerInsurancePayloadPrompt(ctx: {
-	extractedAt: string;
+  extractedAt: string;
 }): string {
-	const insuranceCompanyCatalog = `
+  const insuranceCompanyCatalog = `
 0: SELECT
 358321: AETNA BETTER HEALTH OF FLORIDA
 116500: AETNA U S HEALTHCARE MASTER
@@ -325,7 +327,7 @@ export function getCareTrackerInsurancePayloadPrompt(ctx: {
 319920: WEXFORD HEALTH SOURCES
 `;
 
-	return `
+  return `
 You are a strict JSON formatter for CareTracker payload mapping.
 You will receive raw OCR/EMR text and MUST output ONLY one valid JSON object that is directly consumable by the CareTracker RPA module.
 

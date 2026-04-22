@@ -509,7 +509,10 @@ export class RouterAgent {
         async ({ hospital_types, specific_question }) => {
           callbacks?.onToolCall?.("query_patient_seen");
           return this.patientSeenTool.execute(
-            { hospital_types: hospital_types?.map((h) => h.toUpperCase()), specific_question },
+            {
+              hospital_types: hospital_types?.map((h) => h.toUpperCase()),
+              specific_question,
+            },
             { doctorId: ctx.doctorId, doctorName: ctx.doctorName },
             callbacks,
           );

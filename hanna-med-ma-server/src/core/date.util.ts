@@ -83,7 +83,9 @@ export function isWithinLast24Hours(admittedDate: string): boolean {
   );
   const yesterday = nowInTz.subtract(1, "day").startOf("day");
 
-  return admitted.isAfter(yesterday) && admitted.isBefore(nowInTz.add(1, "day"));
+  return (
+    admitted.isAfter(yesterday) && admitted.isBefore(nowInTz.add(1, "day"))
+  );
 }
 
 /** The display timezone constant for reference */

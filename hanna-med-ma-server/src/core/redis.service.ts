@@ -3,9 +3,9 @@ import {
   OnModuleInit,
   OnModuleDestroy,
   Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Redis } from 'ioredis';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Redis } from "ioredis";
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -16,19 +16,19 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     const redisUrl =
-      this.configService.get<string>('SERVER_REDIS_URL') ||
-      'redis://localhost:6379';
+      this.configService.get<string>("SERVER_REDIS_URL") ||
+      "redis://localhost:6379";
 
     this.client = new Redis(redisUrl, {
       retryStrategy: (times) => Math.min(times * 50, 2000),
       maxRetriesPerRequest: null,
     });
 
-    this.client.on('connect', () => {
+    this.client.on("connect", () => {
       this.logger.log(`Connected to Redis at ${redisUrl}`);
     });
 
-    this.client.on('error', (err) => {
+    this.client.on("error", (err) => {
       this.logger.error(`Redis connection error: ${err.message}`);
     });
   }
@@ -36,7 +36,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     if (this.client) {
       this.client.quit();
-      this.logger.log('Disconnected from Redis');
+      this.logger.log("Disconnected from Redis");
     }
   }
 
@@ -52,7 +52,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     try {
       const payload = JSON.stringify(data);
       const result = await this.client.lpush(queue, payload);
-      this.logger.debug(`Task pushed to ${queue}: ${payload.substring(0, 100)}...`);
+      this.logger.debug(
+        `Task pushed to ${queue}: ${payload.substring(0, 100)}...`,
+      );
       return result;
     } catch (error) {
       this.logger.error(`Failed to push task to ${queue}: ${error.message}`);

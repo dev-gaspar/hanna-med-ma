@@ -1,4 +1,5 @@
 import { Chip } from "./Chip";
+import { parseMarkdown } from "../../lib/markdown";
 
 /**
  * Defense-panel risk gauge: a big score + progress bar + band chip.
@@ -59,7 +60,7 @@ export function AuditRiskMeter({
 			</div>
 			{explanation && (
 				<div className="mt-3 text-[11.5px] text-n-600 leading-[1.55]">
-					{explanation}
+					{parseMarkdown(explanation)}
 				</div>
 			)}
 		</div>

@@ -90,7 +90,9 @@ export class PatientSyncService {
       where: {
         doctorId,
         isActive: true,
-        patientId: { notIn: activePatientIds.length > 0 ? activePatientIds : [0] },
+        patientId: {
+          notIn: activePatientIds.length > 0 ? activePatientIds : [0],
+        },
         patient: { emrSystem: emrSystem as any },
       },
       data: { isActive: false },

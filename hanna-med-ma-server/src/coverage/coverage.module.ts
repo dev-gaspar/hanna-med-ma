@@ -8,8 +8,8 @@ import { CoverageService } from "./coverage.service";
  * rules without going through HTTP.
  */
 @Module({
-	controllers: [CoverageController],
-	providers: [CoverageService],
-	exports: [CoverageService],
+  controllers: [CoverageController],
+  providers: [CoverageService],
+  exports: [CoverageService],
 })
 export class CoverageModule {}

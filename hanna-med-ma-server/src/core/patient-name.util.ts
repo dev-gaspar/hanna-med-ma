@@ -5,11 +5,7 @@ import type { Patient } from "@prisma/client";
  * "GARCIA, JOSE" → "garcia jose"
  */
 export function normalizeName(name: string): string {
-	return name
-		.toLowerCase()
-		.replace(/,/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
+  return name.toLowerCase().replace(/,/g, "").replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -17,9 +13,9 @@ export function normalizeName(name: string): string {
  * "garcia jose a" → ["garcia", "jose"]   (single-letter middle initials are dropped)
  */
 export function tokenizeName(name: string): string[] {
-	return normalizeName(name)
-		.split(" ")
-		.filter((t) => t.length >= 2);
+  return normalizeName(name)
+    .split(" ")
+    .filter((t) => t.length >= 2);
 }
 
 /**
@@ -33,22 +29,22 @@ export function tokenizeName(name: string): string[] {
  * Case-insensitive, comma-insensitive, whitespace-normalized.
  */
 export function scorePatientMatch(
-	candidate: { normalizedName: string },
-	query: string,
+  candidate: { normalizedName: string },
+  query: string,
 ): number {
-	const q = normalizeName(query);
-	const c = candidate.normalizedName; // already normalized at insert time
-	if (!q || !c) return 0;
+  const q = normalizeName(query);
+  const c = candidate.normalizedName; // already normalized at insert time
+  if (!q || !c) return 0;
 
-	if (c === q) return 3;
-	if (c.startsWith(q) || q.startsWith(c)) return 2;
+  if (c === q) return 3;
+  if (c.startsWith(q) || q.startsWith(c)) return 2;
 
-	const qTokens = tokenizeName(q);
-	if (qTokens.length === 0) return 0;
+  const qTokens = tokenizeName(q);
+  if (qTokens.length === 0) return 0;
 
-	const cWords = new Set(c.split(" "));
-	const allPresent = qTokens.every((t) => cWords.has(t));
-	return allPresent ? 1 : 0;
+  const cWords = new Set(c.split(" "));
+  const allPresent = qTokens.every((t) => cWords.has(t));
+  return allPresent ? 1 : 0;
 }
 
 /**
@@ -60,16 +56,15 @@ export function scorePatientMatch(
  *   - Else return all whole-word matches.
  *   - Never return score 0 matches (avoids "perez" inside "fuentesperez").
  */
-export function rankAndFilterPatients<T extends Pick<Patient, "normalizedName">>(
-	candidates: T[],
-	query: string,
-): T[] {
-	const scored = candidates
-		.map((p) => ({ p, score: scorePatientMatch(p, query) }))
-		.filter((x) => x.score > 0);
+export function rankAndFilterPatients<
+  T extends Pick<Patient, "normalizedName">,
+>(candidates: T[], query: string): T[] {
+  const scored = candidates
+    .map((p) => ({ p, score: scorePatientMatch(p, query) }))
+    .filter((x) => x.score > 0);
 
-	if (scored.length === 0) return [];
+  if (scored.length === 0) return [];
 
-	const maxScore = Math.max(...scored.map((x) => x.score));
-	return scored.filter((x) => x.score === maxScore).map((x) => x.p);
+  const maxScore = Math.max(...scored.map((x) => x.score));
+  return scored.filter((x) => x.score === maxScore).map((x) => x.p);
 }

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { MessageItem } from "./MessageItem";
 import { ChatSkeleton } from "./ChatSkeleton";
-import { parseWhatsAppFormat } from "../../lib/chatUtils";
+import { parseMarkdown } from "../../lib/markdown";
 import { cls } from "../../lib/cls";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
@@ -496,7 +496,7 @@ export default function DoctorChat() {
 									streamingText.trimStart().startsWith("[")
 								) ? (
 									<div className="rounded-lg bg-n-0 border border-n-150 px-3.5 py-3 text-[13px] text-n-800 leading-[1.6]">
-										{parseWhatsAppFormat(streamingText)}
+										{parseMarkdown(streamingText)}
 									</div>
 								) : (
 									!currentToolCall && (

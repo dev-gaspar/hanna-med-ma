@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import {
 	AlertTriangle,
 	CheckCircle2,
+	ChevronDown,
+	ChevronRight,
 	FileText,
 	Info,
 	Loader2,
@@ -17,16 +19,20 @@ import { codingService } from "../../services/codingService";
 import type {
 	CoderProposal,
 	EncounterCoding,
+	ReasoningEvent,
 } from "../../types/coding";
 import { cls } from "../../lib/cls";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
 import { CodeChip } from "../../components/ui/CodeChip";
 import { AuditRiskMeter } from "../../components/ui/AuditRiskMeter";
+import { ReasoningTimeline } from "../../components/ui/ReasoningTimeline";
 import {
 	NoteWithHighlights,
 	type Highlight,
 } from "../../components/ui/NoteWithHighlights";
+import { useCodingPolling } from "../../hooks/useCodingPolling";
+import { parseMarkdown } from "../../lib/markdown";
 
 interface CodingPanelProps {
 	encounterId: number;
@@ -36,19 +42,23 @@ interface CodingPanelProps {
 }
 
 const STATUS_TONE = {
+	IN_PROGRESS: "info" as const,
 	DRAFT: "info" as const,
 	UNDER_REVIEW: "warn" as const,
 	APPROVED: "ok" as const,
 	TRANSFERRED_TO_CARETRACKER: "primary" as const,
 	DENIED: "dnr" as const,
+	FAILED: "dnr" as const,
 };
 
 const STATUS_LABEL = {
+	IN_PROGRESS: "running",
 	DRAFT: "draft",
 	UNDER_REVIEW: "reviewing",
 	APPROVED: "approved",
 	TRANSFERRED_TO_CARETRACKER: "transferred",
 	DENIED: "denied",
+	FAILED: "failed",
 };
 
 function toHighlights(proposal: CoderProposal): Highlight[] {
@@ -62,15 +72,40 @@ function toHighlights(proposal: CoderProposal): Highlight[] {
 
 export function CodingPanel({
 	encounterId,
-	coding,
+	coding: initialCoding,
 	providerNoteAvailable,
 	onChange,
 }: CodingPanelProps) {
-	const [generating, setGenerating] = useState(false);
 	const [approving, setApproving] = useState(false);
 	const [attested, setAttested] = useState(false);
 	const [selectedCode, setSelectedCode] = useState<string | null>(null);
 	const [fullscreen, setFullscreen] = useState(false);
+	const [reasoningOpen, setReasoningOpen] = useState(false);
+	// Bumped on Re-run so the polling hook re-fetches and resumes
+	// polling on the newly-enqueued IN_PROGRESS row.
+	const [refetchKey, setRefetchKey] = useState(0);
+	const [starting, setStarting] = useState(false);
+
+	// Poll the server for the latest coding. The hook itself decides
+	// when to stop (terminal status). We ALWAYS enable it when a note
+	// is available so a run kicked off from another tab / session is
+	// reflected here too.
+	const { coding: polled } = useCodingPolling(encounterId, {
+		enabled: providerNoteAvailable,
+		refetchKey,
+	});
+
+	// Prefer the polled row once it arrives; fall back to the one the
+	// parent passed in for the first render.
+	const coding = polled ?? initialCoding;
+
+	// Tell the parent whenever the row transitions — keeps the parent's
+	// state in sync so sidebars etc. can reflect the current status.
+	useEffect(() => {
+		if (polled) onChange(polled);
+		// Only react to meaningful identity/status changes; avoids
+		// firing on every polling tick that merely updated reasoningLog.
+	}, [polled?.id, polled?.status, polled?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// Escape exits fullscreen + page scroll gets locked while the
 	// overlay is up so the body doesn't creep around behind it.
@@ -90,29 +125,27 @@ export function CodingPanel({
 
 	const proposal = coding?.proposal ?? null;
 	const noteText = proposal?.noteText ?? "";
+	const events: ReasoningEvent[] = coding?.reasoningLog ?? [];
+	const isRunning = coding?.status === "IN_PROGRESS";
+	const hasFailed = coding?.status === "FAILED";
 
 	const handleGenerate = async () => {
-		setGenerating(true);
+		setStarting(true);
 		try {
-			const res = await codingService.generate(encounterId);
-			// Server returns the new DRAFT — re-fetch the full row
-			// shape (status, timestamps, etc.) via getLatest.
-			const latest = await codingService.getLatest(encounterId);
-			if (latest) {
-				onChange(latest);
-				toast.success(
-					res.proposal
-						? `AI Coder proposed ${res.proposal.primaryCpt}`
-						: "Coder ran but did not finalize — see raw output",
-				);
-			}
+			await codingService.generate(encounterId);
+			toast.success("AI Coder started — this usually takes a few minutes.");
+			// Reset attestation + bump the refetch key so the hook
+			// immediately fetches the new IN_PROGRESS row.
+			setAttested(false);
+			setReasoningOpen(false);
+			setRefetchKey((k) => k + 1);
 		} catch (e: unknown) {
 			const err = e as { response?: { data?: { message?: string } } };
 			toast.error(
-				err.response?.data?.message || "AI Coder failed — check server logs",
+				err.response?.data?.message || "Could not start AI Coder run",
 			);
 		} finally {
-			setGenerating(false);
+			setStarting(false);
 		}
 	};
 
@@ -131,6 +164,7 @@ export function CodingPanel({
 		}
 	};
 
+	// ── State 0: no signed note yet ──────────────────────────────────
 	if (!providerNoteAvailable) {
 		return (
 			<section className="bg-n-0 border border-dashed border-n-200 rounded-lg p-4">
@@ -147,6 +181,7 @@ export function CodingPanel({
 		);
 	}
 
+	// ── State 1: never run ───────────────────────────────────────────
 	if (!coding) {
 		return (
 			<section className="bg-n-0 border border-n-150 rounded-lg p-5 text-center">
@@ -165,27 +200,90 @@ export function CodingPanel({
 					tone="primary"
 					size="md"
 					onClick={handleGenerate}
-					disabled={generating}
+					disabled={starting}
 					leading={
-						generating ? (
+						starting ? (
 							<Loader2 className="w-3.5 h-3.5 animate-spin" />
 						) : (
 							<Sparkles className="w-3.5 h-3.5" />
 						)
 					}
 				>
-					{generating ? "Running AI Coder…" : "Run AI Coder"}
+					{starting ? "Starting…" : "Run AI Coder"}
 				</Button>
-				{generating && (
-					<div className="font-mono text-[10.5px] text-n-500 mt-2">
-						Typical run: ~60 seconds · agent performs 20–30 tool calls
+				<div className="font-mono text-[10.5px] text-n-500 mt-2">
+					Typical run: 4–6 minutes · agent performs 20–40 tool calls
+				</div>
+			</section>
+		);
+	}
+
+	// ── State 2: IN_PROGRESS — live reasoning timeline ───────────────
+	if (isRunning) {
+		const runningMs = coding.startedAt
+			? Date.now() - new Date(coding.startedAt).getTime()
+			: 0;
+		return (
+			<section className="bg-n-0 border border-n-150 rounded-lg overflow-hidden">
+				<div className="px-4 py-3 border-b border-n-150 flex items-center gap-3 flex-wrap">
+					<div className="flex items-center gap-2">
+						<Loader2 className="w-4 h-4 text-p-600 animate-spin" />
+						<div className="font-serif text-[15px] text-n-900">
+							AI Coder running
+						</div>
+					</div>
+					<Chip tone="info">{STATUS_LABEL.IN_PROGRESS}</Chip>
+					<div className="font-mono text-[10.5px] text-n-500">
+						{(runningMs / 1000).toFixed(0)}s elapsed · {events.length} events
+					</div>
+				</div>
+				<div className="max-h-[480px] overflow-y-auto custom-scrollbar">
+					<ReasoningTimeline events={events} live compact={false} />
+				</div>
+				<div className="px-4 py-2 border-t border-n-150 font-mono text-[10.5px] text-n-500">
+					You can close this panel — the run continues server-side. The
+					final proposal will appear here when it finishes.
+				</div>
+			</section>
+		);
+	}
+
+	// ── State 3: FAILED — error + retry ──────────────────────────────
+	if (hasFailed) {
+		return (
+			<section className="bg-n-0 border border-[var(--dnr-fg)]/30 rounded-lg overflow-hidden">
+				<div className="px-4 py-3 border-b border-n-150 flex items-center gap-3">
+					<AlertTriangle className="w-4 h-4 text-[var(--dnr-fg)]" />
+					<div className="font-serif text-[15px] text-n-900">
+						AI Coder failed
+					</div>
+					<Chip tone="dnr">{STATUS_LABEL.FAILED}</Chip>
+					<Button
+						tone="ghost"
+						size="sm"
+						className="ml-auto"
+						onClick={handleGenerate}
+						disabled={starting}
+						leading={<RefreshCw className="w-3.5 h-3.5" />}
+					>
+						{starting ? "Starting…" : "Retry"}
+					</Button>
+				</div>
+				{coding.errorMessage && (
+					<div className="px-4 py-3 font-mono text-[11.5px] text-n-700 whitespace-pre-wrap border-b border-n-150">
+						{coding.errorMessage}
+					</div>
+				)}
+				{events.length > 0 && (
+					<div className="max-h-[360px] overflow-y-auto custom-scrollbar">
+						<ReasoningTimeline events={events} compact={false} />
 					</div>
 				)}
 			</section>
 		);
 	}
 
-	// A proposal exists — render the 3-column layout (stacks on mobile).
+	// ── State 4: terminal but no proposal (shouldn't happen now, but guard) ──
 	if (!proposal || !("primaryCpt" in proposal)) {
 		return (
 			<section className="bg-n-0 border border-warn-fg/30 rounded-lg p-4">
@@ -204,17 +302,18 @@ export function CodingPanel({
 					tone="ghost"
 					size="sm"
 					onClick={handleGenerate}
-					disabled={generating}
+					disabled={starting}
 					leading={<RefreshCw className="w-3.5 h-3.5" />}
 					className="mt-3"
 				>
-					{generating ? "Re-running…" : "Re-run"}
+					{starting ? "Re-running…" : "Re-run"}
 				</Button>
 			</section>
 		);
 	}
 
 	const highlights = toHighlights(proposal);
+	const statusKey = coding.status as keyof typeof STATUS_TONE;
 
 	// The whole panel body. When fullscreen=true we render it through
 	// a portal to <body> so no ancestor transform/filter can pin the
@@ -234,24 +333,22 @@ export function CodingPanel({
 					<Sparkles className="w-4 h-4 text-p-600" />
 					<div className="font-serif text-[15px] text-n-900">AI Coder</div>
 				</div>
-				<Chip tone={STATUS_TONE[coding.status]}>
-					{STATUS_LABEL[coding.status]}
-				</Chip>
+				<Chip tone={STATUS_TONE[statusKey]}>{STATUS_LABEL[statusKey]}</Chip>
 				<div className="ml-auto flex items-center gap-1.5">
 					<Button
 						tone="ghost"
 						size="sm"
 						onClick={handleGenerate}
-						disabled={generating}
+						disabled={starting}
 						leading={
-							generating ? (
+							starting ? (
 								<Loader2 className="w-3.5 h-3.5 animate-spin" />
 							) : (
 								<RefreshCw className="w-3.5 h-3.5" />
 							)
 						}
 					>
-						{generating ? "Running…" : "Re-run"}
+						{starting ? "Starting…" : "Re-run"}
 					</Button>
 					<Button
 						tone="ghost"
@@ -371,7 +468,7 @@ export function CodingPanel({
 											/>
 											<div className="flex-1 min-w-0">
 												<div className="text-[12.5px] text-n-800 leading-tight">
-													{cpt.rationale}
+													{parseMarkdown(cpt.rationale)}
 												</div>
 												<div className="font-mono text-[10.5px] text-n-500 mt-1 flex items-center gap-2">
 													<span>units · {cpt.units}</span>
@@ -427,12 +524,20 @@ export function CodingPanel({
 											key={i}
 											className="border border-[var(--warn-fg)]/30 bg-[var(--warn-bg)]/40 rounded-md px-3 py-2 text-[12px] text-n-800"
 										>
-											<div className="flex items-center gap-1.5 font-medium">
-												<AlertTriangle className="w-3.5 h-3.5 text-[var(--warn-fg)]" />
-												For {g.forCode} — {g.missingElement}
+											<div className="flex items-start gap-1.5 font-medium">
+												<AlertTriangle className="w-3.5 h-3.5 text-[var(--warn-fg)] mt-0.5 shrink-0" />
+												<div className="flex-1 min-w-0">
+													<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-0.5">
+														For {g.forCode}
+													</div>
+													<div>{parseMarkdown(g.missingElement)}</div>
+												</div>
 											</div>
-											<div className="font-mono text-[10.5px] text-n-600 mt-1.5 leading-relaxed">
-												suggest: {g.suggestedLanguage}
+											<div className="text-[11px] text-n-600 mt-1.5 leading-relaxed pl-5">
+												<div className="font-mono uppercase tracking-wider text-[9.5px] text-n-500 mb-0.5">
+													Suggest
+												</div>
+												{parseMarkdown(g.suggestedLanguage)}
 											</div>
 										</div>
 									))}
@@ -453,7 +558,9 @@ export function CodingPanel({
 											className="border border-n-200 rounded-md px-3 py-2 text-[12.5px] text-n-800 flex items-start gap-2"
 										>
 											<Info className="w-3.5 h-3.5 text-[var(--info-fg)] mt-0.5 shrink-0" />
-											<span>{q}</span>
+											<div className="flex-1 min-w-0">
+												{parseMarkdown(q)}
+											</div>
 										</div>
 									))}
 								</div>
@@ -490,22 +597,26 @@ export function CodingPanel({
 								</div>
 								<div className="divide-y divide-n-150 bg-n-0 border border-n-150 rounded-md">
 									{proposal.riskBreakdown.map((b, i) => (
-										<div
-											key={i}
-											className="flex items-center justify-between px-2.5 py-1.5 text-[12px]"
-										>
-											<span className="text-n-700">{b.dimension}</span>
-											<Chip
-												tone={
-													b.verdict === "ok"
-														? "ok"
-														: b.verdict === "partial"
-															? "warn"
-															: "dnr"
-												}
-											>
-												{b.verdict}
-											</Chip>
+										<div key={i} className="px-2.5 py-1.5 text-[12px]">
+											<div className="flex items-center justify-between gap-2">
+												<span className="text-n-700">{b.dimension}</span>
+												<Chip
+													tone={
+														b.verdict === "ok"
+															? "ok"
+															: b.verdict === "partial"
+																? "warn"
+																: "dnr"
+													}
+												>
+													{b.verdict}
+												</Chip>
+											</div>
+											{b.note && (
+												<div className="text-[11.5px] text-n-600 mt-1 leading-relaxed">
+													{parseMarkdown(b.note)}
+												</div>
+											)}
 										</div>
 									))}
 								</div>
@@ -530,8 +641,8 @@ export function CodingPanel({
 												</span>
 												<span className="truncate">{c.lcdTitle}</span>
 											</div>
-											<div className="font-mono text-[10.5px] text-n-600 mt-1 leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">
-												"{c.relevantExcerpt}"
+											<div className="text-[11px] text-n-600 mt-1 leading-relaxed max-h-32 overflow-y-auto custom-scrollbar italic">
+												{parseMarkdown(c.relevantExcerpt)}
 											</div>
 											{c.articleId && (
 												<div className="font-mono text-[10px] text-n-500 mt-1">
@@ -550,11 +661,13 @@ export function CodingPanel({
 								<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-2">
 									Risk notes
 								</div>
-								<ul className="text-[11.5px] text-n-700 space-y-1 leading-relaxed">
+								<ul className="text-[11.5px] text-n-700 space-y-2 leading-relaxed">
 									{proposal.auditRiskNotes.map((n, i) => (
 										<li key={i} className="flex gap-1.5">
-											<span className="text-n-400">·</span>
-											<span>{n}</span>
+											<span className="text-n-400 mt-0.5">·</span>
+											<div className="flex-1 min-w-0">
+												{parseMarkdown(n)}
+											</div>
 										</li>
 									))}
 								</ul>
@@ -596,6 +709,34 @@ export function CodingPanel({
 					</div>
 				</div>
 			</div>
+
+			{/* Reasoning log — collapsible history of the run */}
+			{events.length > 0 && (
+				<div className="border-t border-n-150 shrink-0">
+					<button
+						type="button"
+						onClick={() => setReasoningOpen((v) => !v)}
+						className="w-full flex items-center gap-2 px-4 py-2 hover:bg-n-50 transition text-left"
+					>
+						{reasoningOpen ? (
+							<ChevronDown className="w-3.5 h-3.5 text-n-500" />
+						) : (
+							<ChevronRight className="w-3.5 h-3.5 text-n-500" />
+						)}
+						<div className="font-mono text-[10px] uppercase tracking-widest text-n-500">
+							Reasoning log
+						</div>
+						<div className="font-mono text-[10.5px] text-n-500">
+							{events.length} events
+						</div>
+					</button>
+					{reasoningOpen && (
+						<div className="max-h-[400px] overflow-y-auto custom-scrollbar border-t border-n-150">
+							<ReasoningTimeline events={events} compact={false} />
+						</div>
+					)}
+				</div>
+			)}
 
 			{/* Run metadata — always visible as a slim footer */}
 			<div className="px-4 py-2 border-t border-n-150 flex items-center gap-3 flex-wrap font-mono text-[10.5px] text-n-500 shrink-0">

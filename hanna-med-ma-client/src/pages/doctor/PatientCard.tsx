@@ -1,4 +1,4 @@
-import { parseInlineFormatting } from "../../lib/chatUtils";
+import { parseInlineFormatting } from "../../lib/markdown";
 import { cls } from "../../lib/cls";
 import {
 	FileText,
