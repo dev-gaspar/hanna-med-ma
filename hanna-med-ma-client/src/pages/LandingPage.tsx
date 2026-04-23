@@ -116,27 +116,27 @@ export default function LandingPage() {
 							</div>
 							{[
 								{
-									name: "Bayona, Arturo N.",
+									name: "Doe, John A.",
 									meta: "rm 214 · non-healing ulcer",
 									tag: "unseen",
 								},
 								{
-									name: "Reyes, Maria",
+									name: "Doe, Jane M.",
 									meta: "rm 208 · diabetes f/u",
 									tag: "seen",
 								},
 								{
-									name: "Kim, Daniel",
+									name: "Roe, John D.",
 									meta: "rm 216 · cellulitis",
 									tag: "unseen",
 								},
 								{
-									name: "Valdés, Esther",
+									name: "Roe, Jane Q.",
 									meta: "rm 203 · neuropathy",
 									tag: "seen",
 								},
 								{
-									name: "Ortiz, Samuel",
+									name: "Doe, Sam B.",
 									meta: "rm 221 · osteomyelitis r/o",
 									tag: "unseen",
 								},
