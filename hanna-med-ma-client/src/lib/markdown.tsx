@@ -68,6 +68,27 @@ export const parseInlineFormatting = (text: string): React.ReactNode[] => {
 				</del>
 			),
 		},
+		// Section citation: §I.C.4.a.2, §30.6.10, §II.G, §IV.J, etc.
+		// The agent's prompt tells it to cite ICD-10-CM Official
+		// Guidelines and CMS Manual sections with a leading `§`. The
+		// symbol itself is just a marker for the parser — it gets
+		// dropped at render time and the section path is wrapped in
+		// `<cite>` with a dotted underline so it reads as a citation
+		// reference inline. Pattern: alphanumeric start, allows dots
+		// and dashes, must end on alphanumeric so trailing
+		// punctuation (period, comma) doesn't get absorbed.
+		{
+			regex: /§([A-Za-z0-9](?:[A-Za-z0-9.\-]*[A-Za-z0-9])?)/,
+			render: (_, content) => (
+				<cite
+					key={`cite-${keyIndex++}`}
+					className="not-italic underline decoration-dotted decoration-n-400 underline-offset-[3px] text-n-600"
+					title={`§${content}`}
+				>
+					{content}
+				</cite>
+			),
+		},
 	];
 
 	while (remaining) {

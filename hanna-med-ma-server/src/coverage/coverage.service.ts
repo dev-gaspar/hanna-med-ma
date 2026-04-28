@@ -136,14 +136,26 @@ export class CoverageService {
    * so approximate-nearest-neighbor recall stays high. SET LOCAL only
    * affects the current transaction, so this can't leak to other
    * connections in the pool.
+   *
+   * The 30s `timeout` overrides Prisma's 5s interactive-transaction
+   * default. Under concurrent batch-validate runs (multiple parallel
+   * coder agents each issuing search_* calls), the default has
+   * occasionally tripped: "Transaction already closed: 5815 ms passed
+   * since the start of the transaction." 30s is generous — pgvector
+   * with HNSW ef_search=200 typically returns under 200ms; the slack
+   * absorbs cold-cache spikes and connection-pool contention without
+   * masking real query regressions.
    */
   private async vectorQuery<T>(sql: string, ...params: unknown[]): Promise<T> {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        `SET LOCAL hnsw.ef_search = ${HNSW_EF_SEARCH}`,
-      );
-      return tx.$queryRawUnsafe<T>(sql, ...params);
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRawUnsafe(
+          `SET LOCAL hnsw.ef_search = ${HNSW_EF_SEARCH}`,
+        );
+        return tx.$queryRawUnsafe<T>(sql, ...params);
+      },
+      { timeout: 30_000 },
+    );
   }
 
   // RETRIEVAL_QUERY is the asymmetric partner of the RETRIEVAL_DOCUMENT
@@ -277,6 +289,67 @@ export class CoverageService {
       ...r,
       chunkIndex: Number(r.chunkIndex),
       sourceYear: Number(r.sourceYear),
+      similarity: Number(r.similarity),
+    }));
+  }
+
+  async searchPolicyRules(
+    query: string,
+    k = 5,
+    kinds?: Array<
+      "CMS_CLAIMS_MANUAL" | "NCCI_POLICY_MANUAL" | "GLOBAL_SURGERY_BOOKLET"
+    >,
+  ): Promise<
+    Array<{
+      kind: string;
+      citation: string;
+      chapter: string | null;
+      section: string | null;
+      heading: string | null;
+      chunkIndex: number;
+      text: string;
+      sourceUrl: string | null;
+      sourceVersion: string | null;
+      similarity: number;
+    }>
+  > {
+    const lit = toVectorLiteral(await this.embedQuery(query));
+
+    // Parameterize the kind filter so Postgres caches the plan —
+    // using `ANY($2::"PolicyDocKind"[])` lets callers pass 0-3 kinds
+    // in one query without branching the SQL shape.
+    const kindFilter =
+      kinds && kinds.length > 0 ? `AND kind = ANY($2::"PolicyDocKind"[])` : "";
+    const params: unknown[] = [lit];
+    if (kinds && kinds.length > 0) params.push(kinds);
+
+    const rows = await this.vectorQuery<
+      Array<{
+        kind: string;
+        citation: string;
+        chapter: string | null;
+        section: string | null;
+        heading: string | null;
+        chunkIndex: number;
+        text: string;
+        sourceUrl: string | null;
+        sourceVersion: string | null;
+        similarity: number;
+      }>
+    >(
+      `SELECT kind::text AS kind, citation, chapter, section, heading,
+              "chunkIndex", text, "sourceUrl", "sourceVersion",
+              1 - (embedding <=> $1::vector) AS similarity
+         FROM policy_rules
+         WHERE embedding IS NOT NULL
+         ${kindFilter}
+         ORDER BY embedding <=> $1::vector
+         LIMIT ${Math.min(Math.max(k, 1), 20)}`,
+      ...params,
+    );
+    return rows.map((r) => ({
+      ...r,
+      chunkIndex: Number(r.chunkIndex),
       similarity: Number(r.similarity),
     }));
   }
@@ -458,6 +531,313 @@ export class CoverageService {
       seen.add(k);
       return true;
     });
+  }
+
+  // ─── Payer E/M family rule lookup ─────────────────────────────────
+  /**
+   * Resolve which E/M family a payer requires for inpatient consults.
+   *
+   * Resolution order:
+   *   1. Practice-specific exact match (payerName + practiceId, age in range)
+   *   2. Practice-specific regex match (payerPattern + practiceId, age in range)
+   *   3. Global default exact match (payerName + practiceId IS NULL)
+   *   4. Global default regex match (payerPattern + practiceId IS NULL)
+   *   5. DEPENDS_HUMAN_REVIEW fallback
+   *
+   * Self-Pay age cutoff is encoded as two rows for the same payerName
+   * (one with ageMax=64, one with ageMin=65). The age filter selects
+   * the right one. When `patientAge` is null/undefined, we prefer the
+   * row with no age bounds, then DEPENDS as fallback.
+   */
+  async lookupPayerRule(params: {
+    payerName: string;
+    patientAge?: number | null;
+    practiceId?: number | null;
+  }): Promise<{
+    matched: boolean;
+    matchType:
+      | "PRACTICE_EXACT"
+      | "PRACTICE_CONTAINS"
+      | "PRACTICE_PATTERN"
+      | "GLOBAL_EXACT"
+      | "GLOBAL_CONTAINS"
+      | "GLOBAL_PATTERN"
+      | "FALLBACK_DEPENDS";
+    ruleId: number | null;
+    payerName: string;
+    category: "ALWAYS_INITIAL_HOSPITAL" | "ALWAYS_CONSULT" | "DEPENDS_HUMAN_REVIEW";
+    consultCodeFamilyEligible: boolean;
+    eligibleFamily: "99221-99223" | "99253-99255" | "DEPENDS";
+    ageRange: { min: number | null; max: number | null } | null;
+    notes: string | null;
+    source: string | null;
+    rationale: string;
+  }> {
+    const { payerName, patientAge, practiceId } = params;
+    const ageInRange = (
+      ageMin: number | null,
+      ageMax: number | null,
+    ): boolean => {
+      if (patientAge == null) return ageMin == null && ageMax == null;
+      if (ageMin != null && patientAge < ageMin) return false;
+      if (ageMax != null && patientAge > ageMax) return false;
+      return true;
+    };
+
+    const eligibleFamily = (
+      cat: "ALWAYS_INITIAL_HOSPITAL" | "ALWAYS_CONSULT" | "DEPENDS_HUMAN_REVIEW",
+    ) =>
+      cat === "ALWAYS_CONSULT"
+        ? ("99253-99255" as const)
+        : cat === "ALWAYS_INITIAL_HOSPITAL"
+          ? ("99221-99223" as const)
+          : ("DEPENDS" as const);
+
+    const buildResult = (
+      rule: {
+        id: number;
+        payerName: string;
+        category: "ALWAYS_INITIAL_HOSPITAL" | "ALWAYS_CONSULT" | "DEPENDS_HUMAN_REVIEW";
+        ageMin: number | null;
+        ageMax: number | null;
+        notes: string | null;
+        source: string | null;
+      },
+      matchType:
+        | "PRACTICE_EXACT"
+        | "PRACTICE_CONTAINS"
+        | "PRACTICE_PATTERN"
+        | "GLOBAL_EXACT"
+        | "GLOBAL_CONTAINS"
+        | "GLOBAL_PATTERN",
+    ) => ({
+      matched: true,
+      matchType,
+      ruleId: rule.id,
+      payerName: rule.payerName,
+      category: rule.category,
+      consultCodeFamilyEligible: rule.category === "ALWAYS_CONSULT",
+      eligibleFamily: eligibleFamily(rule.category),
+      ageRange: { min: rule.ageMin, max: rule.ageMax },
+      notes: rule.notes,
+      source: rule.source,
+      rationale: `Matched via ${matchType.toLowerCase().replace("_", " ")} on PayerEMRule#${rule.id} (${rule.payerName}). ${rule.notes ?? ""}`.trim(),
+    });
+
+    // Specificity-first ordering for tie-breaks: rules with at least
+    // one explicit age bound (ageMin OR ageMax) outrank rules with no
+    // age constraint at all. Without this, a payer with both a "<65 →
+    // ALWAYS_CONSULT" row AND a "no-age catch-all → DEPENDS" row would
+    // always match the catch-all first because both pass `ageInRange`
+    // when the patient is e.g. 38. Sort once and reuse for every step.
+    const sortBySpecificity = <
+      T extends { ageMin: number | null; ageMax: number | null },
+    >(
+      rules: T[],
+    ): T[] =>
+      [...rules].sort((a, b) => {
+        const aSpec = (a.ageMin != null ? 1 : 0) + (a.ageMax != null ? 1 : 0);
+        const bSpec = (b.ageMin != null ? 1 : 0) + (b.ageMax != null ? 1 : 0);
+        return bSpec - aSpec;
+      });
+
+    // Step 1: practice-specific exact name match (case-insensitive contains
+    // both directions to handle slight phrasing differences).
+    if (practiceId != null) {
+      const practiceRules = sortBySpecificity(
+        await this.prisma.payerEMRule.findMany({
+          where: { practiceId },
+        }),
+      );
+      const lowerName = payerName.toLowerCase();
+      // Exact-name first
+      for (const r of practiceRules) {
+        if (
+          r.payerName.toLowerCase() === lowerName &&
+          ageInRange(r.ageMin, r.ageMax)
+        ) {
+          return buildResult(r, "PRACTICE_EXACT");
+        }
+      }
+      // Then containment (face sheet often has more text than the canonical
+      // payer name): "BCBS PPC/PPS/PHS" contains "BCBS PPC" etc.
+      for (const r of practiceRules) {
+        if (
+          (lowerName.includes(r.payerName.toLowerCase()) ||
+            r.payerName.toLowerCase().includes(lowerName)) &&
+          ageInRange(r.ageMin, r.ageMax)
+        ) {
+          return buildResult(r, "PRACTICE_CONTAINS");
+        }
+      }
+      // Pattern (regex) match
+      for (const r of practiceRules) {
+        if (!r.payerPattern) continue;
+        try {
+          const re = new RegExp(r.payerPattern);
+          if (re.test(payerName) && ageInRange(r.ageMin, r.ageMax)) {
+            return buildResult(r, "PRACTICE_PATTERN");
+          }
+        } catch {
+          // Invalid regex — skip and log.
+          this.logger.warn(
+            `Invalid payerPattern regex on PayerEMRule#${r.id}: ${r.payerPattern}`,
+          );
+        }
+      }
+    }
+
+    // Step 2: global default (practiceId IS NULL)
+    const globalRules = sortBySpecificity(
+      await this.prisma.payerEMRule.findMany({
+        where: { practiceId: null },
+      }),
+    );
+    const lowerName = payerName.toLowerCase();
+    for (const r of globalRules) {
+      if (
+        r.payerName.toLowerCase() === lowerName &&
+        ageInRange(r.ageMin, r.ageMax)
+      ) {
+        return buildResult(r, "GLOBAL_EXACT");
+      }
+    }
+    for (const r of globalRules) {
+      if (
+        (lowerName.includes(r.payerName.toLowerCase()) ||
+          r.payerName.toLowerCase().includes(lowerName)) &&
+        ageInRange(r.ageMin, r.ageMax)
+      ) {
+        return buildResult(r, "GLOBAL_CONTAINS");
+      }
+    }
+    for (const r of globalRules) {
+      if (!r.payerPattern) continue;
+      try {
+        const re = new RegExp(r.payerPattern);
+        if (re.test(payerName) && ageInRange(r.ageMin, r.ageMax)) {
+          return buildResult(r, "GLOBAL_PATTERN");
+        }
+      } catch {
+        // skip invalid regex
+      }
+    }
+
+    // Step 3: fallback
+    return {
+      matched: false,
+      matchType: "FALLBACK_DEPENDS",
+      ruleId: null,
+      payerName,
+      category: "DEPENDS_HUMAN_REVIEW",
+      consultCodeFamilyEligible: false,
+      eligibleFamily: "DEPENDS",
+      ageRange: null,
+      notes: null,
+      source: null,
+      rationale: `No PayerEMRule matched "${payerName}" (age=${patientAge ?? "?"}, practice=${practiceId ?? "global"}). Defaulting to 99221-99223 family and flagging for human review.`,
+    };
+  }
+
+  // ─── PayerEMRule CRUD (admin) ─────────────────────────────────────
+  //
+  // Thin wrappers so the controller doesn't reach into Prisma directly.
+  // No role-based authorization yet — currently any authenticated user
+  // can edit rules. Tighten when the project introduces an admin role.
+
+  async listPayerRules(params: {
+    practiceId?: number | null;
+    includeGlobal?: boolean;
+  }) {
+    const where: { practiceId?: number | null; OR?: unknown[] } = {};
+    if (params.practiceId != null) {
+      // When a practiceId is supplied, return that practice's rules
+      // by default. `includeGlobal=true` also surfaces the
+      // practiceId=null catch-alls so an admin can review the full
+      // resolution surface in one list.
+      if (params.includeGlobal) {
+        where.OR = [{ practiceId: params.practiceId }, { practiceId: null }];
+      } else {
+        where.practiceId = params.practiceId;
+      }
+    } else {
+      // Caller asked for global rules only.
+      where.practiceId = null;
+    }
+    return this.prisma.payerEMRule.findMany({
+      where,
+      orderBy: [{ category: "asc" }, { payerName: "asc" }, { ageMin: "asc" }],
+      include: {
+        practice: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async getPayerRule(id: number) {
+    return this.prisma.payerEMRule.findUnique({
+      where: { id },
+      include: { practice: { select: { id: true, name: true } } },
+    });
+  }
+
+  async createPayerRule(data: {
+    payerName: string;
+    payerPattern?: string | null;
+    category: "ALWAYS_INITIAL_HOSPITAL" | "ALWAYS_CONSULT" | "DEPENDS_HUMAN_REVIEW";
+    ageMin?: number | null;
+    ageMax?: number | null;
+    practiceId?: number | null;
+    notes?: string | null;
+    source?: string | null;
+  }) {
+    return this.prisma.payerEMRule.create({
+      data: {
+        payerName: data.payerName.trim(),
+        payerPattern: data.payerPattern ?? null,
+        category: data.category,
+        ageMin: data.ageMin ?? null,
+        ageMax: data.ageMax ?? null,
+        practiceId: data.practiceId ?? null,
+        notes: data.notes ?? null,
+        source: data.source ?? null,
+      },
+    });
+  }
+
+  async updatePayerRule(
+    id: number,
+    data: Partial<{
+      payerName: string;
+      payerPattern: string | null;
+      category: "ALWAYS_INITIAL_HOSPITAL" | "ALWAYS_CONSULT" | "DEPENDS_HUMAN_REVIEW";
+      ageMin: number | null;
+      ageMax: number | null;
+      practiceId: number | null;
+      notes: string | null;
+      source: string | null;
+    }>,
+  ) {
+    return this.prisma.payerEMRule.update({
+      where: { id },
+      data: {
+        ...(data.payerName !== undefined && {
+          payerName: data.payerName.trim(),
+        }),
+        ...(data.payerPattern !== undefined && {
+          payerPattern: data.payerPattern,
+        }),
+        ...(data.category !== undefined && { category: data.category }),
+        ...(data.ageMin !== undefined && { ageMin: data.ageMin }),
+        ...(data.ageMax !== undefined && { ageMax: data.ageMax }),
+        ...(data.practiceId !== undefined && { practiceId: data.practiceId }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.source !== undefined && { source: data.source }),
+      },
+    });
+  }
+
+  async deletePayerRule(id: number) {
+    return this.prisma.payerEMRule.delete({ where: { id } });
   }
 
   // ─── CPT / ICD description lookup ──────────────────────────────────

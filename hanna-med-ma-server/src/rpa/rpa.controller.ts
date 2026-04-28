@@ -127,7 +127,7 @@ export class RpaController {
     summary:
       "Mark patient as seen — creates an Encounter and triggers billing EMR registration",
     description:
-      "Creates an Encounter linking the doctor (from JWT) and patient. Send encounterType: CONSULT (first visit) or PROGRESS (follow-up).",
+      "Creates an Encounter linking the doctor (from JWT) and patient. encounterType: CONSULT (first visit on admission), PROGRESS (follow-up), or PROCEDURE (surgical / bedside procedure visit — procedure CPT is primary, no E/M family).",
   })
   @ApiParam({ name: "patientId", type: "number" })
   @ApiBody({
@@ -136,7 +136,7 @@ export class RpaController {
       properties: {
         encounterType: {
           type: "string",
-          enum: ["CONSULT", "PROGRESS"],
+          enum: ["CONSULT", "PROGRESS", "PROCEDURE"],
           default: "CONSULT",
         },
         dateOfService: {
@@ -154,7 +154,7 @@ export class RpaController {
     @Param("patientId", ParseIntPipe) patientId: number,
     @Body()
     body: {
-      encounterType?: "CONSULT" | "PROGRESS";
+      encounterType?: "CONSULT" | "PROGRESS" | "PROCEDURE";
       dateOfService?: string;
     },
     @Request() req,

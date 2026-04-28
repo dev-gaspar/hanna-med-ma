@@ -40,7 +40,7 @@ type Target = {
   // We COALESCE the short + long descriptions so the vector captures
   // both the billable-spec wording and the richer clinical phrasing.
   textExpr: string;
-  key: "cpt" | "icd10" | "lcd" | "guideline";
+  key: "cpt" | "icd10" | "lcd" | "guideline" | "policy";
 };
 
 const TARGETS: Target[] = [
@@ -69,6 +69,15 @@ const TARGETS: Target[] = [
     // Prepend the section label so the embedding captures context
     // ("I.C.4.a.2" by itself means nothing; the heading + body matters).
     textExpr: `CONCAT(section, ' ', COALESCE(heading, ''), ': ', text)`,
+  },
+  {
+    key: "policy",
+    table: "policy_rules",
+    idCol: "id",
+    // Include kind + citation so queries like "consult codes
+    // replacement" can match both the semantic content and the
+    // source anchor ("CMS Claims Processing Manual Ch.12 §30.6.10").
+    textExpr: `CONCAT(kind::text, ' ', citation, ' ', COALESCE(heading, ''), ': ', text)`,
   },
 ];
 

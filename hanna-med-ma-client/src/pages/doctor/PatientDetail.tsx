@@ -227,7 +227,9 @@ export default function PatientDetail() {
 									<div className="font-serif text-[16px] text-n-900 mt-0.5">
 										{latestEncounter.type === "CONSULT"
 											? "Consult"
-											: "Follow-up"}{" "}
+											: latestEncounter.type === "PROGRESS"
+												? "Follow-up"
+												: "Procedure"}{" "}
 										<span className="text-n-500 font-sans text-[13px]">
 											· enc #{latestEncounter.id}
 										</span>
@@ -436,7 +438,11 @@ function EncounterRow({ encounter }: { encounter: EncounterDetail }) {
 			/>
 			<div className="flex-1 min-w-0">
 				<div className="text-n-800 truncate">
-					{encounter.type === "CONSULT" ? "Consult" : "Follow-up"}
+					{encounter.type === "CONSULT"
+						? "Consult"
+						: encounter.type === "PROGRESS"
+							? "Follow-up"
+							: "Procedure"}
 					<span className="text-n-500"> · enc #{encounter.id}</span>
 				</div>
 				<div className="font-mono text-[10.5px] text-n-500">

@@ -328,7 +328,7 @@ export class RpaService {
   async markPatientAsSeen(
     patientId: number,
     doctorId: number,
-    encounterType: "CONSULT" | "PROGRESS" = "CONSULT",
+    encounterType: "CONSULT" | "PROGRESS" | "PROCEDURE" = "CONSULT",
     dateOfService?: Date,
   ) {
     const patient = await this.prisma.patient.findUnique({

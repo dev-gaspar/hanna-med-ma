@@ -67,7 +67,102 @@ function toHighlights(proposal: CoderProposal): Highlight[] {
 		out.push({ span: c.evidenceSpan, code: c.code, kind: "cpt" });
 	for (const i of proposal.icd10Proposals)
 		out.push({ span: i.evidenceSpan, code: i.code, kind: "icd10" });
+	// Forcing-function evidence spans get pulled in too so the doctor
+	// can hover from the right-rail Reasoning panel and see exactly
+	// what text the agent quoted to justify each verdict. Filter
+	// nulls — limbThreat / surgeryDecision quotes are often null on
+	// non-applicable encounters.
+	if (proposal.limbThreatAssessment?.evidenceSpan) {
+		out.push({
+			span: proposal.limbThreatAssessment.evidenceSpan,
+			code: "LIMB",
+			kind: "cpt",
+		});
+	}
+	if (proposal.limbThreatAssessment?.decisionEvidenceSpan) {
+		out.push({
+			span: proposal.limbThreatAssessment.decisionEvidenceSpan,
+			code: "LIMB-DEC",
+			kind: "cpt",
+		});
+	}
+	if (proposal.surgeryDecision?.evidenceSpan) {
+		out.push({
+			span: proposal.surgeryDecision.evidenceSpan,
+			code: "-57",
+			kind: "cpt",
+		});
+	}
 	return out;
+}
+
+function ReasoningBlock({
+	title,
+	chips,
+	children,
+}: {
+	title: string;
+	chips: Array<{ label: string; tone: "ok" | "warn" | "dnr" | "primary" | "info" } | null>;
+	children: React.ReactNode;
+}) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="bg-n-0 border border-n-150 rounded-md">
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				className="w-full px-2.5 py-1.5 flex items-center gap-2 text-left hover:bg-n-50 transition rounded-md"
+			>
+				{open ? (
+					<ChevronDown className="w-3 h-3 text-n-500 shrink-0" />
+				) : (
+					<ChevronRight className="w-3 h-3 text-n-500 shrink-0" />
+				)}
+				<span className="text-[12px] font-medium text-n-800 shrink-0">
+					{title}
+				</span>
+				<div className="flex-1 flex flex-wrap items-center gap-1 justify-end">
+					{chips
+						.filter((c): c is { label: string; tone: "ok" | "warn" | "dnr" | "primary" | "info" } => Boolean(c))
+						.map((c, i) => (
+							<Chip key={i} tone={c.tone}>
+								{c.label}
+							</Chip>
+						))}
+				</div>
+			</button>
+			{open && (
+				<div className="px-2.5 pb-2.5 pt-0 space-y-2 text-[11.5px] text-n-700 leading-relaxed border-t border-n-150">
+					{children}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function categoryTone(
+	cat: "ALWAYS_INITIAL_HOSPITAL" | "ALWAYS_CONSULT" | "DEPENDS_HUMAN_REVIEW",
+): "primary" | "info" | "warn" {
+	if (cat === "ALWAYS_INITIAL_HOSPITAL") return "primary";
+	if (cat === "ALWAYS_CONSULT") return "info";
+	return "warn";
+}
+
+function levelTone(
+	level: "MINIMAL" | "LOW" | "MODERATE" | "HIGH" | "STRAIGHTFORWARD" | "LIMITED" | "EXTENSIVE",
+): "ok" | "info" | "warn" | "dnr" {
+	if (level === "HIGH" || level === "EXTENSIVE") return "dnr";
+	if (level === "MODERATE") return "warn";
+	if (level === "LOW" || level === "LIMITED") return "info";
+	return "ok";
+}
+
+function evidenceTone(
+	level: "NONE" | "SUSPECTED_PENDING" | "CONFIRMED",
+): "ok" | "warn" | "dnr" {
+	if (level === "CONFIRMED") return "dnr";
+	if (level === "SUSPECTED_PENDING") return "warn";
+	return "ok";
 }
 
 export function CodingPanel({
@@ -622,6 +717,207 @@ export function CodingPanel({
 								</div>
 							</div>
 						)}
+
+						{/* Reasoning — forcing-function audit trail */}
+						<div>
+							<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-2">
+								Reasoning
+							</div>
+							<div className="space-y-1.5">
+								{/* Payer Analysis */}
+								<ReasoningBlock
+									title="Payer"
+									chips={[
+										{
+											label: proposal.payerAnalysis.category.replace(/_/g, " "),
+											tone: categoryTone(proposal.payerAnalysis.category),
+										},
+										{
+											label: proposal.payerAnalysis.eligibleFamily,
+											tone: "info",
+										},
+									]}
+								>
+									<div>
+										<span className="text-n-500">Payer · </span>
+										<span className="font-medium">
+											{proposal.payerAnalysis.payerNameOnFaceSheet ?? "—"}
+										</span>
+										{proposal.payerAnalysis.patientAge != null && (
+											<span className="text-n-500">
+												{" "}
+												· age {proposal.payerAnalysis.patientAge}
+											</span>
+										)}
+									</div>
+									<div>
+										<span className="text-n-500">Match · </span>
+										<span className="font-mono text-[11px]">
+											{proposal.payerAnalysis.matchType}
+										</span>
+										{proposal.payerAnalysis.ruleId != null && (
+											<span className="text-n-500">
+												{" "}
+												· rule #{proposal.payerAnalysis.ruleId}
+											</span>
+										)}
+									</div>
+									{proposal.payerAnalysis.source && (
+										<div className="text-n-500 italic">
+											{proposal.payerAnalysis.source}
+										</div>
+									)}
+									{proposal.payerAnalysis.notApplicableReason && (
+										<div className="text-n-600">
+											{parseMarkdown(proposal.payerAnalysis.notApplicableReason)}
+										</div>
+									)}
+								</ReasoningBlock>
+
+								{/* MDM */}
+								<ReasoningBlock
+									title="MDM (2-of-3)"
+									chips={[
+										{
+											label: `final · ${proposal.mdm.finalLevel}`,
+											tone: levelTone(proposal.mdm.finalLevel),
+										},
+									]}
+								>
+									{proposal.mdm.notApplicableReason ? (
+										<div className="text-n-600 italic">
+											{parseMarkdown(proposal.mdm.notApplicableReason)}
+										</div>
+									) : (
+										<>
+											<div>
+												<span className="text-n-500">Problems · </span>
+												<Chip tone={levelTone(proposal.mdm.problems)}>
+													{proposal.mdm.problems}
+												</Chip>
+											</div>
+											<div className="text-n-600 pl-3 -mt-1">
+												{parseMarkdown(proposal.mdm.problemsRationale)}
+											</div>
+											<div>
+												<span className="text-n-500">Data · </span>
+												<Chip tone={levelTone(proposal.mdm.data)}>
+													{proposal.mdm.data}
+												</Chip>
+											</div>
+											<div className="text-n-600 pl-3 -mt-1">
+												{parseMarkdown(proposal.mdm.dataRationale)}
+											</div>
+											<div>
+												<span className="text-n-500">Risk · </span>
+												<Chip tone={levelTone(proposal.mdm.risk)}>
+													{proposal.mdm.risk}
+												</Chip>
+											</div>
+											<div className="text-n-600 pl-3 -mt-1">
+												{parseMarkdown(proposal.mdm.riskRationale)}
+											</div>
+											<div className="border-t border-n-150 pt-2 text-n-700">
+												<span className="font-mono text-[10px] uppercase tracking-widest text-n-500 block mb-0.5">
+													2-of-3
+												</span>
+												{parseMarkdown(proposal.mdm.twoOfThreeJustification)}
+											</div>
+										</>
+									)}
+								</ReasoningBlock>
+
+								{/* Limb threat — specialty-gated: only render when the
+								    active specialty filled this block. Specialties without
+								    limb-threat scope (Internal Medicine, Cardiology, etc.)
+								    will leave it null/undefined and the panel just hides
+								    the row entirely. */}
+								{proposal.limbThreatAssessment ? (
+									proposal.limbThreatAssessment.applicable ||
+									proposal.limbThreatAssessment.evidenceLevel !== "NONE" ? (
+										<ReasoningBlock
+											title="Limb threat"
+											chips={[
+												{
+													label: proposal.limbThreatAssessment.evidenceLevel.replace(
+														/_/g,
+														" ",
+													),
+													tone: evidenceTone(
+														proposal.limbThreatAssessment.evidenceLevel,
+													),
+												},
+												proposal.limbThreatAssessment.surgicalDecisionStatus !==
+												"NOT_APPLICABLE"
+													? {
+															label:
+																proposal.limbThreatAssessment.surgicalDecisionStatus.replace(
+																	/_/g,
+																	" ",
+																),
+															tone:
+																proposal.limbThreatAssessment.surgicalDecisionStatus ===
+																"DECIDED_AND_SCHEDULED"
+																	? "dnr"
+																	: "warn",
+														}
+													: null,
+											]}
+										>
+											{proposal.limbThreatAssessment.evidenceSpan && (
+												<div className="border-l-2 border-n-300 pl-2 italic text-n-600">
+													{proposal.limbThreatAssessment.evidenceSpan}
+												</div>
+											)}
+											{proposal.limbThreatAssessment.decisionEvidenceSpan && (
+												<div className="border-l-2 border-p-300 pl-2 italic text-n-600">
+													{proposal.limbThreatAssessment.decisionEvidenceSpan}
+												</div>
+											)}
+											<div className="text-n-700">
+												{parseMarkdown(proposal.limbThreatAssessment.rationale)}
+											</div>
+										</ReasoningBlock>
+									) : (
+										<ReasoningBlock
+											title="Limb threat"
+											chips={[{ label: "n/a", tone: "ok" }]}
+										>
+											<div className="text-n-600 italic">
+												{parseMarkdown(proposal.limbThreatAssessment.rationale)}
+											</div>
+										</ReasoningBlock>
+									)
+								) : null}
+
+								{/* Surgery decision (-57) */}
+								<ReasoningBlock
+									title="Surgery decision"
+									chips={[
+										{
+											label: proposal.surgeryDecision.evaluatedThisVisit
+												? "decision this visit"
+												: "no decision this visit",
+											tone: proposal.surgeryDecision.evaluatedThisVisit
+												? "dnr"
+												: "ok",
+										},
+										proposal.surgeryDecision.modifier57Applied
+											? { label: "-57 applied", tone: "primary" }
+											: null,
+									]}
+								>
+									{proposal.surgeryDecision.evidenceSpan && (
+										<div className="border-l-2 border-p-300 pl-2 italic text-n-600">
+											{proposal.surgeryDecision.evidenceSpan}
+										</div>
+									)}
+									<div className="text-n-700">
+										{parseMarkdown(proposal.surgeryDecision.reasoning)}
+									</div>
+								</ReasoningBlock>
+							</div>
+						</div>
 
 						{/* LCD citations */}
 						{proposal.lcdCitations.length > 0 && (

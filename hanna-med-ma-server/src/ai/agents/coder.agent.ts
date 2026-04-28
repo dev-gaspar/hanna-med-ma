@@ -47,9 +47,200 @@ const icd10ProposalSchema = z.object({
   rationale: z.string().describe("1–2 sentences"),
 });
 
+// Forcing-function blocks. The agent CANNOT skip these — Zod rejects the
+// finalize_coding call if any field is missing. Reasoning: cycles 1-6
+// showed that passive prompt rules (2-of-3 MDM, modifier-57) are
+// silently ignored when many rules compete for attention. Promoting
+// them to required output fields makes the agent perform the work
+// AND makes the work auditable post-hoc.
+const mdmScoringSchema = z.object({
+  problems: z
+    .enum(["MINIMAL", "LOW", "MODERATE", "HIGH"])
+    .describe(
+      "Element 1 — number/complexity of problems THIS provider actively manages in the Assessment/Plan. Comorbidities managed by other specialties do NOT elevate this.",
+    ),
+  problemsRationale: z
+    .string()
+    .describe(
+      "Which problems were counted toward this level and which were excluded as managed-by-other-specialty.",
+    ),
+  data: z
+    .enum(["MINIMAL", "LIMITED", "MODERATE", "EXTENSIVE"])
+    .describe(
+      "Element 2 — amount/complexity of data reviewed (notes, tests, independent interpretation, external coordination).",
+    ),
+  dataRationale: z
+    .string()
+    .describe(
+      "Which data categories were involved and how many of the moderate-tier requirements were met.",
+    ),
+  risk: z
+    .enum(["MINIMAL", "LOW", "MODERATE", "HIGH"])
+    .describe(
+      "Element 3 — risk of complications/morbidity/mortality at the time of decision (not based on the actual outcome).",
+    ),
+  riskRationale: z
+    .string()
+    .describe(
+      "What drove the risk level: drug management, surgery decision, hospitalization decision, etc.",
+    ),
+  finalLevel: z
+    .enum(["STRAIGHTFORWARD", "LOW", "MODERATE", "HIGH"])
+    .describe(
+      "Final MDM = the level met by AT LEAST 2-of-3 elements. Map element 1+3 directly; map element 2 MINIMAL→STRAIGHTFORWARD, LIMITED→LOW.",
+    ),
+  twoOfThreeJustification: z
+    .string()
+    .describe(
+      "State explicitly which 2 elements support finalLevel and why the third is irrelevant. Required to prove 2-of-3 was applied, not 'highest single element'.",
+    ),
+  notApplicableReason: z
+    .string()
+    .nullable()
+    .describe(
+      "Set to a non-null reason ONLY for PROCEDURE-only encounters with no E/M billed. Otherwise null and all other fields must be filled.",
+    ),
+});
+
+const payerAnalysisSchema = z.object({
+  payerNameOnFaceSheet: z
+    .string()
+    .nullable()
+    .describe(
+      "Verbatim payer name as it appears on the face sheet (e.g., 'Humana ConvivaMC HMO', 'BCBS PPC/PPS/PHS'). Null when no face sheet was attached.",
+    ),
+  patientAge: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "Patient age in years from the face sheet. Null when missing — Self-Pay routing requires age.",
+    ),
+  category: z
+    .enum([
+      "ALWAYS_INITIAL_HOSPITAL",
+      "ALWAYS_CONSULT",
+      "DEPENDS_HUMAN_REVIEW",
+    ])
+    .describe(
+      "Result of `lookup_payer_rule`. Drives the E/M family selection on CONSULT encounters. PROGRESS / PROCEDURE encounters still record the lookup for audit but the family is fixed by encounter type.",
+    ),
+  eligibleFamily: z
+    .enum(["99221-99223", "99253-99255", "DEPENDS"])
+    .describe(
+      "The CPT family allowed by the payer rule. Must match the family of the primary E/M code on a CONSULT encounter.",
+    ),
+  matchType: z
+    .enum([
+      "PRACTICE_EXACT",
+      "PRACTICE_CONTAINS",
+      "PRACTICE_PATTERN",
+      "GLOBAL_EXACT",
+      "GLOBAL_CONTAINS",
+      "GLOBAL_PATTERN",
+      "FALLBACK_DEPENDS",
+    ])
+    .describe(
+      "How `lookup_payer_rule` resolved the rule (practice-scoped exact match, practice substring, global fallback, etc.). Copy verbatim from the tool result so the audit trail can reconstruct WHY this category was chosen.",
+    ),
+  ruleId: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "Primary key of the matched PayerEMRule row, or null when matchType=FALLBACK_DEPENDS.",
+    ),
+  source: z
+    .string()
+    .nullable()
+    .describe(
+      "Provenance of the rule (e.g., 'Hajira 2026-04-27 calibration doc'). Null on fallback.",
+    ),
+  notApplicableReason: z
+    .string()
+    .nullable()
+    .describe(
+      "Set to a non-null reason ONLY when no face sheet was attached AND the encounter is PROCEDURE-only (no E/M family decision needed). Otherwise null and the other fields must be filled.",
+    ),
+});
+
+const limbThreatAssessmentSchema = z.object({
+  applicable: z
+    .boolean()
+    .describe(
+      "True when the encounter involves a foot/leg/limb pathology where limb-loss is on the differential (diabetic foot infection, gangrene, osteomyelitis, severe PAD with rest pain, deep ulcer, necrotizing infection, post-trauma compromised limb). False for everything else (joint pain, plantar fasciitis, ingrown toenail, routine debridement, post-op check, etc.).",
+    ),
+  evidenceLevel: z
+    .enum(["NONE", "SUSPECTED_PENDING", "CONFIRMED"])
+    .describe(
+      "How well the limb-threat is supported by evidence at the time of THIS encounter. NONE = doesn't apply or no documentation. SUSPECTED_PENDING = clinical concern but imaging/labs are pending or limb-salvage decision still being deliberated. CONFIRMED = positive imaging (X-ray, MRI, bone scan), positive cultures, or operative findings already documented.",
+    ),
+  surgicalDecisionStatus: z
+    .enum(["NOT_APPLICABLE", "DELIBERATING", "DECIDED_AND_SCHEDULED"])
+    .describe(
+      "Where the surgical-management decision sits. NOT_APPLICABLE when no surgical option is on the table. DELIBERATING when the note says things like 'will discuss with patient', 'pending family meeting', 'considering amputation if no improvement'. DECIDED_AND_SCHEDULED when the patient is consented, NPO ordered, OR booked, etc.",
+    ),
+  evidenceSpan: z
+    .string()
+    .nullable()
+    .describe(
+      "Verbatim quote from the note that supports `evidenceLevel`. Null when applicable=false.",
+    ),
+  decisionEvidenceSpan: z
+    .string()
+    .nullable()
+    .describe(
+      "Verbatim quote from the note that supports `surgicalDecisionStatus`. Null when surgicalDecisionStatus=NOT_APPLICABLE.",
+    ),
+  rationale: z
+    .string()
+    .describe(
+      "One-line explanation of how this assessment ties into MDM Element 1 (problems) and Element 3 (risk). Cite the practice convention that anchors the threshold for HIGH problems.",
+    ),
+});
+
+const surgeryDecisionSchema = z.object({
+  evaluatedThisVisit: z
+    .boolean()
+    .describe(
+      "True if THIS encounter documents the initial decision for major surgery (CPT with 90-day global). Signals: patient consented, NPO, surgery scheduled within ~24h.",
+    ),
+  evidenceSpan: z
+    .string()
+    .nullable()
+    .describe(
+      "Verbatim quote from the note that proves the decision. Null if evaluatedThisVisit=false.",
+    ),
+  modifier57Applied: z
+    .boolean()
+    .describe(
+      "Whether -57 was appended to the primary E/M CPT. MUST be true if evaluatedThisVisit=true on a CONSULT/PROGRESS code; MUST be false otherwise.",
+    ),
+  reasoning: z
+    .string()
+    .describe(
+      "One-line explanation of the modifier-57 decision. Cite the rule and the evidence (or absence).",
+    ),
+});
+
 const finalSchema = z.object({
   primaryCpt: z.string().describe("The main CPT being billed"),
   cptProposals: z.array(cptProposalSchema).min(1),
+  mdm: mdmScoringSchema.describe(
+    "Three-element MDM scoring + 2-of-3 final level. Required for every encounter; for PROCEDURE-only encounters set notApplicableReason and leave the level enums at STRAIGHTFORWARD/MINIMAL.",
+  ),
+  surgeryDecision: surgeryDecisionSchema.describe(
+    "Explicit evaluation of decision-for-surgery and modifier-57. Required for every encounter so the agent has to think about it even when it does not apply.",
+  ),
+  payerAnalysis: payerAnalysisSchema.describe(
+    "Result of the `lookup_payer_rule` tool — required for every encounter so the agent has to actually call the tool and copy its verdict here. The family chosen for the primary E/M MUST match `eligibleFamily` on CONSULT encounters; the schema does not auto-enforce this so the agent must cross-check.",
+  ),
+  limbThreatAssessment: limbThreatAssessmentSchema
+    .nullable()
+    .optional()
+    .describe(
+      "Specialty-gated forcing function. Fill ONLY when the active specialty delta explicitly instructs to evaluate limb-threat (Podiatry, Vascular, etc.). Specialties that don't engage with limb pathology (Internal Medicine, Cardiology, etc.) leave this null/omitted. The clinical-trigger list and the obligation to fill the block live in the specialty delta (Layer 2), not in the universal prompt. The cap rules that USE this block live in the practice convention (Layer 3).",
+    ),
   icd10Proposals: z
     .array(icd10ProposalSchema)
     .min(1)
@@ -174,6 +365,21 @@ export interface CoderInput {
    * used only for the header section of the base prompt.
    */
   specialty?: { name: string; systemPrompt: string };
+  /**
+   * Pre-loaded practice (group) the doctor belongs to. `systemPrompt`
+   * is the practice convention delta — billing/biller workflow
+   * conventions specific to this group, layered on top of base +
+   * specialty. Empty string is treated as "no practice convention".
+   * `name` is shown in the Context header so the agent knows which
+   * practice's conventions are in scope.
+   */
+  practice?: { name: string; systemPrompt: string };
+  /**
+   * FK of the practice above. Passed to `lookup_payer_rule` so the
+   * resolver can prefer practice-specific rows over the global
+   * default. Null/undefined means "fall back to global rules".
+   */
+  practiceId?: number | null;
   pos?: string;
   /**
    * Role this encounter plays on the admission. Drives E/M family
@@ -182,6 +388,16 @@ export interface CoderInput {
    * validator it comes from Hajira's "Type of Encounter" column.
    */
   encounterType?: "CONSULT" | "PROGRESS" | "PROCEDURE";
+  /**
+   * Raw face-sheet text (already redacted) for this admission. The
+   * agent reads this directly the same way it reads the clinical
+   * note — no upstream regex or per-EMR parser. Payer identity,
+   * patient age, pre-auth info, MAC jurisdiction are all inferred
+   * by the agent from the text + the policy RAG. When absent, the
+   * agent proceeds without payer context and flags the gap as an
+   * audit-risk note.
+   */
+  faceSheetText?: string;
   /**
    * Which Anthropic model to use:
    *   - "sonnet" (default) — production quality, higher latency,
@@ -267,6 +483,16 @@ function summarizeToolResult(toolName: string, raw: unknown): string {
             : "?";
         return `${data.length} guideline chunks · top: §${section ?? "?"} (sim ${sim})`;
       }
+      if (toolName === "search_policy_rules") {
+        const citation = first.citation as string | undefined;
+        const kind = first.kind as string | undefined;
+        const sim =
+          typeof first.similarity === "number"
+            ? (first.similarity as number).toFixed(2)
+            : "?";
+        const label = citation ?? kind ?? "?";
+        return `${data.length} policy chunks · top: ${label} (sim ${sim})`;
+      }
       if (toolName === "get_lcds_for_cpt") {
         const id = first.lcdId as string | undefined;
         return `${data.length} LCD${data.length === 1 ? "" : "s"} · top: ${id ?? "?"}`;
@@ -328,8 +554,10 @@ export class CoderAgent {
       contractorNumber: input.contractorNumber,
       year,
       specialty: input.specialty?.name,
+      practice: input.practice?.name,
       pos: input.pos,
       encounterType: input.encounterType,
+      hasFaceSheet: !!input.faceSheetText && input.faceSheetText.length > 0,
       currentDate: currentTimeForDisplay(),
     });
 
@@ -337,10 +565,19 @@ export class CoderAgent {
     // Specialty relation. No DB lookup here — keeps the agent
     // pure-ish and lets callers decide how to resolve specialty.
     const specialtyDelta = input.specialty?.systemPrompt?.trim() || "";
+    // Practice convention delta — billing/biller workflow rules
+    // specific to this group (ICD ranking caps, modifier timing
+    // conventions, payer-specific overrides). Lives in its own
+    // cache_control block so it reuses across encounters of the
+    // same practice without invalidating the specialty cache.
+    const practiceDelta = input.practice?.systemPrompt?.trim() || "";
 
-    // Two cache_control blocks so Anthropic's prompt cache (5-min
-    // TTL) reuses the base prompt across ANY encounter and reuses
-    // the specialty delta across encounters for the same specialty.
+    // Up to three cache_control blocks so Anthropic's prompt cache
+    // (5-min TTL) reuses each layer independently:
+    //   1. base prompt — hits on ANY encounter
+    //   2. specialty delta — hits across same-specialty encounters
+    //   3. practice convention delta — hits across same-practice
+    //      encounters
     // The note text itself goes through as a user message and is
     // NOT cached (every encounter is different).
     const systemMessage = new SystemMessage({
@@ -355,6 +592,15 @@ export class CoderAgent {
               {
                 type: "text",
                 text: specialtyDelta,
+                cache_control: { type: "ephemeral" },
+              },
+            ]
+          : []),
+        ...(practiceDelta
+          ? [
+              {
+                type: "text",
+                text: practiceDelta,
                 cache_control: { type: "ephemeral" },
               },
             ]
@@ -456,6 +702,35 @@ export class CoderAgent {
         },
       ),
       tool(
+        async ({ query, k, kinds }) => {
+          toolCalls.push("search_policy_rules");
+          const hits = await this.coverage.searchPolicyRules(
+            query,
+            k ?? 5,
+            kinds,
+          );
+          return JSON.stringify(hits);
+        },
+        {
+          name: "search_policy_rules",
+          description:
+            "Search authoritative CMS policy prose: the Medicare Claims Processing Manual (billing rules — WHICH E/M family is payable, consult-code replacement, modifier AI / 25 / 57 rules, teaching-physician rules, telehealth, etc.), the NCCI Policy Manual (WHY two CPTs bundle and when a modifier can unbundle them), and the Global Surgery Booklet MLN 907166 (0/10/90-day global periods, what's bundled inside each global). Use this BEFORE finalizing whenever you're choosing between E/M families, applying a modifier for the first time, deciding if an E/M on the same day as a procedure is separately payable, or justifying a CPT against bundling. Returns passages with their citation (e.g. 'CMS Claims Processing Manual Ch.12 §30.6.10') so you can quote the source in your rationale. Filter by kind when you know which doc applies.",
+          schema: z.object({
+            query: z.string(),
+            k: z.number().int().min(1).max(10).optional(),
+            kinds: z
+              .array(
+                z.enum([
+                  "CMS_CLAIMS_MANUAL",
+                  "NCCI_POLICY_MANUAL",
+                  "GLOBAL_SURGERY_BOOKLET",
+                ]),
+              )
+              .optional(),
+          }),
+        },
+      ),
+      tool(
         async ({ cpt, locality, year, modifier }) => {
           toolCalls.push("get_fee_schedule");
           try {
@@ -476,7 +751,7 @@ export class CoderAgent {
         {
           name: "get_fee_schedule",
           description:
-            "Look up the localized Medicare payment for a CPT+modifier. Also returns status code (A=active, I=invalid).",
+            "Look up the localized Medicare payment for a CPT+modifier. Returns the Medicare statusCode: A=Active (Medicare pays), I=Inactive (MEDICARE does not pay — the code is still valid CPT and billable to commercial / self-pay payers under their own contracts; we do not index those prices), R=Restricted. Returns NotFound when the CPT isn't on the Medicare schedule at all — same interpretation as 'I' for billing-decision purposes. NEVER treat 'I' or NotFound as 'invalid code' — defer to the payer-aware Rule 1 logic in the prompt.",
           schema: z.object({
             cpt: z.string(),
             locality: z.string().optional(),
@@ -539,6 +814,38 @@ export class CoderAgent {
         },
       ),
       tool(
+        async ({ payerName, patientAge }) => {
+          toolCalls.push("lookup_payer_rule");
+          return JSON.stringify(
+            await this.coverage.lookupPayerRule({
+              payerName,
+              patientAge: patientAge ?? null,
+              practiceId: input.practiceId ?? null,
+            }),
+          );
+        },
+        {
+          name: "lookup_payer_rule",
+          description:
+            "Look up which E/M family (99221-99223 vs 99253-99255) a payer requires for an inpatient consult, scoped to the current practice. Pass the payer name from the face sheet and the patient's age (when known — Self-Pay age cutoff matters). Returns the category (ALWAYS_INITIAL_HOSPITAL | ALWAYS_CONSULT | DEPENDS_HUMAN_REVIEW), the eligible code family, the matched rule's source/notes, and a rationale. Call ONCE per encounter on any CONSULT/PROGRESS encounter, before deciding the primary CPT, and copy the result into the `payerAnalysis` field of finalize_coding.",
+          schema: z.object({
+            payerName: z
+              .string()
+              .describe(
+                "Primary payer name from the face sheet (e.g., 'Humana ConvivaMC HMO', 'BCBS PPC/PPS/PHS', 'Self Pay').",
+              ),
+            patientAge: z
+              .number()
+              .int()
+              .nullable()
+              .optional()
+              .describe(
+                "Patient age in years from the face sheet. Critical for Self-Pay routing (<65 → consult codes; ≥65 → initial hospital care).",
+              ),
+          }),
+        },
+      ),
+      tool(
         async (payload) => {
           toolCalls.push("finalize_coding");
           captured = payload as CoderProposal;
@@ -573,9 +880,20 @@ export class CoderAgent {
       // token chunk. That maps cleanly to the reasoning timeline
       // the UI renders (one "think" block + a set of tool calls per
       // step). Token-level streaming isn't needed here — we poll
+      // Face sheet (when present) is appended to the clinical note
+      // under a labeled divider. Both are already redacted — the
+      // caller concatenated them before calling redact() so token
+      // numbering stays consistent across the two blocks, which is
+      // important since the same patient name usually appears in
+      // both places.
+      const userMessage =
+        input.faceSheetText && input.faceSheetText.length > 0
+          ? `# CLINICAL NOTE\n\n${input.noteText}\n\n---\n\n# FACE SHEET\n\n${input.faceSheetText}`
+          : input.noteText;
+
       // for progress, we don't live-stream into the UI.
       const stream = await agent.stream(
-        { messages: [new HumanMessage(input.noteText)] },
+        { messages: [new HumanMessage(userMessage)] },
         {
           streamMode: "updates",
           // Typical run: ~1 search_cpt + N search_icd10 + 3×N tool

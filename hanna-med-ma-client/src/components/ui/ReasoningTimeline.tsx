@@ -1,8 +1,32 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ArrowRight, Brain, CheckCircle2 } from "lucide-react";
 import type { ReasoningEvent } from "../../types/coding";
 import { cls } from "../../lib/cls";
 import { parseMarkdown } from "../../lib/markdown";
+
+/**
+ * Walk up the DOM from `el` and return the closest ancestor whose
+ * computed `overflow-y` is auto/scroll/overlay. The timeline owns
+ * the auto-scroll behavior but the actual scroll container lives
+ * one level up (the `max-h-[480px] overflow-y-auto` wrapper in
+ * CodingPanel), so we have to find it dynamically rather than
+ * own a fixed-height container ourselves.
+ */
+function findScrollParent(el: HTMLElement | null): HTMLElement | null {
+	let cur: HTMLElement | null = el?.parentElement ?? null;
+	while (cur) {
+		const s = window.getComputedStyle(cur).overflowY;
+		if (s === "auto" || s === "scroll" || s === "overlay") return cur;
+		cur = cur.parentElement;
+	}
+	return null;
+}
+
+// Distance from the bottom (px) within which we consider the user
+// "still pinned" to the live tail. Anything beyond this means the
+// user deliberately scrolled up to read history — respect that
+// intent and stop auto-scrolling until they return to the bottom.
+const STICK_TO_BOTTOM_THRESHOLD = 80;
 
 /**
  * Format a relative-time string like "+0.8s", "+42s", "+2m 14s".
@@ -63,21 +87,65 @@ export function ReasoningTimeline({
 	// a spinner dot instead of a result.
 	const rows = useMemo(() => groupEvents(events), [events]);
 
+	// Auto-scroll machinery — only active when `live`. The sentinel
+	// is an empty div at the very end of the list; we scroll it into
+	// view whenever the event count grows, but only if the user is
+	// already "stuck" at the bottom. A scroll listener on the
+	// scrollable ancestor flips `stickRef` to false the moment the
+	// user scrolls up beyond the threshold, so reading history isn't
+	// disrupted by incoming events. Returning to the bottom flips it
+	// back to true, restoring the live-tail behavior automatically.
+	const containerRef = useRef<HTMLDivElement>(null);
+	const sentinelRef = useRef<HTMLDivElement>(null);
+	const stickRef = useRef(true);
+
+	useEffect(() => {
+		if (!live) return;
+		const scrollEl = findScrollParent(containerRef.current);
+		if (!scrollEl) return;
+		const onScroll = () => {
+			const distance =
+				scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+			stickRef.current = distance < STICK_TO_BOTTOM_THRESHOLD;
+		};
+		// Initial state — assume we start pinned (caller usually mounts
+		// the timeline already scrolled to top, but the first effect
+		// below will jump us to bottom).
+		stickRef.current = true;
+		scrollEl.addEventListener("scroll", onScroll, { passive: true });
+		return () => scrollEl.removeEventListener("scroll", onScroll);
+	}, [live]);
+
+	useEffect(() => {
+		if (!live) return;
+		if (!stickRef.current) return;
+		// Smooth scroll feels right for the live trickle of events
+		// (one every few hundred ms); jumps look chaotic in that
+		// rhythm. Browsers without smooth-scroll support fall back to
+		// instant — that's fine.
+		sentinelRef.current?.scrollIntoView({
+			behavior: "smooth",
+			block: "end",
+		});
+	}, [live, rows.length]);
+
 	if (rows.length === 0) {
 		return (
 			<div
+				ref={containerRef}
 				className={cls(
 					"font-mono text-[11px] text-n-500 px-3 py-2",
 					className,
 				)}
 			>
 				{live ? "Waiting for the agent to start…" : "No reasoning recorded."}
+				<div ref={sentinelRef} aria-hidden />
 			</div>
 		);
 	}
 
 	return (
-		<div className={cls("flex flex-col", className)}>
+		<div ref={containerRef} className={cls("flex flex-col", className)}>
 			{rows.map((row, idx) => {
 				if (row.kind === "think") {
 					return (
@@ -135,6 +203,10 @@ export function ReasoningTimeline({
 					agent working…
 				</div>
 			)}
+			{/* Sentinel for auto-scroll. Stays at the very bottom of the
+			    list; the live-mode effect scrolls this into view on each
+			    new event when the user is still pinned to the tail. */}
+			<div ref={sentinelRef} aria-hidden />
 		</div>
 	);
 }

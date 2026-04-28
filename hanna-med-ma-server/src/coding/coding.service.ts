@@ -12,24 +12,19 @@ import {
 import { PrismaService } from "../core/prisma.service";
 import { RedactionService } from "../redaction/redaction.service";
 import { S3Service } from "../core/s3.service";
+import { extractPdfTextFromBuffer } from "../coverage/scripts/_pdf-chunker";
 
-// PDF text extraction via pdf-parse v2's class API. Lazy-required so
-// the module still boots on cold environments where the library's
-// test-PDF-on-import is missing.
-type PDFParseCtor = new (opts: { data: Buffer }) => {
-  getText: () => Promise<{ text: string }>;
-};
-let PDFParse: PDFParseCtor | null = null;
-async function extractPdfText(buf: Buffer): Promise<string> {
-  if (!PDFParse) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("pdf-parse");
-    PDFParse = mod.PDFParse ?? mod.default ?? mod;
-  }
-  const parser = new PDFParse!({ data: buf });
-  const res = await parser.getText();
-  return (res.text || "").trim();
-}
+/**
+ * Divider we insert between the clinical note and the face sheet
+ * BEFORE redacting. Redaction runs once on the combined string, so
+ * token counters (e.g. [NAME_1], [DOB_1]) stay consistent across
+ * both blocks — which matters because the same patient typically
+ * appears in both. After redaction we split on the divider and pass
+ * each half to the agent as a labeled section. The divider string
+ * is purely ASCII and does not match any redaction pattern, so it
+ * survives redact() unchanged.
+ */
+const NOTE_FACESHEET_DIVIDER = "\n\n===HANNA_FS_BOUNDARY_c9f2===\n\n";
 
 // Cheap heuristic for the risk band when the model forgets it.
 function deriveBand(score: number): "LOW" | "REVIEW" | "RISK" {
@@ -150,6 +145,10 @@ export class CodingService {
             specialtyRel: {
               select: { name: true, systemPrompt: true },
             },
+            practiceId: true,
+            practice: {
+              select: { id: true, name: true, systemPrompt: true },
+            },
           },
         },
       },
@@ -204,22 +203,54 @@ export class CodingService {
     }, REASONING_FLUSH_MS);
 
     try {
-      const pdfBuffer = await this.s3.downloadBuffer(encounter.providerNote);
-      const rawNoteText = await extractPdfText(pdfBuffer);
+      const noteBuffer = await this.s3.downloadBuffer(encounter.providerNote);
+      const rawNoteText = await extractPdfTextFromBuffer(noteBuffer);
       if (!rawNoteText || rawNoteText.length < 50) {
         throw new Error(
           `Provider note PDF produced no usable text (got ${rawNoteText.length} chars)`,
         );
       }
 
-      // HIPAA boundary: redact PHI before the note hits Anthropic.
-      const { redacted: noteText, tokens } = this.redaction.redact(rawNoteText);
+      // Face sheet (optional). The agent receives it as a separate
+      // labeled block inside the user message; we don't parse it
+      // upstream. Any S3 / pdf-parse failure drops us to "no face
+      // sheet" which the prompt handles explicitly.
+      let rawFaceSheetText = "";
+      if (encounter.faceSheet) {
+        try {
+          const fsBuffer = await this.s3.downloadBuffer(encounter.faceSheet);
+          rawFaceSheetText = await extractPdfTextFromBuffer(fsBuffer);
+          if (rawFaceSheetText.length < 50) {
+            this.logger.warn(
+              `Face sheet ${encounter.faceSheet} produced ${rawFaceSheetText.length} chars — treating as missing`,
+            );
+            rawFaceSheetText = "";
+          }
+        } catch (err) {
+          this.logger.warn(
+            `Face sheet download/extract failed for ${encounter.faceSheet}: ${(err as Error).message} — coding without it`,
+          );
+          rawFaceSheetText = "";
+        }
+      }
+
+      // HIPAA boundary: redact PHI across the concatenated note +
+      // face sheet so token counters stay consistent between the
+      // two. Both halves are recovered by splitting on the divider.
+      const combined = rawFaceSheetText
+        ? rawNoteText + NOTE_FACESHEET_DIVIDER + rawFaceSheetText
+        : rawNoteText;
+      const { redacted, tokens } = this.redaction.redact(combined);
+      const [noteText, faceSheetText] = rawFaceSheetText
+        ? (redacted.split(NOTE_FACESHEET_DIVIDER) as [string, string])
+        : [redacted, ""];
       this.logger.log(
-        `Redacted ${Object.keys(tokens).length} PHI tokens across ${rawNoteText.length} chars`,
+        `Redacted ${Object.keys(tokens).length} PHI tokens across ${combined.length} chars (note ${rawNoteText.length}, facesheet ${rawFaceSheetText.length})`,
       );
 
       const result = await this.coder.run({
         noteText,
+        faceSheetText,
         locality: "04",
         contractorNumber: "09102",
         specialty: encounter.doctor?.specialtyRel
@@ -230,6 +261,13 @@ export class CodingService {
           : encounter.doctor?.specialty
             ? { name: encounter.doctor.specialty, systemPrompt: "" }
             : undefined,
+        practice: encounter.doctor?.practice
+          ? {
+              name: encounter.doctor.practice.name,
+              systemPrompt: encounter.doctor.practice.systemPrompt,
+            }
+          : undefined,
+        practiceId: encounter.doctor?.practiceId ?? null,
         pos: encounter.patient?.emrSystem === "BAPTIST" ? "21" : undefined,
         // Encounter.type is CONSULT / PROGRESS already — drives E/M family selection.
         encounterType: encounter.type,

@@ -35,9 +35,11 @@ documentacion.md
 plan_billing_ai.md
 execution_billing_ai.md
 validation_timeline.md
+hajira-questions.md
 
 # Hajira's historical coding dataset (PHI — keep local only)
 Baptist Hospital Testing Files.csv
+test-data/
 *.log
 
 # Validator output (regenerated every run)

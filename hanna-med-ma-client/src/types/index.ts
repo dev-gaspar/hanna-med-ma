@@ -130,7 +130,7 @@ export interface DoctorLoginResponse {
 }
 
 export type BillingEmrStatus = 'PENDING' | 'REGISTERED' | 'ALREADY_EXISTS' | 'FAILED';
-export type EncounterType = 'CONSULT' | 'PROGRESS';
+export type EncounterType = 'CONSULT' | 'PROGRESS' | 'PROCEDURE';
 export type EmrSystem = 'JACKSON' | 'STEWARD' | 'BAPTIST';
 
 export interface PatientBillingInfo {

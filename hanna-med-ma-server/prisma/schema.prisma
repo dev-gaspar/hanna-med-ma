@@ -23,6 +23,11 @@ model Doctor {
   // specialtyRel.name by seed scripts / admin writes.
   specialty   String?
   specialtyId Int?
+  // Practice grouping — doctors in the same practice share workflow
+  // conventions (billing/biller behaviors, ICD ranking caps, modifier
+  // timing conventions) which live in `Practice.systemPrompt` and are
+  // appended to the coder prompt as a third layer (after specialty).
+  practiceId  Int?
   emrSystems  String[] @default([]) // EMR systems this doctor uses: ["JACKSON", "STEWARD", "BAPTIST"]
 
   deleted   Boolean  @default(false)
@@ -30,6 +35,7 @@ model Doctor {
   updatedAt DateTime @updatedAt
 
   specialtyRel Specialty? @relation(fields: [specialtyId], references: [id])
+  practice     Practice?  @relation(fields: [practiceId], references: [id])
 
   // EMR Credentials (only for systems that need them)
   credentials DoctorCredential[]
@@ -235,6 +241,7 @@ model DoctorPatient {
 enum EncounterType {
   CONSULT   // First visit during admission — Consult Note
   PROGRESS  // Follow-up visits — Progress Note
+  PROCEDURE // Surgical / bedside procedure visit — operative or procedure note (CPT 1xxxx-7xxxx is primary, no E/M family applies)
 }
 
 enum NoteStatus {
@@ -681,6 +688,70 @@ model Specialty {
   @@map("specialties")
 }
 
+// Practice catalog + per-practice convention delta for the AI Coder.
+// Doctors link here via Doctor.practiceId. The systemPrompt field
+// captures workflow conventions that are SPECIFIC to this practice
+// group: billing/biller behaviors, ICD ranking caps, modifier timing
+// conventions, principal-dx overrides, etc. Specialty-agnostic; would
+// differ between practices. Appended after the specialty delta as a
+// third layer of prompt assembly.
+//
+// Three layers of cache_control let Anthropic's prompt cache reuse:
+//   - base prompt: across ALL encounters
+//   - specialty delta: across encounters of the same specialty
+//   - practice convention delta: across encounters of the same practice
+model Practice {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique // canonical display name, e.g. "Hanna Med Podiatry & Vascular"
+  systemPrompt String   @db.Text @default("")
+
+  doctors    Doctor[]
+  payerRules PayerEMRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("practices")
+}
+
+enum PayerEMCategory {
+  ALWAYS_INITIAL_HOSPITAL // 99221-99223 family forced
+  ALWAYS_CONSULT          // 99253-99255 family forced
+  DEPENDS_HUMAN_REVIEW    // flag in audit notes; default to ALWAYS_INITIAL
+}
+
+// Per-payer E/M family selection rule. Resolution order:
+//   1) practice-specific (practiceId = doctor.practiceId, age in [ageMin, ageMax])
+//   2) global default     (practiceId IS NULL, age in [ageMin, ageMax])
+//   3) DEPENDS_HUMAN_REVIEW fallback if no row matches
+//
+// Self-Pay age cutoff is encoded as TWO rows for the same payerName:
+//   payerName="Self Pay", ageMin=null,  ageMax=64,  category=ALWAYS_CONSULT
+//   payerName="Self Pay", ageMin=65,    ageMax=null, category=ALWAYS_INITIAL_HOSPITAL
+//
+// payerPattern (optional) is a regex/glob applied against the face-sheet
+// payer name when payerName itself doesn't match exactly. e.g.
+// payerPattern="(?i)bcbs.*ppo" matches "BCBS PPC/PPS/PHS PPO".
+model PayerEMRule {
+  id           Int             @id @default(autoincrement())
+  payerName    String
+  payerPattern String?
+  category     PayerEMCategory
+  ageMin       Int?            // null = no lower bound
+  ageMax       Int?            // null = no upper bound
+  practiceId   Int?            // null = global default
+  practice     Practice?       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  notes        String?         @db.Text
+  source       String?         // provenance, e.g. "Hajira 2026-04-27 calibration doc"
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([payerName, practiceId, ageMin])
+  @@index([category])
+  @@index([payerName])
+  @@map("payer_em_rules")
+}
+
 // Chunked ICD-10-CM Official Guidelines for Coding and Reporting.
 // Authoritative source for WHEN to combine codes, WHICH code pairs
 // are mandated by CMS, sequencing rules, etc. The CoderAgent queries
@@ -700,6 +771,52 @@ model CodingGuideline {
 
   @@index([sourceYear, section])
   @@map("coding_guidelines")
+}
+
+// Authoritative CMS policy prose — Medicare Claims Processing
+// Manual (billing/consult-code/modifier rules), NCCI Policy Manual
+// (bundling narrative, NOT the per-pair edits in ncci_edits), and
+// the Global Surgery Booklet (global-period definitions).
+//
+// These three sources share a shape (heading-structured prose with
+// stable citation anchors) so they live in one table with a `kind`
+// discriminator. The agent queries them via search_policy_rules —
+// they answer the "WHY is this the right code/modifier?" class of
+// question that per-code tables (CptCode, NcciEdit, MueLimit)
+// cannot.
+//
+// ICD-10-CM Official Guidelines use a separate table
+// (CodingGuideline) because they already had one before this was
+// added, and their section naming ("I.C.4.a.2") is idiosyncratic
+// enough that keeping their own schema field is cleaner.
+enum PolicyDocKind {
+  CMS_CLAIMS_MANUAL        // Medicare Claims Processing Manual, Pub 100-04 (Ch.12 etc.)
+  NCCI_POLICY_MANUAL       // National Correct Coding Initiative Policy Manual (prose)
+  GLOBAL_SURGERY_BOOKLET   // MLN Booklet 907166 — Global Surgery
+}
+
+model PolicyRule {
+  id            Int                           @id @default(autoincrement())
+  kind          PolicyDocKind
+  // Authoritative citation the agent should quote back, e.g.
+  //   "CMS Claims Processing Manual Ch.12 §30.6.10"
+  //   "NCCI Policy Manual Ch.1 Section E"
+  //   "MLN 907166 — Global Surgery"
+  citation      String
+  sourceUrl     String?                       // link back to cms.gov
+  sourceVersion String?                       // "Rev. 12345 (2024-09-26)" or "2026 edition"
+  chapter       String?                       // "Chapter 12" / "Chapter 1"
+  section       String?                       // "30.6.10" / "E" / "Global Period"
+  heading       String?                       // subheading captured from the PDF
+  chunkIndex    Int
+  text          String                        @db.Text
+  embedding     Unsupported("vector(768)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, section])
+  @@map("policy_rules")
 }
 
 // Chunked free-text sections of LCDs and Articles so an LCD's

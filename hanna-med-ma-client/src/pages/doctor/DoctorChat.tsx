@@ -78,9 +78,9 @@ export default function DoctorChat() {
 	const [encounterDateOfService, setEncounterDateOfService] = useState<string>(
 		todayIso(),
 	);
-	const [encounterType, setEncounterType] = useState<"CONSULT" | "PROGRESS">(
-		"CONSULT",
-	);
+	const [encounterType, setEncounterType] = useState<
+		"CONSULT" | "PROGRESS" | "PROCEDURE"
+	>("CONSULT");
 
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -142,7 +142,12 @@ export default function DoctorChat() {
 		setEncounterModalPatientId(null);
 		if (!patientId) return;
 
-		const label = type === "CONSULT" ? "Consult" : "Follow-Up";
+		const label =
+			type === "CONSULT"
+				? "Consult"
+				: type === "PROGRESS"
+					? "Follow-Up"
+					: "Procedure";
 
 		try {
 			setMarkingLoading((prev) => new Set(prev).add(patientId));
@@ -596,7 +601,7 @@ export default function DoctorChat() {
 								<label className="label-kicker block mb-1.5">
 									Encounter type
 								</label>
-								<div className="grid grid-cols-2 gap-2">
+								<div className="grid grid-cols-3 gap-2">
 									<button
 										onClick={() => setEncounterType("CONSULT")}
 										className={cls(
@@ -623,6 +628,20 @@ export default function DoctorChat() {
 										Follow-Up{" "}
 										<span className="font-mono text-[10.5px] opacity-70">
 											· daily
+										</span>
+									</button>
+									<button
+										onClick={() => setEncounterType("PROCEDURE")}
+										className={cls(
+											"h-10 rounded-md border text-[13px] font-medium transition",
+											encounterType === "PROCEDURE"
+												? "border-p-500 bg-p-50 text-p-700"
+												: "border-n-200 text-n-700 hover:bg-n-100",
+										)}
+									>
+										Procedure{" "}
+										<span className="font-mono text-[10.5px] opacity-70">
+											· surgical
 										</span>
 									</button>
 								</div>

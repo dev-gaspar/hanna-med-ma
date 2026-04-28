@@ -58,9 +58,90 @@ export interface RiskBreakdownRow {
 	note?: string;
 }
 
+/**
+ * MDM scoring (forcing function v1) — three CMS 2023 elements scored
+ * independently + the 2-of-3 final level. Required on every proposal;
+ * for PROCEDURE-only encounters the agent sets `notApplicableReason`
+ * and leaves the level fields at safe defaults.
+ */
+export interface MdmScoring {
+	problems: "MINIMAL" | "LOW" | "MODERATE" | "HIGH";
+	problemsRationale: string;
+	data: "MINIMAL" | "LIMITED" | "MODERATE" | "EXTENSIVE";
+	dataRationale: string;
+	risk: "MINIMAL" | "LOW" | "MODERATE" | "HIGH";
+	riskRationale: string;
+	finalLevel: "STRAIGHTFORWARD" | "LOW" | "MODERATE" | "HIGH";
+	twoOfThreeJustification: string;
+	notApplicableReason: string | null;
+}
+
+/**
+ * Surgery-decision evaluation (forcing function v1) — drives modifier
+ * -57 selection on the primary E/M.
+ */
+export interface SurgeryDecision {
+	evaluatedThisVisit: boolean;
+	evidenceSpan: string | null;
+	modifier57Applied: boolean;
+	reasoning: string;
+}
+
+/**
+ * Payer analysis (forcing function v2) — verbatim copy of the
+ * `lookup_payer_rule` tool result. Drives E/M family selection on
+ * CONSULT encounters.
+ */
+export interface PayerAnalysis {
+	payerNameOnFaceSheet: string | null;
+	patientAge: number | null;
+	category:
+		| "ALWAYS_INITIAL_HOSPITAL"
+		| "ALWAYS_CONSULT"
+		| "DEPENDS_HUMAN_REVIEW";
+	eligibleFamily: "99221-99223" | "99253-99255" | "DEPENDS";
+	matchType:
+		| "PRACTICE_EXACT"
+		| "PRACTICE_CONTAINS"
+		| "PRACTICE_PATTERN"
+		| "GLOBAL_EXACT"
+		| "GLOBAL_CONTAINS"
+		| "GLOBAL_PATTERN"
+		| "FALLBACK_DEPENDS";
+	ruleId: number | null;
+	source: string | null;
+	notApplicableReason: string | null;
+}
+
+/**
+ * Limb-threat assessment (forcing function v3) — required evaluation
+ * for foot/leg/limb pathology where loss of limb is on the
+ * differential. Practice convention may use this to cap MDM Element 1
+ * (problems) at MODERATE when evidence is suspected/pending.
+ */
+export interface LimbThreatAssessment {
+	applicable: boolean;
+	evidenceLevel: "NONE" | "SUSPECTED_PENDING" | "CONFIRMED";
+	surgicalDecisionStatus:
+		| "NOT_APPLICABLE"
+		| "DELIBERATING"
+		| "DECIDED_AND_SCHEDULED";
+	evidenceSpan: string | null;
+	decisionEvidenceSpan: string | null;
+	rationale: string;
+}
+
 export interface CoderProposal {
 	primaryCpt: string;
 	cptProposals: CptProposal[];
+	mdm: MdmScoring;
+	surgeryDecision: SurgeryDecision;
+	payerAnalysis: PayerAnalysis;
+	/** Specialty-gated forcing function. Filled by limb-related
+	 *  specialties (Podiatry, Vascular). Null/undefined when the
+	 *  active specialty does not engage with limb-threat
+	 *  assessment (Internal Medicine, Cardiology, etc.). */
+	limbThreatAssessment?: LimbThreatAssessment | null;
 	icd10Proposals: Icd10Proposal[];
 	ncciIssues: NcciIssue[];
 	mueIssues: MueIssue[];
@@ -125,7 +206,7 @@ export type ReasoningEvent =
  */
 export interface InboxEntry {
 	encounterId: number;
-	type: "CONSULT" | "PROGRESS";
+	type: "CONSULT" | "PROGRESS" | "PROCEDURE";
 	dateOfService: string;
 	deadline?: string | null;
 	patient: {
