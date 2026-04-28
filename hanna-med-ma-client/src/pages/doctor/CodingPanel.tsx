@@ -718,114 +718,126 @@ export function CodingPanel({
 							</div>
 						)}
 
-						{/* Reasoning — forcing-function audit trail */}
-						<div>
-							<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-2">
-								Reasoning
-							</div>
-							<div className="space-y-1.5">
-								{/* Payer Analysis */}
-								<ReasoningBlock
-									title="Payer"
-									chips={[
-										{
-											label: proposal.payerAnalysis.category.replace(/_/g, " "),
-											tone: categoryTone(proposal.payerAnalysis.category),
-										},
-										{
-											label: proposal.payerAnalysis.eligibleFamily,
-											tone: "info",
-										},
-									]}
-								>
-									<div>
-										<span className="text-n-500">Payer · </span>
-										<span className="font-medium">
-											{proposal.payerAnalysis.payerNameOnFaceSheet ?? "—"}
-										</span>
-										{proposal.payerAnalysis.patientAge != null && (
-											<span className="text-n-500">
-												{" "}
-												· age {proposal.payerAnalysis.patientAge}
-											</span>
-										)}
-									</div>
-									<div>
-										<span className="text-n-500">Match · </span>
-										<span className="font-mono text-[11px]">
-											{proposal.payerAnalysis.matchType}
-										</span>
-										{proposal.payerAnalysis.ruleId != null && (
-											<span className="text-n-500">
-												{" "}
-												· rule #{proposal.payerAnalysis.ruleId}
-											</span>
-										)}
-									</div>
-									{proposal.payerAnalysis.source && (
-										<div className="text-n-500 italic">
-											{proposal.payerAnalysis.source}
-										</div>
-									)}
-									{proposal.payerAnalysis.notApplicableReason && (
-										<div className="text-n-600">
-											{parseMarkdown(proposal.payerAnalysis.notApplicableReason)}
-										</div>
-									)}
-								</ReasoningBlock>
-
-								{/* MDM */}
-								<ReasoningBlock
-									title="MDM (2-of-3)"
-									chips={[
-										{
-											label: `final · ${proposal.mdm.finalLevel}`,
-											tone: levelTone(proposal.mdm.finalLevel),
-										},
-									]}
-								>
-									{proposal.mdm.notApplicableReason ? (
-										<div className="text-n-600 italic">
-											{parseMarkdown(proposal.mdm.notApplicableReason)}
-										</div>
-									) : (
-										<>
+						{/* Reasoning — forcing-function audit trail. All four blocks
+						    are optional on the TS type because proposals saved BEFORE
+						    this architecture was deployed don't have them. We hide the
+						    whole section if NONE of the four are present, and render
+						    each block individually only when its own field exists. */}
+						{(proposal.payerAnalysis ||
+							proposal.mdm ||
+							proposal.limbThreatAssessment ||
+							proposal.surgeryDecision) && (
+							<div>
+								<div className="font-mono text-[10px] uppercase tracking-widest text-n-500 mb-2">
+									Reasoning
+								</div>
+								<div className="space-y-1.5">
+									{/* Payer Analysis */}
+									{proposal.payerAnalysis && (
+										<ReasoningBlock
+											title="Payer"
+											chips={[
+												{
+													label: proposal.payerAnalysis.category.replace(/_/g, " "),
+													tone: categoryTone(proposal.payerAnalysis.category),
+												},
+												{
+													label: proposal.payerAnalysis.eligibleFamily,
+													tone: "info",
+												},
+											]}
+										>
 											<div>
-												<span className="text-n-500">Problems · </span>
-												<Chip tone={levelTone(proposal.mdm.problems)}>
-													{proposal.mdm.problems}
-												</Chip>
-											</div>
-											<div className="text-n-600 pl-3 -mt-1">
-												{parseMarkdown(proposal.mdm.problemsRationale)}
-											</div>
-											<div>
-												<span className="text-n-500">Data · </span>
-												<Chip tone={levelTone(proposal.mdm.data)}>
-													{proposal.mdm.data}
-												</Chip>
-											</div>
-											<div className="text-n-600 pl-3 -mt-1">
-												{parseMarkdown(proposal.mdm.dataRationale)}
-											</div>
-											<div>
-												<span className="text-n-500">Risk · </span>
-												<Chip tone={levelTone(proposal.mdm.risk)}>
-													{proposal.mdm.risk}
-												</Chip>
-											</div>
-											<div className="text-n-600 pl-3 -mt-1">
-												{parseMarkdown(proposal.mdm.riskRationale)}
-											</div>
-											<div className="border-t border-n-150 pt-2 text-n-700">
-												<span className="font-mono text-[10px] uppercase tracking-widest text-n-500 block mb-0.5">
-													2-of-3
+												<span className="text-n-500">Payer · </span>
+												<span className="font-medium">
+													{proposal.payerAnalysis.payerNameOnFaceSheet ?? "—"}
 												</span>
-												{parseMarkdown(proposal.mdm.twoOfThreeJustification)}
+												{proposal.payerAnalysis.patientAge != null && (
+													<span className="text-n-500">
+														{" "}
+														· age {proposal.payerAnalysis.patientAge}
+													</span>
+												)}
 											</div>
-										</>
+											<div>
+												<span className="text-n-500">Match · </span>
+												<span className="font-mono text-[11px]">
+													{proposal.payerAnalysis.matchType}
+												</span>
+												{proposal.payerAnalysis.ruleId != null && (
+													<span className="text-n-500">
+														{" "}
+														· rule #{proposal.payerAnalysis.ruleId}
+													</span>
+												)}
+											</div>
+											{proposal.payerAnalysis.source && (
+												<div className="text-n-500 italic">
+													{proposal.payerAnalysis.source}
+												</div>
+											)}
+											{proposal.payerAnalysis.notApplicableReason && (
+												<div className="text-n-600">
+													{parseMarkdown(proposal.payerAnalysis.notApplicableReason)}
+												</div>
+											)}
+										</ReasoningBlock>
 									)}
-								</ReasoningBlock>
+
+									{/* MDM */}
+									{proposal.mdm && (
+										<ReasoningBlock
+											title="MDM (2-of-3)"
+											chips={[
+												{
+													label: `final · ${proposal.mdm.finalLevel}`,
+													tone: levelTone(proposal.mdm.finalLevel),
+												},
+											]}
+										>
+											{proposal.mdm.notApplicableReason ? (
+												<div className="text-n-600 italic">
+													{parseMarkdown(proposal.mdm.notApplicableReason)}
+												</div>
+											) : (
+												<>
+													<div>
+														<span className="text-n-500">Problems · </span>
+														<Chip tone={levelTone(proposal.mdm.problems)}>
+															{proposal.mdm.problems}
+														</Chip>
+													</div>
+													<div className="text-n-600 pl-3 -mt-1">
+														{parseMarkdown(proposal.mdm.problemsRationale)}
+													</div>
+													<div>
+														<span className="text-n-500">Data · </span>
+														<Chip tone={levelTone(proposal.mdm.data)}>
+															{proposal.mdm.data}
+														</Chip>
+													</div>
+													<div className="text-n-600 pl-3 -mt-1">
+														{parseMarkdown(proposal.mdm.dataRationale)}
+													</div>
+													<div>
+														<span className="text-n-500">Risk · </span>
+														<Chip tone={levelTone(proposal.mdm.risk)}>
+															{proposal.mdm.risk}
+														</Chip>
+													</div>
+													<div className="text-n-600 pl-3 -mt-1">
+														{parseMarkdown(proposal.mdm.riskRationale)}
+													</div>
+													<div className="border-t border-n-150 pt-2 text-n-700">
+														<span className="font-mono text-[10px] uppercase tracking-widest text-n-500 block mb-0.5">
+															2-of-3
+														</span>
+														{parseMarkdown(proposal.mdm.twoOfThreeJustification)}
+													</div>
+												</>
+											)}
+										</ReasoningBlock>
+									)}
 
 								{/* Limb threat — specialty-gated: only render when the
 								    active specialty filled this block. Specialties without
@@ -890,34 +902,37 @@ export function CodingPanel({
 									)
 								) : null}
 
-								{/* Surgery decision (-57) */}
-								<ReasoningBlock
-									title="Surgery decision"
-									chips={[
-										{
-											label: proposal.surgeryDecision.evaluatedThisVisit
-												? "decision this visit"
-												: "no decision this visit",
-											tone: proposal.surgeryDecision.evaluatedThisVisit
-												? "dnr"
-												: "ok",
-										},
-										proposal.surgeryDecision.modifier57Applied
-											? { label: "-57 applied", tone: "primary" }
-											: null,
-									]}
-								>
-									{proposal.surgeryDecision.evidenceSpan && (
-										<div className="border-l-2 border-p-300 pl-2 italic text-n-600">
-											{proposal.surgeryDecision.evidenceSpan}
-										</div>
+									{/* Surgery decision (-57) */}
+									{proposal.surgeryDecision && (
+										<ReasoningBlock
+											title="Surgery decision"
+											chips={[
+												{
+													label: proposal.surgeryDecision.evaluatedThisVisit
+														? "decision this visit"
+														: "no decision this visit",
+													tone: proposal.surgeryDecision.evaluatedThisVisit
+														? "dnr"
+														: "ok",
+												},
+												proposal.surgeryDecision.modifier57Applied
+													? { label: "-57 applied", tone: "primary" }
+													: null,
+											]}
+										>
+											{proposal.surgeryDecision.evidenceSpan && (
+												<div className="border-l-2 border-p-300 pl-2 italic text-n-600">
+													{proposal.surgeryDecision.evidenceSpan}
+												</div>
+											)}
+											<div className="text-n-700">
+												{parseMarkdown(proposal.surgeryDecision.reasoning)}
+											</div>
+										</ReasoningBlock>
 									)}
-									<div className="text-n-700">
-										{parseMarkdown(proposal.surgeryDecision.reasoning)}
-									</div>
-								</ReasoningBlock>
+								</div>
 							</div>
-						</div>
+						)}
 
 						{/* LCD citations */}
 						{proposal.lcdCitations.length > 0 && (

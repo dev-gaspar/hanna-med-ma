@@ -134,9 +134,14 @@ export interface LimbThreatAssessment {
 export interface CoderProposal {
 	primaryCpt: string;
 	cptProposals: CptProposal[];
-	mdm: MdmScoring;
-	surgeryDecision: SurgeryDecision;
-	payerAnalysis: PayerAnalysis;
+	/** Forcing-function audit-trail blocks. All four are mandatory
+	 *  in the current Zod schema, but proposals stored BEFORE the
+	 *  forcing-function architecture was deployed don't have them.
+	 *  Mark as optional in the TS type so the UI can render legacy
+	 *  proposals without crashing on undefined-property reads. */
+	mdm?: MdmScoring;
+	surgeryDecision?: SurgeryDecision;
+	payerAnalysis?: PayerAnalysis;
 	/** Specialty-gated forcing function. Filled by limb-related
 	 *  specialties (Podiatry, Vascular). Null/undefined when the
 	 *  active specialty does not engage with limb-threat
