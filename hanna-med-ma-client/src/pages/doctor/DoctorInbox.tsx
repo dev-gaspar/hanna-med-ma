@@ -8,7 +8,6 @@ import type {
 	InboxResponse,
 } from "../../types/coding";
 import { HOSPITALS } from "../../lib/hospitals";
-import { cls } from "../../lib/cls";
 import { Chip } from "../../components/ui/Chip";
 import { CodeChip } from "../../components/ui/CodeChip";
 
