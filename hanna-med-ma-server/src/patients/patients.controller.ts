@@ -156,7 +156,7 @@ export class PatientsController {
       properties: {
         encounterType: {
           type: "string",
-          enum: ["CONSULT", "PROGRESS"],
+          enum: ["CONSULT", "PROGRESS", "PROCEDURE"],
           default: "CONSULT",
         },
         dateOfService: {
@@ -164,6 +164,12 @@ export class PatientsController {
           format: "date",
           description:
             "Optional ISO date (YYYY-MM-DD). Defaults to today when omitted.",
+        },
+        placeOfService: {
+          type: "string",
+          description:
+            "CMS Place of Service code: '11' office, '21' inpatient hospital, '22' outpatient hospital, '23' ER, '24' ASC, '31' SNF, '12' home, etc. Captured at mark-as-seen time.",
+          example: "21",
         },
       },
     },
@@ -173,8 +179,9 @@ export class PatientsController {
     @Param("patientId", ParseIntPipe) patientId: number,
     @Body()
     body: {
-      encounterType?: "CONSULT" | "PROGRESS";
+      encounterType?: "CONSULT" | "PROGRESS" | "PROCEDURE";
       dateOfService?: string;
+      placeOfService?: string;
     },
     @Request() req,
   ) {
@@ -188,6 +195,7 @@ export class PatientsController {
       doctorId,
       encounterType,
       dateOfService,
+      body?.placeOfService,
     );
   }
 }

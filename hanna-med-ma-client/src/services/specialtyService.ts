@@ -4,6 +4,11 @@ export interface Specialty {
 	id: number;
 	name: string;
 	systemPrompt: string;
+	/** Quick-pick POS codes for the encounter modal. Each entry must
+	 *  match an active row in the place-of-service catalog. */
+	commonPosCodes: string[];
+	/** Pre-selected POS code when the modal opens, or null. */
+	defaultPosCode: string | null;
 	createdAt: string;
 	updatedAt: string;
 	_count?: { doctors: number };
@@ -13,11 +18,15 @@ export interface Specialty {
 export interface CreateSpecialtyDto {
 	name: string;
 	systemPrompt?: string;
+	commonPosCodes?: string[];
+	defaultPosCode?: string | null;
 }
 
 export interface UpdateSpecialtyDto {
 	name?: string;
 	systemPrompt?: string;
+	commonPosCodes?: string[];
+	defaultPosCode?: string | null;
 }
 
 export const specialtyService = {

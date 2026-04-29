@@ -216,10 +216,22 @@ async function main() {
   console.log(`\n[1] Upserting practice "${PRACTICE_NAME}"...`);
   const practice = await prisma.practice.upsert({
     where: { name: PRACTICE_NAME },
-    update: { systemPrompt: HANNA_PRACTICE_CONVENTION },
-    create: { name: PRACTICE_NAME, systemPrompt: HANNA_PRACTICE_CONVENTION },
+    update: {
+      systemPrompt: HANNA_PRACTICE_CONVENTION,
+      medicareLocality: "04",
+      medicareContractorNumber: "09102",
+    },
+    create: {
+      name: PRACTICE_NAME,
+      systemPrompt: HANNA_PRACTICE_CONVENTION,
+      medicareLocality: "04",
+      medicareContractorNumber: "09102",
+    },
   });
-  console.log(`   id=${practice.id}  systemPrompt=${practice.systemPrompt.length} chars`);
+  console.log(
+    `   id=${practice.id}  systemPrompt=${practice.systemPrompt.length} chars  ` +
+      `locality=${practice.medicareLocality}  contractor=${practice.medicareContractorNumber}`,
+  );
 
   console.log(`\n[2] Linking the 5 practice doctors to practice id=${practice.id}...`);
   const doctorNames = [

@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Loader2, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Pencil, Trash2, Loader2, Sparkles, Star } from "lucide-react";
 import {
 	specialtyService,
 	type CreateSpecialtyDto,
 	type Specialty,
 } from "../services/specialtyService";
+import {
+	placeOfServiceService,
+	type PlaceOfServiceCode,
+} from "../services/placeOfServiceService";
 import Modal from "../components/Modal";
 import { Button } from "../components/ui/Button";
 import { Chip } from "../components/ui/Chip";
+import { cls } from "../lib/cls";
 
 /**
  * Specialty catalog admin. One row per specialty + a Markdown textarea
@@ -26,10 +31,14 @@ export default function Specialties() {
 	const [form, setForm] = useState<CreateSpecialtyDto>({
 		name: "",
 		systemPrompt: "",
+		commonPosCodes: [],
+		defaultPosCode: null,
 	});
+	const [posCatalog, setPosCatalog] = useState<PlaceOfServiceCode[]>([]);
 
 	useEffect(() => {
 		fetchAll();
+		fetchPosCatalog();
 	}, []);
 
 	const fetchAll = async () => {
@@ -43,16 +52,39 @@ export default function Specialties() {
 		}
 	};
 
+	const fetchPosCatalog = async () => {
+		try {
+			// Show ALL codes (active + inactive) so admin can see why an
+			// inactive code disappeared from a specialty's quick-picks.
+			const data = await placeOfServiceService.getAll({
+				includeInactive: true,
+			});
+			setPosCatalog(data);
+		} catch (e) {
+			console.error("Error fetching POS catalog:", e);
+		}
+	};
+
 	const openCreate = () => {
 		setEditing(null);
-		setForm({ name: "", systemPrompt: "" });
+		setForm({
+			name: "",
+			systemPrompt: "",
+			commonPosCodes: [],
+			defaultPosCode: null,
+		});
 		setError(null);
 		setIsModalOpen(true);
 	};
 
 	const openEdit = (row: Specialty) => {
 		setEditing(row);
-		setForm({ name: row.name, systemPrompt: row.systemPrompt });
+		setForm({
+			name: row.name,
+			systemPrompt: row.systemPrompt,
+			commonPosCodes: row.commonPosCodes,
+			defaultPosCode: row.defaultPosCode,
+		});
 		setError(null);
 		setIsModalOpen(true);
 	};
@@ -209,6 +241,7 @@ export default function Specialties() {
 				isOpen={isModalOpen}
 				onClose={closeModal}
 				title={editing ? "Edit specialty" : "Add specialty"}
+				size="lg"
 			>
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div>
@@ -250,6 +283,27 @@ export default function Specialties() {
 						</div>
 					</div>
 
+					<SpecialtyPosConfig
+						posCatalog={posCatalog}
+						commonPosCodes={form.commonPosCodes ?? []}
+						defaultPosCode={form.defaultPosCode ?? null}
+						onChangeCommon={(codes) =>
+							setForm((f) => ({
+								...f,
+								commonPosCodes: codes,
+								// If the current default is no longer in the list,
+								// drop it — backend would reject the save anyway.
+								defaultPosCode:
+									f.defaultPosCode && codes.includes(f.defaultPosCode)
+										? f.defaultPosCode
+										: null,
+							}))
+						}
+						onChangeDefault={(code) =>
+							setForm((f) => ({ ...f, defaultPosCode: code }))
+						}
+					/>
+
 					{error && (
 						<div className="px-3 py-2 border border-[var(--dnr-fg)]/30 bg-[var(--dnr-bg)]/40 rounded-md text-[12px] text-[var(--dnr-fg)] font-mono">
 							{error}
@@ -287,6 +341,136 @@ export default function Specialties() {
 					</div>
 				</form>
 			</Modal>
+		</div>
+	);
+}
+
+/**
+ * Per-specialty POS config — checkboxes pick which POS codes appear
+ * as quick-pick buttons in the encounter modal, and a radio inside
+ * the same list selects which one is pre-filled. Both fields write
+ * straight into the parent form state via callbacks.
+ */
+function SpecialtyPosConfig({
+	posCatalog,
+	commonPosCodes,
+	defaultPosCode,
+	onChangeCommon,
+	onChangeDefault,
+}: {
+	posCatalog: PlaceOfServiceCode[];
+	commonPosCodes: string[];
+	defaultPosCode: string | null;
+	onChangeCommon: (codes: string[]) => void;
+	onChangeDefault: (code: string | null) => void;
+}) {
+	// Sort active first, then by numeric code, so the admin sees the
+	// usable codes at the top.
+	const sorted = useMemo(
+		() =>
+			posCatalog
+				.slice()
+				.sort((a, b) => {
+					if (a.active !== b.active) return a.active ? -1 : 1;
+					return Number(a.code) - Number(b.code);
+				}),
+		[posCatalog],
+	);
+
+	const selected = new Set(commonPosCodes);
+
+	const toggle = (code: string) => {
+		if (selected.has(code)) {
+			onChangeCommon(commonPosCodes.filter((c) => c !== code));
+		} else {
+			onChangeCommon([...commonPosCodes, code]);
+		}
+	};
+
+	return (
+		<div>
+			<label className="label-kicker block mb-1.5">
+				Place of service config{" "}
+				<span className="normal-case tracking-normal font-sans text-n-400">
+					· Quick-picks shown to doctors of this specialty
+				</span>
+			</label>
+			<div className="border border-n-150 rounded-md max-h-[260px] overflow-y-auto custom-scrollbar">
+				{sorted.length === 0 ? (
+					<div className="p-4 text-[12px] text-n-500 font-mono">
+						POS catalog is empty. Run{" "}
+						<code>load-place-of-service-codes.ts</code> first.
+					</div>
+				) : (
+					sorted.map((row) => {
+						const checked = selected.has(row.code);
+						const isDefault = defaultPosCode === row.code;
+						return (
+							<div
+								key={row.code}
+								className={cls(
+									"flex items-center gap-2 px-3 py-2 border-b border-n-150 last:border-0 transition",
+									!row.active && "opacity-50",
+									checked && "bg-p-50/40",
+								)}
+							>
+								<input
+									type="checkbox"
+									checked={checked}
+									onChange={() => toggle(row.code)}
+									disabled={!row.active}
+									className="rounded border-n-300"
+								/>
+								<div className="flex-1 min-w-0">
+									<div className="text-[12.5px] text-n-900 truncate">
+										<span className="font-mono text-n-600">
+											{row.code}
+										</span>{" "}
+										· {row.name}
+									</div>
+									{!row.active && (
+										<div className="font-mono text-[10px] text-[var(--dnr-fg)]">
+											inactive
+										</div>
+									)}
+								</div>
+								<button
+									type="button"
+									onClick={() =>
+										onChangeDefault(isDefault ? null : row.code)
+									}
+									disabled={!checked}
+									className={cls(
+										"inline-flex items-center justify-center w-7 h-7 rounded-md transition",
+										!checked && "opacity-30 cursor-not-allowed",
+										isDefault
+											? "text-p-700 bg-p-100"
+											: "text-n-400 hover:text-n-700 hover:bg-n-100",
+									)}
+									title={
+										isDefault
+											? "Pre-filled when modal opens — click again to clear"
+											: "Mark as default (pre-filled when modal opens)"
+									}
+								>
+									<Star
+										className={cls(
+											"w-3.5 h-3.5",
+											isDefault && "fill-current",
+										)}
+									/>
+								</button>
+							</div>
+						);
+					})
+				)}
+			</div>
+			<div className="font-mono text-[10.5px] text-n-500 mt-1.5">
+				{commonPosCodes.length} quick-picks
+				{defaultPosCode
+					? ` · default: ${defaultPosCode}`
+					: " · no default (doctor must pick)"}
+			</div>
 		</div>
 	);
 }

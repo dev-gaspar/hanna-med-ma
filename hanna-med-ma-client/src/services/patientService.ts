@@ -44,15 +44,21 @@ export const patientService = {
 	 * and queues billing-EMR registration.
 	 *
 	 * @param dateOfService Optional YYYY-MM-DD string. Defaults to today.
+	 * @param placeOfService Optional CMS POS code ("11", "21", "22", ...).
 	 */
 	async markAsSeen(
 		patientId: number,
 		encounterType: EncounterType = "CONSULT",
 		dateOfService?: string,
+		placeOfService?: string,
 	): Promise<PatientBillingInfo> {
 		const response = await api.patch<PatientBillingInfo>(
 			`/patients/${patientId}/seen`,
-			{ encounterType, ...(dateOfService ? { dateOfService } : {}) },
+			{
+				encounterType,
+				...(dateOfService ? { dateOfService } : {}),
+				...(placeOfService ? { placeOfService } : {}),
+			},
 		);
 		return response.data;
 	},

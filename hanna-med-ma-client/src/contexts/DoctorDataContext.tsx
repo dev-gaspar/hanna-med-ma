@@ -9,7 +9,17 @@ import {
 } from "react";
 import { doctorAuthService } from "../services/doctorAuthService";
 import { patientService } from "../services/patientService";
+import {
+	placeOfServiceService,
+	type PlaceOfServiceCode,
+} from "../services/placeOfServiceService";
+import { specialtyService } from "../services/specialtyService";
 import type { EmrSystem, Patient } from "../types";
+
+export interface SpecialtyPosConfig {
+	commonPosCodes: string[];
+	defaultPosCode: string | null;
+}
 
 /**
  * Shared, in-memory cache for everything the doctor portal reads.
@@ -35,6 +45,13 @@ interface DoctorDataState {
 	loading: boolean;
 	patientsBySystem: Record<string, Patient[]>;
 	seenIds: Set<number>;
+	/** All ACTIVE Place-of-Service rows from the catalog. Drives the
+	 *  full "Other…" select in the encounter modal. */
+	posCatalog: PlaceOfServiceCode[];
+	/** This doctor's specialty POS config: which codes to render as
+	 *  quick-picks and which to pre-select. Null while loading or
+	 *  if the doctor isn't linked to a specialty. */
+	specialtyPosConfig: SpecialtyPosConfig | null;
 	/** Forces a fresh fetch of everything. */
 	refresh: () => Promise<void>;
 	/**
@@ -56,16 +73,30 @@ export function DoctorDataProvider({ children }: { children: ReactNode }) {
 		Record<string, Patient[]>
 	>({});
 	const [seenIds, setSeenIds] = useState<Set<number>>(new Set());
+	const [posCatalog, setPosCatalog] = useState<PlaceOfServiceCode[]>([]);
+	const [specialtyPosConfig, setSpecialtyPosConfig] =
+		useState<SpecialtyPosConfig | null>(null);
 
 	// Serialise system list so we can use it as a stable dep without
 	// caring about array identity.
 	const systemsKey = emrSystems.slice().sort().join(",");
+	const specialtyId = doctor?.specialtyId ?? null;
 
 	const fetchAll = useCallback(async () => {
 		setLoading(true);
 		try {
-			const [seen, ...perSystem] = await Promise.all([
+			const [seen, posCodes, specialty, ...perSystem] = await Promise.all([
 				patientService.getSeenPatientIds(),
+				placeOfServiceService.getAll().catch(() => [] as PlaceOfServiceCode[]),
+				specialtyId
+					? specialtyService
+							.getById(specialtyId)
+							.then((s) => ({
+								commonPosCodes: s.commonPosCodes,
+								defaultPosCode: s.defaultPosCode,
+							}))
+							.catch(() => null)
+					: Promise.resolve(null),
 				...emrSystems.map((s) =>
 					patientService.getAll({ emrSystem: s }).catch(() => []),
 				),
@@ -74,6 +105,8 @@ export function DoctorDataProvider({ children }: { children: ReactNode }) {
 			emrSystems.forEach((s, i) => (map[s] = perSystem[i] as Patient[]));
 			setPatientsBySystem(map);
 			setSeenIds(new Set(seen));
+			setPosCatalog(posCodes);
+			setSpecialtyPosConfig(specialty);
 		} catch (error) {
 			console.error("DoctorDataContext.fetchAll failed", error);
 		} finally {
@@ -81,7 +114,7 @@ export function DoctorDataProvider({ children }: { children: ReactNode }) {
 		}
 		// emrSystems reference can vary; systemsKey is the actual fingerprint.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [systemsKey]);
+	}, [systemsKey, specialtyId]);
 
 	// Initial load. Guarded against StrictMode double-invocation so we
 	// don't fire the same request twice on mount in development.
@@ -109,6 +142,8 @@ export function DoctorDataProvider({ children }: { children: ReactNode }) {
 				loading,
 				patientsBySystem,
 				seenIds,
+				posCatalog,
+				specialtyPosConfig,
 				refresh,
 				markSeenLocally,
 			}}

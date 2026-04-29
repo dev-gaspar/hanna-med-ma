@@ -330,6 +330,7 @@ export class RpaService {
     doctorId: number,
     encounterType: "CONSULT" | "PROGRESS" | "PROCEDURE" = "CONSULT",
     dateOfService?: Date,
+    placeOfService?: string,
   ) {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
@@ -350,6 +351,10 @@ export class RpaService {
     // 2. Create the Encounter. If the doctor explicitly passed a
     //    dateOfService (e.g. when catching up on a visit from a prior
     //    day they forgot to mark), use it. Otherwise default to now.
+    //    placeOfService comes from the encounter modal — Dr. Peter's
+    //    explicit ask in the 2026-04-18 meeting was "the AI asks where
+    //    are we seeing this patient", so we capture it here at sign-off
+    //    time rather than parsing the face sheet later.
     const resolvedDateOfService = dateOfService ?? nowDate();
     const encounter = await this.prisma.encounter.create({
       data: {
@@ -359,6 +364,7 @@ export class RpaService {
         dateOfService: resolvedDateOfService,
         deadline: deadlineFromNow(24),
         faceSheet: insuranceRaw?.file ?? null,
+        placeOfService: placeOfService ?? null,
       },
     });
 

@@ -943,7 +943,13 @@ async function main() {
   // payer matrix. Missing practice = warn and run global-only.
   const practice = await prisma.practice.findFirst({
     where: { name: practiceName },
-    select: { id: true, name: true, systemPrompt: true },
+    select: {
+      id: true,
+      name: true,
+      systemPrompt: true,
+      medicareLocality: true,
+      medicareContractorNumber: true,
+    },
   });
   if (!practice) {
     console.warn(
@@ -1137,27 +1143,37 @@ async function main() {
             : et === "progress" || et === "follow-up"
               ? "PROGRESS"
               : undefined;
+      // Batch is a calibration tool — pull locality/contractor from
+      // the practice row when one is selected, refuse to run when
+      // it's missing. Same no-fallback rule as the production path.
+      if (!practice) {
+        throw new Error(
+          `--practice "${practiceName}" did not resolve to a Practice row; cannot run batch without a configured Medicare locality/contractor.`,
+        );
+      }
       try {
         const res = await runCoderWithRetry(
           coder,
           {
             noteText: noteRedacted,
             faceSheetText: faceSheetRedacted || undefined,
-            locality: "04",
-            contractorNumber: "09102",
+            locality: practice.medicareLocality,
+            contractorNumber: practice.medicareContractorNumber,
             specialty: specialty
               ? {
                   name: specialty.name,
                   systemPrompt: specialty.systemPrompt,
                 }
               : { name: specialtyName, systemPrompt: "" },
-            practice: practice
-              ? {
-                  name: practice.name,
-                  systemPrompt: practice.systemPrompt,
-                }
-              : undefined,
-            practiceId: practice?.id ?? null,
+            practice: {
+              name: practice.name,
+              systemPrompt: practice.systemPrompt,
+            },
+            practiceId: practice.id,
+            // Every batch encounter is hospital-inpatient consults
+            // by construction (the seed locks them to BAPTIST). We
+            // pass POS=21 explicitly here, not as a fallback —
+            // changing the test set requires changing this line.
             pos: "21",
             encounterType,
             modelVariant,

@@ -9,7 +9,21 @@
 
 import { PrismaClient } from "@prisma/client";
 
-const SEEDS: Array<{ name: string; systemPrompt: string }> = [
+interface SpecialtySeed {
+  name: string;
+  systemPrompt: string;
+  /** POS codes (matching `place_of_service_codes.code`) shown as
+   *  quick-pick buttons in the doctor's "Mark as seen" modal.
+   *  Order matters — first entry renders top-left. Each code MUST
+   *  exist in the catalog or the seed throws. */
+  commonPosCodes: string[];
+  /** Pre-selected POS when the modal opens. Null → no pre-fill,
+   *  doctor picks explicitly. Must be one of `commonPosCodes` or
+   *  null. */
+  defaultPosCode: string | null;
+}
+
+const SEEDS: SpecialtySeed[] = [
   {
     name: "Podiatry",
     systemPrompt: `Specialty delta — PODIATRY
@@ -174,6 +188,147 @@ SUSPECTED_PENDING + DECIDED_AND_SCHEDULED within ~48h"). Follow the
 practice block for the exact cap rule — it overrides any default
 from this specialty delta when the two disagree.
 `,
+    // Podiatry visit settings (in order of frequency for the
+    // Hanna-Med Inpatient consult workflow):
+    //   21 — Inpatient hospital consults (the bulk of work)
+    //   22 — On-campus outpatient hospital procedures
+    //   11 — Office / clinic visits
+    //   23 — ER consults for diabetic foot crisis
+    //   24 — ASC for elective forefoot/midfoot surgery
+    //   31 — SNF wound care follow-ups
+    //   12 — Home wound care (housebound DM patients)
+    commonPosCodes: ["21", "22", "11", "23", "24", "31", "12"],
+    defaultPosCode: "21",
+  },
+  {
+    name: "Vascular",
+    systemPrompt: `Specialty delta — VASCULAR
+
+Exam scope: limit physical exam analysis to the Cardiovascular,
+Vascular, Neurological, and Skin systems. Document pulses by
+location and grade (0-3+), capillary refill time, and any
+sensory/motor deficits relevant to limb perfusion.
+
+# Diagnoses
+
+Code preferences the note often justifies (confirm against
+search_icd10_codes before emitting):
+
+- Peripheral artery disease (PAD): I70.21x (claudication only),
+  I70.22x (rest pain), I70.23x (ulceration), I70.24x (ulceration
+  + stage), I70.25x (gangrene without ulceration), I70.26x
+  (gangrene with ulceration). Pick by the LIMB AXIS (right/left/
+  bilateral) and severity AXIS the note documents.
+- Critical limb ischemia (CLI): use the I70.26x family + a
+  pain/ulcer/gangrene combination ICD. CLI is a clinical concept,
+  not a single code.
+- DVT: I82.4xx for proximal acute (popliteal/femoral/iliac); use
+  laterality and acute/chronic axis. I82.5xx for distal/calf vein.
+- Pulmonary embolism: I26.x — distinguish acute (I26.99) vs
+  acute on chronic (I27.x).
+- Aortic aneurysm: I71.x — pick by anatomic site (thoracic,
+  abdominal, thoracoabdominal) and rupture status.
+- Carotid stenosis: I65.2x (occlusion / stenosis of carotid
+  artery) — without infarction code if no stroke; with infarction
+  code if a CVA accompanies.
+- Diabetic vascular complications: E11.51 (DM with PAD), E11.52
+  (DM with PAD with gangrene), E11.59 (DM with other circulatory
+  complications) — pair with the I70.x specifying side / severity.
+- Venous insufficiency: I87.2 (unspecified), I83.x (varicose
+  veins of LE — use ulcer/inflammation/symptom axis).
+
+# Procedures
+
+CPT selection rules anchored to the operative or interventional
+description:
+
+- Diagnostic angiography:
+  * **75716** Bilateral lower-extremity angiography
+  * **75710** Unilateral lower-extremity angiography
+  * **36245-36248** Selective catheter placement, arterial,
+    by branch order. The branch order drives the code.
+- Endovascular interventions:
+  * **37220-37223** Iliac artery angioplasty / stent (with or
+    without atherectomy) — driven by site + intervention type.
+  * **37224-37227** Femoral / popliteal artery angioplasty /
+    stent / atherectomy. Pair the right anatomic-axis code to
+    what the operative description treats.
+  * **37228-37235** Tibial / peroneal interventions, same axis.
+- Open vascular surgery:
+  * **35226** Repair, blood vessel, lower extremity (graft).
+  * **35371-35372** Thromboendarterectomy, by site.
+  * **35556** Bypass graft, vein, femoral-popliteal.
+- Venous procedures:
+  * **36475-36476** Endovenous radiofrequency / laser ablation,
+    incompetent vein, lower extremity.
+  * **37241-37244** Vascular embolization / occlusion, by
+    therapy intent.
+- Vascular access:
+  * **36901-36909** Dialysis access maintenance / interventions.
+
+When a diagnostic study and an intervention happen in the same
+session, both are billable; document the conversion explicitly so
+modifier 59 / X-modifiers are defensible.
+
+# E/M
+
+Inpatient E/M family selection follows the universal rule (CONSULT
+→ 99221-99223, PROGRESS → 99231-99233) modified by the
+payer-aware rule resolved through lookup_payer_rule. Vascular
+adds no specialty-specific overrides on E/M family.
+
+When the encounter is an interventional encounter (encounterType =
+PROCEDURE), no E/M is billed and the procedural CPT is primary; do
+NOT shoehorn a 99231-99233 onto a procedure visit.
+
+# Hard rules
+
+- Always call search_lcd_chunks with a vascular-specific phrase
+  to surface the LCD coverage criteria for endovenous ablation,
+  endovascular intervention, and supervised exercise therapy.
+- For PAD interventions, the medical-necessity anchor is
+  documented severity (rest pain, non-healing ulcer, lifestyle-
+  limiting claudication) — pull the verbatim language into
+  \`lcdCitations.relevantExcerpt\` when the LCD requires it.
+- Trauma diagnoses use the correct 7th-character episode-of-care
+  (A initial, D subsequent, S sequela).
+
+# Limb-threat assessment — REQUIRED for Vascular encounters
+
+Vascular shares Podiatry's exposure to diabetic foot, PAD, gangrene,
+and ischemic limb pathology. On every Vascular E/M encounter you
+MUST fill the \`limbThreatAssessment\` block before calling
+\`finalize_coding\`, with the same semantics as the Podiatry block:
+
+- \`applicable\` = true when the chief complaint involves limb-
+  threatening pathology (CLI, gangrene, severe PAD with rest pain
+  or non-healing ulcer, acute limb ischemia, ischemic compartment
+  syndrome).
+- \`evidenceLevel\` = CONFIRMED / SUSPECTED_PENDING / NONE per
+  the documentation (imaging confirmed vs pending, etc.).
+- \`surgicalDecisionStatus\` = DECIDED_AND_SCHEDULED /
+  DELIBERATING / NOT_APPLICABLE based on whether revasc / amputation
+  is scheduled vs being deliberated vs not on the table.
+- For non-limb-threatening encounters (varicose veins follow-up,
+  carotid screening, post-stent clinic visit, stable AAA
+  surveillance), set \`applicable\` = false with the standard
+  empty-block fields.
+
+The practice convention block defines how this assessment caps
+\`mdm.problems\` and \`mdm.risk\` — same cap rule as Podiatry.
+`,
+    // Vascular visit settings:
+    //   21 — Inpatient consults (CLI, acute limb ischemia, DVT/PE)
+    //   22 — On-campus outpatient hospital (pre-op, post-op clinic)
+    //   11 — Office / clinic (claudication follow-ups, varicose vein)
+    //   24 — ASC / cath lab (endovenous ablation, peripheral
+    //        intervention if not done in hospital cath lab)
+    //   19 — Off-campus outpatient hospital (vascular labs,
+    //        non-invasive studies, often off the main hospital
+    //        campus for Hanna-Med Vascular)
+    //   23 — ER (acute limb ischemia, ruptured aneurysm)
+    commonPosCodes: ["21", "22", "11", "24", "19", "23"],
+    defaultPosCode: "21",
   },
   {
     name: "Internal Medicine",
@@ -206,19 +361,73 @@ Code preferences
 Always analyse modifier 25 when an E/M is billed alongside a
 procedure on the same DOS, even a minor one (joint injection, I&D).
 `,
+    // Internal Medicine spans both office primary-care and inpatient
+    // hospitalist work. The Hanna-Med scope is hospitalist
+    // consultation, so 21 leads, but office and outpatient hospital
+    // remain plausible for general IM rotations.
+    commonPosCodes: ["21", "22", "11", "19", "23", "12", "13"],
+    defaultPosCode: "21",
   },
 ];
 
 async function main() {
   const prisma = new PrismaClient();
   try {
+    // Validate every commonPosCodes / defaultPosCode reference against
+    // the place_of_service_codes catalog before writing anything. A
+    // typo'd code in the seed must surface here, not later as a UI
+    // bug ("button references missing POS row").
+    const catalog = await prisma.placeOfServiceCode.findMany({
+      select: { code: true, active: true },
+    });
+    if (catalog.length === 0) {
+      throw new Error(
+        "place_of_service_codes table is empty — run load-place-of-service-codes.ts first.",
+      );
+    }
+    const activeCodes = new Set(
+      catalog.filter((c) => c.active).map((c) => c.code),
+    );
+    for (const s of SEEDS) {
+      for (const code of s.commonPosCodes) {
+        if (!activeCodes.has(code)) {
+          throw new Error(
+            `Specialty "${s.name}" references POS code "${code}" which is not in the active catalog. Either add it to load-place-of-service-codes.ts or fix the seed.`,
+          );
+        }
+      }
+      if (s.defaultPosCode !== null) {
+        if (!activeCodes.has(s.defaultPosCode)) {
+          throw new Error(
+            `Specialty "${s.name}" defaultPosCode="${s.defaultPosCode}" is not in the active catalog.`,
+          );
+        }
+        if (!s.commonPosCodes.includes(s.defaultPosCode)) {
+          throw new Error(
+            `Specialty "${s.name}" defaultPosCode="${s.defaultPosCode}" must also appear in commonPosCodes.`,
+          );
+        }
+      }
+    }
+
     for (const s of SEEDS) {
       await prisma.specialty.upsert({
         where: { name: s.name },
-        create: s,
-        update: { systemPrompt: s.systemPrompt },
+        create: {
+          name: s.name,
+          systemPrompt: s.systemPrompt,
+          commonPosCodes: s.commonPosCodes,
+          defaultPosCode: s.defaultPosCode,
+        },
+        update: {
+          systemPrompt: s.systemPrompt,
+          commonPosCodes: s.commonPosCodes,
+          defaultPosCode: s.defaultPosCode,
+        },
       });
-      console.log(`✓ ${s.name} (${s.systemPrompt.length} chars)`);
+      console.log(
+        `✓ ${s.name} (${s.systemPrompt.length} chars, POS: [${s.commonPosCodes.join(", ")}], default=${s.defaultPosCode ?? "—"})`,
+      );
     }
 
     // Relink any doctor whose legacy `specialty` string matches a

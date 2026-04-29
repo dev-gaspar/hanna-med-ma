@@ -147,7 +147,13 @@ export class CodingService {
             },
             practiceId: true,
             practice: {
-              select: { id: true, name: true, systemPrompt: true },
+              select: {
+                id: true,
+                name: true,
+                systemPrompt: true,
+                medicareLocality: true,
+                medicareContractorNumber: true,
+              },
             },
           },
         },
@@ -248,11 +254,41 @@ export class CodingService {
         `Redacted ${Object.keys(tokens).length} PHI tokens across ${combined.length} chars (note ${rawNoteText.length}, facesheet ${rawFaceSheetText.length})`,
       );
 
+      // Medicare administrative geography lives on Practice. We
+      // refuse to run the coder if the doctor isn't linked to one
+      // — silently defaulting to a Hanna-Med-shaped locality would
+      // mask configuration gaps and produce wrong fee schedules
+      // for any future practice in another state.
+      if (!encounter.doctor?.practice) {
+        await this.markFailed(
+          codingId,
+          `Doctor ${encounter.doctorId} is not linked to a Practice — cannot resolve Medicare locality and contractor.`,
+        );
+        return;
+      }
+      const { medicareLocality: locality, medicareContractorNumber: contractorNumber } =
+        encounter.doctor.practice;
+
+      // Place of Service must come from the encounter itself (the
+      // doctor captures it in the "Mark as seen" modal, per Dr. Peter
+      // 2026-04-18). Encounters created before the migration were
+      // backfilled by the migration's UPDATE statement; anything still
+      // null here is a real signal that something is wrong, not a
+      // case to paper over with an EMR-based default.
+      if (!encounter.placeOfService) {
+        await this.markFailed(
+          codingId,
+          `Encounter ${encounter.id} has no placeOfService — the modal must capture it at sign-off time.`,
+        );
+        return;
+      }
+      const placeOfService = encounter.placeOfService;
+
       const result = await this.coder.run({
         noteText,
         faceSheetText,
-        locality: "04",
-        contractorNumber: "09102",
+        locality,
+        contractorNumber,
         specialty: encounter.doctor?.specialtyRel
           ? {
               name: encounter.doctor.specialtyRel.name,
@@ -268,7 +304,7 @@ export class CodingService {
             }
           : undefined,
         practiceId: encounter.doctor?.practiceId ?? null,
-        pos: encounter.patient?.emrSystem === "BAPTIST" ? "21" : undefined,
+        pos: placeOfService,
         // Encounter.type is CONSULT / PROGRESS already — drives E/M family selection.
         encounterType: encounter.type,
         year: new Date().getFullYear(),

@@ -265,6 +265,14 @@ model Encounter {
   noteAttempts      Int           @default(0)
   noteLastAttemptAt DateTime?
   noteAgentSummary  String?       @db.Text  // Full narrative of what the agent did on the last attempt
+  // CMS Place of Service code captured at "Mark as seen" time. The
+  // doctor knows where the patient was actually seen better than any
+  // OCR of the face sheet, so we ask in the encounter modal. Common
+  // values: "11" office, "21" inpatient hospital, "22" outpatient
+  // hospital, "23" emergency room, "24" ASC, "31" SNF, "12" home.
+  // Drives MPFS facility-vs-non-facility pricing in the AI Coder.
+  // Nullable for legacy encounters created before this column existed.
+  placeOfService    String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -680,12 +688,41 @@ model Specialty {
   name         String   @unique // canonical display name, e.g. "Podiatry"
   systemPrompt String   @db.Text @default("")
 
+  // Place-of-service config — drives the doctor-facing encounter
+  // modal. `commonPosCodes` is the ordered list of POS codes shown
+  // as quick-pick buttons (each entry must reference a row in
+  // `place_of_service_codes`); `defaultPosCode` is the one
+  // pre-selected when the modal opens. Empty array → no shortcuts,
+  // doctor picks from the full CMS list. Null `defaultPosCode` →
+  // no pre-fill. Both editable from the admin UI per specialty.
+  commonPosCodes  String[] @default([])
+  defaultPosCode  String?
+
   doctors Doctor[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("specialties")
+}
+
+// CMS Place-of-Service code catalog. Sourced from the official CMS
+// POS code set (https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set).
+// One row per code; `active=false` retires a code without deleting
+// historical encounter rows that reference it. The `shortLabel`
+// column exists so the UI can render compact buttons; the canonical
+// `name` is what claims/audits show.
+model PlaceOfServiceCode {
+  code        String  @id // "11", "21", "22", "31", ...
+  name        String  // "Office", "Inpatient Hospital"
+  shortLabel  String  // "Office", "Inpatient" — fits a 110px button
+  description String  @db.Text
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("place_of_service_codes")
 }
 
 // Practice catalog + per-practice convention delta for the AI Coder.
@@ -704,6 +741,16 @@ model Practice {
   id           Int      @id @default(autoincrement())
   name         String   @unique // canonical display name, e.g. "Hanna Med Podiatry & Vascular"
   systemPrompt String   @db.Text @default("")
+
+  // Medicare administrative geography for this practice. The CMS
+  // GPCI locality drives MPFS pricing; the MAC contractor number
+  // drives which LCDs/articles are in jurisdiction. Both move
+  // together when a practice opens in a new state — keeping them
+  // on Practice means a new doctor in the same practice inherits
+  // the right values without per-encounter input. Defaults below
+  // are the Hanna-Med values (Miami-Dade + First Coast FL Part B).
+  medicareLocality         String  @default("04")
+  medicareContractorNumber String  @default("09102")
 
   doctors    Doctor[]
   payerRules PayerEMRule[]

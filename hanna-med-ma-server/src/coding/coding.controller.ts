@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -44,7 +45,7 @@ export class CodingController {
   @ApiBody({
     schema: {
       type: "object",
-      required: ["noteText"],
+      required: ["noteText", "locality", "contractorNumber", "pos"],
       properties: {
         noteText: { type: "string" },
         locality: { type: "string", example: "04" },
@@ -59,20 +60,26 @@ export class CodingController {
     @Body()
     body: {
       noteText: string;
-      locality?: string;
-      contractorNumber?: string;
+      locality: string;
+      contractorNumber: string;
       year?: number;
       specialty?: string;
-      pos?: string;
+      pos: string;
     },
   ) {
-    // Debug endpoint: caller only provides the specialty name, so
-    // the delta is left empty. For the persisted path (encounters/
-    // :id/generate) the delta comes from the Specialty relation.
+    // Debug endpoint: caller must provide locality, contractor and
+    // POS explicitly. We refuse to default them — silently picking
+    // Hanna-Med values would let a debug call from a different
+    // jurisdiction return prices that look plausible but are wrong.
+    if (!body.locality || !body.contractorNumber || !body.pos) {
+      throw new BadRequestException(
+        "locality, contractorNumber and pos are required — pass them explicitly so the debug result is unambiguous.",
+      );
+    }
     const result = await this.coder.run({
       noteText: body.noteText,
-      locality: body.locality || "04",
-      contractorNumber: body.contractorNumber || "09102",
+      locality: body.locality,
+      contractorNumber: body.contractorNumber,
       year: body.year,
       specialty: body.specialty
         ? { name: body.specialty, systemPrompt: "" }

@@ -20,6 +20,7 @@ import { isAdmittedRecently } from "../../lib/patientFlags";
 import { Chip } from "../../components/ui/Chip";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
+import { PlaceOfServiceField } from "../../components/ui/PlaceOfServiceField";
 
 type Filter = "all" | "unseen" | "seen";
 
@@ -31,19 +32,29 @@ export default function PatientListPage() {
 	const hospital = getHospital(system);
 	const emrKey = hospital?.key;
 
-	const { patientsBySystem, seenIds, loading, markSeenLocally } =
-		useDoctorData();
+	const {
+		patientsBySystem,
+		seenIds,
+		loading,
+		markSeenLocally,
+		posCatalog,
+		specialtyPosConfig,
+	} = useDoctorData();
 	const patients = emrKey ? patientsBySystem[emrKey] || [] : [];
 
 	const [filter, setFilter] = useState<Filter>("all");
 
 	const [markingId, setMarkingId] = useState<number | null>(null);
 	const [modalPatient, setModalPatient] = useState<Patient | null>(null);
-	const [encounterType, setEncounterType] = useState<"CONSULT" | "PROGRESS">(
-		"CONSULT",
-	);
+	const [encounterType, setEncounterType] = useState<
+		"CONSULT" | "PROGRESS" | "PROCEDURE"
+	>("CONSULT");
 	const todayIso = () => new Date().toISOString().slice(0, 10);
 	const [encounterDate, setEncounterDate] = useState<string>(todayIso());
+	// CMS Place of Service code, captured at sign-off (Dr. Peter,
+	// 2026-04-18). Pre-fill comes from the doctor's specialty
+	// config (Specialty.defaultPosCode); no EMR-based fallback.
+	const [encounterPos, setEncounterPos] = useState<string>("");
 
 	const filtered = useMemo(() => {
 		if (filter === "all") return patients;
@@ -92,19 +103,37 @@ export default function PatientListPage() {
 		setModalPatient(patient);
 		setEncounterType("CONSULT");
 		setEncounterDate(todayIso());
+		// Pre-fill POS from the doctor's specialty default. If unset
+		// the field starts empty and the doctor must pick before
+		// confirming. `patient` arg kept for future extensibility
+		// (e.g. per-patient override) even though we don't use it.
+		void patient;
+		setEncounterPos(specialtyPosConfig?.defaultPosCode ?? "");
 	};
 
 	const handleConfirmEncounter = async () => {
 		if (!modalPatient) return;
+		if (!encounterPos) {
+			toast.error(
+				"Pick a place of service before confirming the encounter.",
+			);
+			return;
+		}
 		const patient = modalPatient;
 		setMarkingId(patient.id);
 		setModalPatient(null);
-		const label = encounterType === "CONSULT" ? "Consult" : "Follow-Up";
+		const label =
+			encounterType === "CONSULT"
+				? "Consult"
+				: encounterType === "PROGRESS"
+					? "Follow-Up"
+					: "Procedure";
 		try {
 			await patientService.markAsSeen(
 				patient.id,
 				encounterType,
 				encounterDate,
+				encounterPos,
 			);
 			const isToday = encounterDate === todayIso();
 			toast.success(
@@ -268,7 +297,7 @@ export default function PatientListPage() {
 					onClick={() => setModalPatient(null)}
 				>
 					<div
-						className="bg-n-0 rounded-t-2xl sm:rounded-lg border-t sm:border border-n-200 shadow-deep w-full sm:max-w-[420px] px-5 pt-4 pb-6 sm:p-5"
+						className="bg-n-0 rounded-t-2xl sm:rounded-lg border-t sm:border border-n-200 shadow-deep w-full sm:max-w-[540px] px-5 pt-4 pb-6 sm:p-6"
 						onClick={(e) => e.stopPropagation()}
 					>
 						<div className="w-10 h-1 bg-n-200 rounded-full mx-auto mb-4 sm:hidden" />
@@ -295,36 +324,53 @@ export default function PatientListPage() {
 								<label className="label-kicker block mb-1.5">
 									Encounter type
 								</label>
-								<div className="grid grid-cols-2 gap-2">
-									<button
-										onClick={() => setEncounterType("CONSULT")}
-										className={cls(
-											"h-10 rounded-md border text-[13px] font-medium transition",
-											encounterType === "CONSULT"
-												? "border-p-500 bg-p-50 text-p-700"
-												: "border-n-200 text-n-700 hover:bg-n-100",
-										)}
-									>
-										Consult{" "}
-										<span className="font-mono text-[10.5px] opacity-70">
-											· 1st
-										</span>
-									</button>
-									<button
-										onClick={() => setEncounterType("PROGRESS")}
-										className={cls(
-											"h-10 rounded-md border text-[13px] font-medium transition",
-											encounterType === "PROGRESS"
-												? "border-p-500 bg-p-50 text-p-700"
-												: "border-n-200 text-n-700 hover:bg-n-100",
-										)}
-									>
-										Follow-Up{" "}
-										<span className="font-mono text-[10.5px] opacity-70">
-											· daily
-										</span>
-									</button>
+								<div className="grid grid-cols-3 gap-2">
+									{(
+										[
+											{
+												value: "CONSULT",
+												label: "Consult",
+												caption: "1st visit",
+											},
+											{
+												value: "PROGRESS",
+												label: "Follow-Up",
+												caption: "daily",
+											},
+											{
+												value: "PROCEDURE",
+												label: "Procedure",
+												caption: "surgical",
+											},
+										] as const
+									).map((opt) => {
+										const selected = encounterType === opt.value;
+										return (
+											<button
+												key={opt.value}
+												type="button"
+												onClick={() => setEncounterType(opt.value)}
+												className={cls(
+													"h-12 rounded-md border text-[13px] font-medium transition flex flex-col items-center justify-center leading-none px-2",
+													selected
+														? "border-p-500 bg-p-50 text-p-700"
+														: "border-n-200 text-n-700 hover:bg-n-100",
+												)}
+											>
+												<span className="truncate max-w-full">
+													{opt.label}
+												</span>
+												<span className="font-mono text-[10px] opacity-70 mt-1 truncate max-w-full">
+													{opt.caption}
+												</span>
+											</button>
+										);
+									})}
 								</div>
+								<p className="mt-1.5 text-[10.5px] text-n-500 leading-tight">
+									Procedure visits skip the E/M code — the operative CPT
+									(amputation, debridement, fixation…) is the primary.
+								</p>
 							</div>
 
 							<div>
@@ -350,6 +396,13 @@ export default function PatientListPage() {
 									on the actual day.
 								</p>
 							</div>
+
+							<PlaceOfServiceField
+								value={encounterPos}
+								onChange={setEncounterPos}
+								catalog={posCatalog}
+								quickPickCodes={specialtyPosConfig?.commonPosCodes ?? []}
+							/>
 						</div>
 
 						<div className="flex gap-2 mt-5">

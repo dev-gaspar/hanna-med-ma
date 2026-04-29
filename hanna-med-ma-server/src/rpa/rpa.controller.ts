@@ -145,6 +145,12 @@ export class RpaController {
           description:
             "Optional ISO date (YYYY-MM-DD). If omitted, today's date is used. Useful when the doctor is catching up on a visit from a previous day.",
         },
+        placeOfService: {
+          type: "string",
+          description:
+            "CMS POS code captured at sign-off. Common values: '11' office, '21' inpatient hospital, '22' outpatient hospital, '23' ER, '24' ASC, '31' SNF, '12' home.",
+          example: "21",
+        },
       },
     },
     required: false,
@@ -156,6 +162,7 @@ export class RpaController {
     body: {
       encounterType?: "CONSULT" | "PROGRESS" | "PROCEDURE";
       dateOfService?: string;
+      placeOfService?: string;
     },
     @Request() req,
   ) {
@@ -169,6 +176,7 @@ export class RpaController {
       doctorId,
       encounterType,
       dateOfService,
+      body?.placeOfService,
     );
   }
 

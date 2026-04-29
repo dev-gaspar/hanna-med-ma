@@ -6,13 +6,24 @@ interface ModalProps {
 	onClose: () => void;
 	title: string;
 	children: ReactNode;
+	/** Width preset. Defaults to "md" (max-w-md). Use "lg" or "xl"
+	 *  when the form needs side-by-side fields or a long content
+	 *  area such as a Markdown delta + a quick-pick grid. */
+	size?: "md" | "lg" | "xl";
 }
+
+const SIZE_CLASS: Record<NonNullable<ModalProps["size"]>, string> = {
+	md: "max-w-md",
+	lg: "max-w-2xl",
+	xl: "max-w-4xl",
+};
 
 export default function Modal({
 	isOpen,
 	onClose,
 	title,
 	children,
+	size = "md",
 }: ModalProps) {
 	useEffect(() => {
 		if (!isOpen) return;
@@ -31,7 +42,9 @@ export default function Modal({
 				className="fixed inset-0 bg-n-900/40 backdrop-blur-[2px]"
 				onClick={onClose}
 			/>
-			<div className="relative bg-n-0 rounded-lg border border-n-200 shadow-deep w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col">
+			<div
+				className={`relative bg-n-0 rounded-lg border border-n-200 shadow-deep w-full ${SIZE_CLASS[size]} max-h-[85vh] overflow-hidden flex flex-col`}
+			>
 				<div className="flex items-center justify-between px-5 h-12 border-b border-n-150 shrink-0">
 					<h2 className="font-serif text-[17px] font-medium text-n-900">
 						{title}
