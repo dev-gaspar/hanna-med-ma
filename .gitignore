@@ -33,8 +33,10 @@ hanna-med-ma-rpa/rpa_uuid.json
 resumen_local.md
 documentacion.md
 plan_billing_ai.md
+plan_phase_5.md
 execution_billing_ai.md
 validation_timeline.md
+validation_timeline_phase_5.md
 hajira-questions.md
 
 # Hajira's historical coding dataset (PHI — keep local only)
@@ -44,3 +46,9 @@ test-data/
 
 # Validator output (regenerated every run)
 hanna-med-ma-server/out/
+
+# PHI temporal artifacts from CareTracker exploration sessions
+# (835 ERA files, EOB PDFs downloaded for analysis — keep local for reference, never commit)
+*.835
+26796.pdf
+26805.pdf

@@ -381,11 +381,29 @@ follow the steps below in order.
    - Score Element 2 \`data\` independently — count the moderate-tier
      requirements satisfied (external notes reviewed, unique tests,
      independent historian, independent interpretation, discussion
-     with another provider). Cite which categories applied in
-     \`dataRationale\`.
+     with another provider). **Apply the provider-only rule**: an
+     imaging study already interpreted by Radiology and reviewed by
+     THIS provider is "review of external notes" (Limited), NOT
+     "independent interpretation" (Moderate). Tests ordered by
+     another specialty and merely reviewed by THIS provider count
+     in the review tier, not the ordered tier. Cite which categories
+     applied in \`dataRationale\` AND state explicitly which inputs
+     were excluded due to the provider-only rule (e.g., "MRI was
+     already read by Radiology — counted as review, not independent
+     interpretation").
    - Score Element 3 \`risk\` independently — the workload AT THE
-     TIME OF DECISION, not the actual outcome. Cite what drove it
-     in \`riskRationale\`.
+     TIME OF DECISION, not the actual outcome. **Apply the
+     provider-only rule**: drug therapy managed by another specialty
+     (ID managing IV abx, Cardiology managing anticoagulation,
+     Endocrinology managing insulin) is NOT "prescription drug
+     management" for THIS provider. "Drug therapy requiring
+     intensive monitoring for toxicity" only applies when THIS
+     provider prescribes/monitors. Surgery decisions made by
+     another specialty do not raise THIS provider's risk. Cite what
+     drove the level in \`riskRationale\` AND state explicitly which
+     team-managed inputs were excluded (e.g., "Vancomycin is
+     managed by ID per consult note — excluded from THIS provider's
+     drug-management risk").
    - Compute \`finalLevel\` = the level met by AT LEAST 2-of-3
      elements. Mapping: element-1 and element-3 carry their level
      name as-is; element-2 maps MINIMAL→STRAIGHTFORWARD,
@@ -498,11 +516,72 @@ follow the steps below in order.
   level met by AT LEAST TWO of them (CMS 2023+ E/M rule). Never
   pick a level based on problem count alone.
 
-  **Specialty scope** — applies to all three elements: count only
-  the problems THIS provider actively manages in their own
-  Assessment/Plan. Comorbidities documented for context but
-  managed by another specialty still get coded as ICDs
-  (Principle 4) but do NOT elevate THIS encounter's MDM.
+  **Specialty scope — provider-only billing rule (CRITICAL)** —
+  applies to ALL THREE elements. The billing is for THIS particular
+  provider, not for everyone else on the patient's care team. Apply
+  the rule per element as follows:
+
+  * **Element 1 (Problems)** — count only the problems THIS provider
+    actively manages in their own Assessment/Plan. Comorbidities
+    documented for context but managed by another specialty still
+    get coded as ICDs (Principle 4) but do NOT elevate this
+    encounter's MDM.
+
+  * **Element 2 (Data)** — count only data work THIS provider did:
+    - Imaging that was already interpreted by Radiology before this
+      encounter and is REVIEWED by THIS provider counts as "review
+      of prior external notes" (Limited tier), NOT as "independent
+      interpretation of a test" (Moderate tier). Independent
+      interpretation requires THIS provider to render their own
+      formal read of an unread study.
+    - Tests ordered by another specialty (e.g., labs ordered by
+      hospitalist, cultures ordered by ID) and only reviewed by
+      THIS provider count toward the "review" categories, not the
+      "ordered" categories.
+    - Discussion with another provider counts only when THIS
+      provider had a documented external discussion (not when
+      another consultant left a note in the chart that THIS
+      provider then read).
+
+  * **Element 3 (Risk)** — count only risk that THIS provider's
+    own decisions create:
+    - Drug therapy managed by another specialty (e.g., IV
+      vancomycin/abx managed by Infectious Disease, anticoagulation
+      managed by Cardiology, insulin managed by Endocrinology) is
+      NOT "prescription drug management" for THIS provider, even
+      if the drug appears on the medication list during this
+      encounter. The other specialty owns that risk on its own
+      claim.
+    - "Drug therapy requiring intensive monitoring for toxicity"
+      (the High-tier example) only applies when THIS provider is
+      the one who prescribed it AND/OR is monitoring its toxicity
+      directly. ID managing vancomycin levels is ID's risk, not
+      podiatry's risk.
+    - Surgery decisions made by another specialty (e.g., ortho
+      booked the OR) do NOT raise THIS provider's risk unless
+      THIS provider is the surgeon-of-record or co-surgeon.
+    - THIS provider's own contribution typically includes their
+      own bedside procedures (debridement, wound care plan they
+      author), their own drug management (topical agents,
+      OTC/PRN orders they wrote), and their own decision regarding
+      surgery within their specialty's scope.
+
+  *Worked example (concrete, matches a real failure pattern)*: a
+  consulting podiatrist sees an inpatient with cellulitis being
+  treated with IV vancomycin managed by Infectious Disease, plus
+  an MRI already interpreted by Radiology. The podiatrist performs
+  bedside debridement and writes a conservative wound-care plan.
+  → Element 1: one problem actively managed by podiatry (the foot
+  wound) — Low or Minimal. → Element 2: review of the already-read
+  MRI = Limited (review of external notes), not Moderate
+  (independent interpretation); reviewing the lab panel ordered by
+  the hospitalist counts in the same Limited tier. → Element 3:
+  vancomycin is ID's drug management, not podiatry's; the
+  podiatrist's own risk is the bedside debridement and the wound
+  plan, which is Low. → **Final MDM = LOW** (two of three are Low),
+  primary CPT 99221, NOT 99222. Picking 99222 here would credit
+  the podiatrist with team management that belongs on ID's and
+  Radiology's claims, not theirs.
 
   **Element 1 — Number and complexity of problems addressed**:
     * Minimal: one self-limited or minor problem.
